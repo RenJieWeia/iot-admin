@@ -37,7 +37,11 @@
 7. **单位闭集**：只有 C↔F、W↔kW、Pa↔kPa、Wh↔kWh 四组，闭集外透传原单位 + `clean_failed`，不拒收。
 8. **窗口**：关闭时刻 `H + 1h + window`，闭区间（接收时刻 `>= close` 即迟到）；结算扫描镜像条件 `<= now`。
 9. **结算**：窗口解析只有一个实现（`settle.WindowConfig`），SQL 侧不再内联 CTE；按窗口分组批量 INSERT ... ON CONFLICT DO NOTHING + DELETE 暂存。
-10. **断连异常**：对象是网关——`exception_interval.terminal_id` 与 `gateway_id` 都存网关标识、`item_code` 存空串，重连即关闭区间。
+10. **区间异常**：`exception_interval` 的写入机制（`OpenInterval` / `CloseInterval` / 抖动合并 / `upper_inf`）完整保留，但**本期没有任何生产写入路径**——见下条。
+11. **本期区间表无生产写入路径**：网关断连需要 Broker 侧信号（BroMQ 的 client tracking 或 MQTT 遗嘱消息）才能感知；平台只是另一个 MQTT 客户端，观测不到"某个网关掉线"，把"平台到 Broker 的客户端连接断开"记为网关断连会产生 100% 假阳性 + 100% 假阴性。该能力随 Broker 集成排期，当前不得用平台连接状态冒充。
+12. **平台故障与数据问题分离**：DB 等平台侧故障时逐终端标 `internal_error`，HTTP 整包 503（body 仍带完整 `results`）；数据问题仍是 200 + 逐终端 `results`。网关按状态码决定是否整批重传。
+13. **质量违规来源**：`quality_violation` 摘要前缀固定 `source=thing_model`（物模型 min/max 越界）或 `source=rule`（终端质量规则命中），同一项两类都命中计 2 次。
+14. **单位换算短路**：`from == target` 时直接透传、不计数——即使该单位不在换算闭集内。否则电表场景里 A / V / kvar 等只要物模型声明与上报一致就会每分钟刷出大量假 `clean_failed`。
 
 ## 三、本轮必修项落地（对应任务书第二章）
 
@@ -53,6 +57,18 @@
 | 8 未注册用 auth_failed | `exception/errors.go`、`migrations/0004`、`pipeline.go` | 新增 `terminal_unknown`，业务校验不再写 `auth_failed` |
 | 9 单位表超出闭集 | `clean/units.go` | 收敛为四组 8 个符号 |
 | 10 断连无写入路径 | `exception/gateway.go`、`cmd/server/main.go` | 断连开区间、重连关闭，按网关维度 |
+
+## 三之二、rv-03 审核意见处置（T1-T7）
+
+| 项 | 结论 | 落点 |
+| --- | --- | --- |
+| T1 摘除断连写入路径 | `gateway.go` 整体删除，`main.go` 两个回调只打日志；区间表、`OpenInterval`/`CloseInterval`、抖动合并保留 | `internal/exception`、`cmd/server` |
+| T2 平台故障与数据问题区分 | 逐终端 `internal_error` + HTTP 503（body 带 results），其余 200 | `internal/ingest/http.go`、`pipeline.go` |
+| T3 删除死代码 | 删除 `RawItem.HasOffset` 与 `ParseCollectedAt` 第二返回值 | `internal/validate/message.go` |
+| T4 Deviation 更正 | 代码 `from == target` 短路放行是对的，文档写错；决策表新增"同单位闭集外直接透传不计数" | 本文第二十章 14 条 |
+| T5 网关一致性提信封层 | `ingress != env.GatewayID` 在 `Handle` 判定一次，逐终端产出同 reason | `internal/ingest/pipeline.go` |
+| T6 质量违规来源 | 摘要加 `source=thing_model|rule` | `internal/ingest/pipeline.go` |
+| T7 错误体命名 | `bodyTooLargeError` → `envelopeErrorBody` | `internal/ingest/http.go` |
 
 ## 四、测试（31 项 + 纯逻辑单测）
 
@@ -90,6 +106,7 @@
 | 30 两路一致 | `TestHTTPAndMQTTPathsProduceIdenticalResults` |
 | 31 非目标（零依赖） | `TestNoOutOfScopeArtifacts` |
 | 纯逻辑 | `validate/message_test.go`、`clean/clean_test.go`、`staging/staging_test.go`（无 IOT_TEST_DSN 也执行） |
+| rv-03 新增 | `TestPlatformFailureReturns503`（平台故障 503）、`TestNoIntervalAnomaliesInNormalFlow`（正常流程区间表零行）；删除 `TestGatewayDisconnectIntervalLifecycle` |
 
 运行方式：
 
@@ -109,6 +126,8 @@ IOT_TEST_DSN=... IOT_CAPACITY=1 go test ./internal/ingest -run TestCapacity -v
 6. **单实例**：写锁是进程内的，多实例会破坏 `value_time` 串行化。
 7. **异常表无清理策略**：`exception_count` 长期累积，需按保留期归档。
 8. **元数据每批 4 次查询**：未加进程内缓存，元数据读成为吞吐上限时再优化（代码内有 `shortcut:` 注释）。
+9. **本期不产出区间型异常**：`gateway_disconnected` / `item_silent` / `auth_failed` 三类只有枚举与写入机制，没有任何生产写入路径；网关掉线对平台不可观测，需要 Broker 侧集成。
+10. **503 会触发整批重传**：平台故障恢复后网关会重发整批，可能重复发布实时消息与重复计数（已明确允许，不做幂等）。
 
 ## 六、未完成项与建议
 
