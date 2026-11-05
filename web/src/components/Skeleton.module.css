@@ -1,0 +1,10 @@
+.cell {
+  display: block;
+  height: var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-skeleton);
+}
+
+.short {
+  width: 60%;
+}
