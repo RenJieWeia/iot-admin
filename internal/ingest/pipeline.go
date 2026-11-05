@@ -218,8 +218,11 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 		written, regressed, werr = p.write(ctx, term.ID, inWindow)
 		if werr != nil {
 			p.Log.Error("写缓存/暂存失败", "terminal", term.ID, "err", werr)
+			// 写失败属平台侧故障：异常仍记 cache_write_failed 保可观测，但返回值必须是
+			// internal_error，让 HTTP 层整包 503、网关按状态码整批重传。
+			// 200 + accepted:false 会被网关当成数据问题而丢弃整批（R-014）。
 			p.Exc.Event(ctx, exception.CacheWriteFailed, term.ID, ingress, staging.HourStart(now), 1, werr.Error())
-			return Result{TerminalID: tp.TerminalID, Reason: string(exception.CacheWriteFailed)}
+			return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}
 		}
 		for _, o := range regressed {
 			p.Exc.Event(ctx, exception.ProtocolError, term.ID, ingress, staging.HourStart(o.Time), 1,

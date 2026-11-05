@@ -2,12 +2,15 @@ package ingest_test
 
 import (
 	"context"
+	"net/http"
+	"os"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/RenJieWeia/iot-admin/internal/exception"
 	"github.com/RenJieWeia/iot-admin/internal/ingest"
+	"github.com/RenJieWeia/iot-admin/internal/store"
 )
 
 // 用例 23：并发开同一区间 → EXCLUDE 拦截，不双开。
@@ -183,5 +186,65 @@ func TestNoIntervalAnomaliesInNormalFlow(t *testing.T) {
 	}
 	if n := e.count(`select count(*) from exception_interval`); n != 1 {
 		t.Fatalf("显式开启后区间行数 = %d，期望 1", n)
+	}
+}
+
+// R-014：写路径平台故障 → 逐终端 internal_error + 整包 503；
+// 异常仍记 cache_write_failed（可观测性不因返回 503 而丢）。
+func TestWriteFailureReturns503(t *testing.T) {
+	dsn := os.Getenv("IOT_TEST_DSN")
+	if dsn == "" {
+		t.Skip("未设置 IOT_TEST_DSN，跳过需要 PostgreSQL 的用例")
+	}
+	e := newEnv(t)
+	ctx := context.Background()
+	at := baseTime.Add(5 * time.Minute)
+	body := batch(testGatewayID,
+		termOf(testTerminalID, it("temp", 25.0, "C", at), it("power", 1.0, "kW", at)),
+		termOf(testTerminalB, it("temp", 26.0, "C", at), it("power", 1.1, "kW", at)))
+
+	// 正常路径先跑一次：元数据进缓存，后续故障只发生在写路径。
+	if status, resp := e.post(testGatewayID, body); status != 200 {
+		t.Fatalf("正常批量应返回 200，实际 %d %v", status, resp["message"])
+	}
+
+	// 只替换写路径的池：异常记录器继续用 e.pool，保证 cache_write_failed 能落库。
+	writePool, err := store.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("连接写路径连接池: %v", err)
+	}
+	e.proc.DB = writePool
+	writePool.Close()
+
+	status, resp := e.post(testGatewayID, body)
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("写路径故障应返回 503，实际 %d %v", status, resp["message"])
+	}
+	if resp["message"] != ingest.ReasonInternal {
+		t.Fatalf("message = %v，期望 %s", resp["message"], ingest.ReasonInternal)
+	}
+	data, ok := resp["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("503 响应缺少 data: %v", resp)
+	}
+	results, ok := data["results"].([]any)
+	if !ok || len(results) != 2 {
+		t.Fatalf("data.results = %v，期望 2 条", data["results"])
+	}
+	for i, raw := range results {
+		r := raw.(map[string]any)
+		if r["reason"] != ingest.ReasonInternal {
+			t.Fatalf("results[%d].reason = %v，期望 %s", i, r["reason"], ingest.ReasonInternal)
+		}
+		if accepted, _ := r["accepted"].(bool); accepted {
+			t.Fatalf("写失败不得标记 accepted: %v", r)
+		}
+	}
+
+	// 可观测性：cache_write_failed 仍被记录（不计入整批失败而丢失）。
+	total := e.eventCount(testTerminalID, exception.CacheWriteFailed, hourOf(at)) +
+		e.eventCount(testTerminalB, exception.CacheWriteFailed, hourOf(at))
+	if total < 1 {
+		t.Fatalf("cache_write_failed 计数 = %d，期望 ≥1", total)
 	}
 }
