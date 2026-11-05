@@ -12,7 +12,7 @@ import (
 // GatewayHeader 是 HTTP 通道的网关标识头。
 const GatewayHeader = "X-Gateway-Id"
 
-// MaxBodyBytes 传输层请求体上限（R12）。
+// MaxBodyBytes 传输层请求体上限（R12）：超限返回 400 + body_too_large，不做截断。
 const MaxBodyBytes = 1 << 20
 
 // HTTPHandler 处理 POST /ingest/v1/messages。
@@ -38,8 +38,18 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusMethodNotAllowed, Response{Code: http.StatusMethodNotAllowed, Message: "method_not_allowed"})
 		return
 	}
-	body, err := io.ReadAll(io.LimitReader(r.Body, MaxBodyBytes))
+	// 用 MaxBytesReader 而不是 LimitReader：超限必须显式报错，不能静默截断。
+	r.Body = http.MaxBytesReader(w, r.Body, MaxBodyBytes)
+	body, err := io.ReadAll(r.Body)
 	if err != nil {
+		var mbe *http.MaxBytesError
+		if errors.As(err, &mbe) {
+			writeJSON(w, http.StatusBadRequest, Response{
+				Code: http.StatusBadRequest, Message: validate.ReasonBodyTooLarge,
+				Data: bodyTooLargeError{Reason: validate.ReasonBodyTooLarge, Detail: "请求体超过 1MB"},
+			})
+			return
+		}
 		writeJSON(w, http.StatusBadRequest, Response{Code: http.StatusBadRequest, Message: "body_read_error"})
 		return
 	}
