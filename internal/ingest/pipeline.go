@@ -151,10 +151,16 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 	for _, pr := range props {
 		propByCode[pr.ItemCode] = pr
 	}
+	type violationHit struct {
+		hour   time.Time
+		code   string
+		source string // thing_model | rule
+		detail string
+	}
 	var (
 		cleaned          []clean.Out
 		unknownCodes     []string
-		violationHours   []time.Time
+		violations       []violationHit
 		unitUnknownHours []time.Time
 	)
 	for _, item := range tp.Items {
@@ -174,10 +180,18 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 		if out.UnitUnknown {
 			unitUnknownHours = append(unitUnknownHours, staging.HourStart(out.Time))
 		}
-		vios = append(vios, clean.Check(rules, out)...)
-		if len(vios) > 0 {
-			violationHours = append(violationHours, staging.HourStart(out.Time))
-			p.Log.Info("质量规则命中", "terminal", term.ID, "item", out.Code, "rules", fmt.Sprint(vios))
+		for _, v := range vios { // 物模型 min/max 越界
+			violations = append(violations, violationHit{
+				hour: staging.HourStart(out.Time), code: out.Code,
+				source: "thing_model", detail: fmt.Sprintf("%s: %s", v.RuleType, v.Detail),
+			})
+		}
+		for _, v := range clean.Check(rules, out) { // 终端质量规则命中
+			violations = append(violations, violationHit{
+				hour: staging.HourStart(out.Time), code: out.Code,
+				source: "rule", detail: fmt.Sprintf("%s: %s", v.RuleType, v.Detail),
+			})
+			p.Log.Info("质量规则命中", "terminal", term.ID, "item", out.Code, "rule", string(v.RuleType))
 		}
 		cleaned = append(cleaned, out)
 	}
@@ -217,8 +231,9 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 	if len(written) > 0 {
 		res.Published = p.publishRealtime(ctx, term, written, ingress, now)
 	}
-	for _, h := range violationHours {
-		p.Exc.Event(ctx, exception.QualityViolation, term.ID, ingress, h, 1, "")
+	for _, v := range violations {
+		p.Exc.Event(ctx, exception.QualityViolation, term.ID, ingress, v.hour, 1,
+			fmt.Sprintf("source=%s item=%s %s", v.source, v.code, v.detail))
 	}
 	for _, h := range unitUnknownHours {
 		p.Exc.Event(ctx, exception.CleanFailed, term.ID, ingress, h, 1, "单位不在换算闭集内，已透传原单位")
