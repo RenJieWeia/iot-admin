@@ -66,6 +66,9 @@ type Response struct {
 // Handler 注册全部管理路由。
 func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
+	// 字面量段优先于通配段：_meta 与 exceptions/* 不会被 {entity} / {entity}/{id} 抢走。
+	mux.HandleFunc("GET /admin/v1/_meta", a.meta)
+	mux.HandleFunc("GET /admin/v1/exceptions/{slot}", a.exceptionList)
 	mux.HandleFunc("GET /admin/v1/{entity}", a.list)
 	mux.HandleFunc("POST /admin/v1/{entity}", a.create)
 	mux.HandleFunc("GET /admin/v1/{entity}/{id}", a.get)
@@ -89,6 +92,11 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown_entity")
 		return
 	}
+	a.writeList(w, r, e)
+}
+
+// writeList 是实体列表与异常只读列表的共同实现：同一套 QueryState 校验、同一 meta 结构与错误口径。
+func (a *API) writeList(w http.ResponseWriter, r *http.Request, e Entity) {
 	qs, err := ParseQueryState(e, r.URL.Query())
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
