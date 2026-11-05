@@ -135,8 +135,10 @@ func TestPlatformFailureReturns503(t *testing.T) {
 		t.Fatalf("正常批量应返回 200，实际 %d %v", status, resp["message"])
 	}
 
-	// 平台故障：关闭连接池后同一请求
+	// 平台故障：关闭连接池后同一请求。上一条已把元数据读进缓存，
+	// 需同时失效缓存，否则缓存命中会跳过故障库、推迟到写路径才暴露故障。
 	e.pool.Close()
+	e.proc.Meta.Flush()
 	status, resp = e.post(testGatewayID, body)
 	if status != 503 {
 		t.Fatalf("平台故障应返回 503，实际 %d %v", status, resp["message"])
