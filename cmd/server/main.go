@@ -13,6 +13,7 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/RenJieWeia/iot-admin/internal/admin"
 	"github.com/RenJieWeia/iot-admin/internal/exception"
@@ -55,7 +56,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	client, err := connectMQTT(log)
+	client, err := connectMQTT(log, rec, pool)
 	if err != nil {
 		return err
 	}
@@ -97,7 +98,8 @@ func run(log *slog.Logger) error {
 }
 
 // connectMQTT 连接 BroMQ（独立进程）。接入凭证由 Broker 管理，平台只透传。
-func connectMQTT(log *slog.Logger) (mqtt.Client, error) {
+// 断连/重连时按网关维度写、关 exception_interval 的 gateway_disconnected 区间。
+func connectMQTT(log *slog.Logger, rec *exception.Recorder, pool *pgxpool.Pool) (mqtt.Client, error) {
 	opts := mqtt.NewClientOptions().
 		AddBroker(env("IOT_MQTT_URL", "tcp://127.0.0.1:1883")).
 		SetClientID(env("IOT_MQTT_CLIENT_ID", "iot-admin")).
@@ -111,8 +113,22 @@ func connectMQTT(log *slog.Logger) (mqtt.Client, error) {
 	if p := env("IOT_MQTT_PASSWORD", ""); p != "" {
 		opts.SetPassword(p)
 	}
-	opts.SetOnConnectHandler(func(mqtt.Client) { log.Info("MQTT 已连接") })
-	opts.SetConnectionLostHandler(func(_ mqtt.Client, err error) { log.Warn("MQTT 连接断开", "err", err) })
+	opts.SetOnConnectHandler(func(mqtt.Client) {
+		log.Info("MQTT 已连接")
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if err := rec.MarkGatewaysConnected(ctx); err != nil {
+			log.Error("关闭网关断连区间失败", "err", err)
+		}
+	})
+	opts.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
+		log.Warn("MQTT 连接断开", "err", err)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		if merr := rec.MarkGatewaysDisconnected(ctx, pool); merr != nil {
+			log.Error("记录网关断连异常失败", "err", merr)
+		}
+	})
 
 	client := mqtt.NewClient(opts)
 	tok := client.Connect()
