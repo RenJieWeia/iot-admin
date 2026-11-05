@@ -1,0 +1,190 @@
+# report-004 · 管理后台 UI 改写为 React SPA
+
+- `task:` task-004（`status: READY`）
+- `baseline:` rv-06（`5dabe0d`，含 `03ca27e` 契约最终版 + `b82a788` 写失败 503）
+- `tag:` 未打（按 dev-loop，由审核方在审后打 `rv-07`）
+- `commits:` 本报告前共 9 个提交，逐一可单独 revert
+- `red-lines:` `go.mod`/`go.sum`/`migrations/`/`internal/ingest/nongoal_test.go` **零变化**；改动路径全部落在 `web/**`、`internal/ui/**`、`cmd/server/**`、`docs/design.md`
+
+## 1. 变更说明（按 task-004 §7 步骤）
+
+| 步 | 提交 | 内容 |
+| --- | --- | --- |
+| 1 | （`be-api`，rv-06 `03ca27e`） | `_meta`/`exceptions`/`options` 三个端点；本任务未改 `internal/admin/**` |
+| 2 | `8dcdadf` `f393a21` `f569e76` `22fcb21` | `web/` 脚手架（Vite 6 + TS + React 19，`base:/ui/`、`outDir=../internal/ui/dist`、`emptyOutDir`）；令牌迁移；API 客户端（`_meta`/列表/`options`/异常/CRUD）；QueryState ↔ URL |
+| 3 | `b0cdbe9` `572c895` | 元数据驱动列表：筛选/排序/分页/四态/条件标签；`terminals` 与其余 5 实体同一条路由 |
+| 4 | `b0cdbe9` `572c895` | 抽屉增删改（Radix Dialog + 关系选择器 + 删除二次确认 + 写后就地刷新） |
+| 5 | `572c895` | 异常事件/异常区间只读两页（无写入口、无写请求） |
+| 6 | `f3bcc13` `0671391` | `//go:embed all:dist` + SPA fallback；删除 SSR 资产与旧测试；`main.go` 挂 SPA + CSP；`design.md` §一/§七 同步 |
+| 测试 | `7f83b7a` | Vitest + RTL + MSW 假后端（24 用例） |
+
+目录落点：
+
+- `web/src/api/`：`types.ts`（§4 契约逐字映射）、`client.ts`（统一信封 + `ApiError` + `filter.<col>[.<op>]` 序列化 + AbortSignal）、`meta.ts`（`enums`/`booleans` 归一到字段 `options`）、`entities.ts`（`options/{entity}`）、`exceptions.ts`
+- `web/src/lib/`：`queryState.ts`（URL 唯一事实源、回第一页规则）、`fieldMeta.ts`（可见列/常速筛选/默认排序/`ref` 目标）、`format.ts`（绝对时间 `+08:00`、状态标签、空值 `—`）、`scroll.ts`
+- `web/src/components/`：`AppShell` `DataTable` `FilterBar`+`ActiveFilterChips` `Pagination` `Drawer` `ConfirmDialog` `RecordDrawer` `RelationSelect` `StatePanel` `EmptyState` `ErrorState` `Skeleton` `StatusTag` `Toast`
+- `web/src/pages/`：`EntityListPage`（6 实体共用，`readOnly` 决定写入口）、`ExceptionListPage`（只读）
+- `internal/ui/`：`embed.go` + `spa.go`（fallback / 缓存头 / 405）+ `dist/**`
+
+## 2. 规范覆盖清单（`admin-ui-spec`）
+
+### 2.1 通用规范
+
+| 条款 | 落点 |
+| --- | --- |
+| §2 设计令牌 | `web/src/styles/tokens.css` 的 `:root`；其余 CSS 只允许 `var(--…)`；stylelint `color-no-hex`（`tokens.css` override 豁免）+ 自定义 Vitest 断言 |
+| §3 布局与导航 | `AppShell`：左侧固定导航（6 实体 + 异常两页，文案来自 `_meta`）、skip-link、1024px 单断点 |
+| §4 页面模式与信息分层 | 列表只放可见列；`visible:false` 字段（`precision`/`params`/`sample_digest`）只进抽屉；异常页只读 |
+| §5 组件 | 主按钮 ≤1（新建 / 保存）；浮层都有标题；抽屉底部固定「取消 + 保存」；删除用 `alertdialog` 且确认按钮含对象名 |
+| §6 布局稳定性 | `table-layout: fixed` + `<colgroup>` 类名按 `widthStrategy`；单元格单行截断 + `title`；骨架行高 = 真实行高、无脉冲动画；分页/总数固定 `min-width` |
+| §7 跨页面交互 | 编辑用侧滑抽屉（`?drawer=<id>`）不跳页；关闭后 URL 与滚动位置还原 |
+| §8 列表与状态保持 | 筛选/排序/分页全进 URL；`sessionStorage` 按地址记忆滚动；写成功 `invalidateQueries` 就地刷新 + 轻提示 |
+| §11 搜索与空结果 | 关键词 300ms 防抖 + 回车立即；常驻筛选 ≤5 + 「更多筛选」；已生效条件常驻标签（单删/全清）；无数据/无匹配两态分列 |
+| §13 网络异常 | 列表失败态含后端 detail + 重试（+ 清除筛选）；抽屉写失败就地显示原因且不关闭 |
+| §14 键盘与基础可用 | Esc 关闭浮层、焦点回触发按钮、触摸目标 ≥44px、1024px+ 布局正确 |
+| §15 通知 | 成功/失败用 `aria-live` 轻提示，不打断阅读 |
+| §16 语义规范 | 状态 = 文字 + 颜色；时间绝对时间 `+08:00`；错误含原因与恢复路径 |
+| §17 可访问性 | `<table>` + `scope="col"` + `aria-sort`；`<label for>`；`role="dialog"`；`role="alertdialog"`；`aria-live`；`aria-current` 导航 |
+| §18 禁止清单 | 无颜色字面量（tokens 除外）、无内联样式、无 `!important`、无脉冲 div、筛选进 URL、空态不复用「暂无数据」、无相对时间、表格不压列宽 |
+
+### 2.2 table-query 子规范（§2–§8、§13 重点）
+
+| 条款 | 落点 / 证据 |
+| --- | --- |
+| §1 核心原则 | 唯一 QueryState，服务端全局查询；表格只渲染服务端返回的当前页（RTL：mock 10 行 / total 128 → `<tbody>` 10 行） |
+| §2 QueryState | 结构化 filters（`field/op/values`）+ `q/sort/order/page/pageSize` 全量进 URL；变化回第一页（用例 `筛选/关键词/排序/pageSize 变化回第一页`）；`AbortSignal` 取消 |
+| §3 字段元数据 | 列/中文/枚举/`widthStrategy`/`ref`/`operatorLabels` 全部来自 `_meta`，页面零硬编码 |
+| §4 类型映射 | 枚举多选 `in`、文本 `contains/eq/prefix`、数值 `gte/lte`、布尔三态 `eq`、关联 `in`（取 `options` 端点） |
+| §5 筛选区 UI | 常驻 ≤5、其余进「更多筛选」抽屉；条件常驻标签，可单删/全清（RTL：标签单删后 URL 去掉条件并回第一页） |
+| §6 分页 | 默认 10、档位 `pagination.options`（10/20/50）、上限 50、条件或 pageSize 变化回第一页、显示范围与总数、超范围提示保留筛选 |
+| §7 排序 | 白名单 + `defaultSort`/`defaultOrder` + 唯一 tie-breaker（后端）；不可排序列无入口；方向标记 ↑/↓ |
+| §9 列展示 | `widthStrategy` 决定列宽（类名，非内联样式）、横向滚动不压列宽、单行截断 + `title` |
+| §10 状态保持 | URL 恢复筛选/排序/分页 + 滚动位置恢复（`scroll.ts`） |
+| §11 空/错/可访问性 | 四态区分、控件有标签、Esc、颜色非唯一载体 |
+| §12 后端约束 | 字段/操作符白名单、LIKE 转义、参数化 SQL（后端既有，前端只用白名单参数） |
+| §13 验收清单 | 1 ✅ 3 ✅ 4 ✅ 5 ✅ 7 ✅ 10 ✅；2 部分（原生 multiple select）、6/8/9/11/12 豁免或 N/A（见 2.3） |
+
+### 2.3 豁免与未覆盖（逐条给理由）
+
+| 条款 | 状态 | 理由 |
+| --- | --- | --- |
+| `table-query` §8 全选与批量（L1/L2/L3） | **整体豁免** | R-018 只做等价重构，不做批量；表格无选择列、无批量状态栏 |
+| `table-query` §9 导出 | 豁免 | 非目标（R-018 / task-004 §3） |
+| `table-query` §6 深分页/cursor | 豁免 | 管理后台数据量小，offset + 上限 50 足够 |
+| `table-query` §13.2 多选「全选当前选项 / 已选计数」 | 部分实现 | 沿用 rv-05 的原生 `multiple` select（可键盘操作、已选高亮），未做自定义全选与计数徽标 |
+| `table-query` §13.8 1000+ 条 / 深分页 / count 超时 | 未覆盖 | 无容量项（非目标）；`meta.total` 与列表共用 where（后端保证） |
+| `table-query` §10.6 实时更新冲突 | N/A | 无 SSE/实时推送（R-013） |
+| 通用 §9 全选三态 / 状态栏 | 豁免 | 同上，无批量 |
+| 通用 §12 长任务与离开回来 | N/A | 无长任务 |
+| 通用 §14 移动端专项（筛选抽屉、底部选择栏） | 豁免 | task-004 §3：只保证 1024px+ 与 44px 触摸目标 |
+| 通用 §13 认证/权限 | 豁免 | R-011 `DEFAULT`：`AllowAll` + 仅 127.0.0.1 |
+| **间距 4px 网格的例外**（`tokens.test.ts`） | 显式豁免 | 仅允许 `0`、`±1px`、`2px`：1px 是边框、2px 是 focus 描边、-1px 是 `.visually-hidden` 的标准 clip 写法；其余 padding/margin/gap 的 px 值必须是 4 的倍数（F3 处置） |
+
+## 3. 测试结果（实测命令与输出）
+
+### 3.1 前端
+
+```
+$ cd web && npx vitest run
+ Test Files  4 passed (4)
+      Tests  24 passed (24)
+   Duration  4.98s
+
+$ npx stylelint "src/**/*.css"
+（无输出，exit 0）
+
+$ npx tsc --noEmit
+（无输出，exit 0）
+```
+
+用例清单（对齐 §8 与 REVIEW-001）：
+
+| 用例 | 断言 |
+| --- | --- |
+| `只渲染服务端返回的当前页 10 行，总数 128 不落成 DOM` | `<tbody>` 恰 10 行；页脚「第 1–10 条，共 128 条」 |
+| `四态文案互不相同` | 加载「正在加载列表…」/ 无数据「还没有终端」/ 无匹配「没有匹配的记录」/ 失败「列表加载失败」→ `Set.size === 4`；失败态含 `db_unavailable` 与「重试」 |
+| `已生效筛选以标签外显，可单删并回第一页` | 标签含 字段/操作符/中文值；单删后 URL 无 `filter.enabled.eq` 且 `page` 被清 |
+| `翻页写 URL 并请求下一页，不重置筛选` | URL 出现 `page=2`，页脚变「第 11–20 条」 |
+| `抽屉：role=dialog、Esc 关闭、焦点回到触发按钮` | `role=dialog`、标题「编辑终端」、底部「取消/保存」、Esc 关闭、焦点回「编辑」 |
+| `新建保存后关闭抽屉、刷新列表并给轻提示` | POST body 含 `id/name`；抽屉关闭；出现「已创建记录，列表已刷新。」 |
+| `删除走二次确认，确认按钮含对象标识` | 先 `alertdialog`、确认按钮「删除 终端 1（t-001）」、确认前零写请求、确认后 DELETE `terminals/t-001` |
+| `写失败就地提示原因，抽屉不关闭` | 显示「保存失败：column "name" too long」，`role=dialog` 仍在 |
+| 异常两页 ×4 | 枚举中文来自 `_meta.enums`；无「新建/编辑/删除」；`writeCalls.length === 0`；未知 slot 给原因 + 返回路径 |
+| `queryState.test.ts` ×8 | 编码往返（多值重复参数）、归一（page/pageSize）、回第一页、排序切换、单删/全清 |
+
+### 3.2 构建可复现（§8 加码项）
+
+```
+$ cd web && rm -rf node_modules && npm ci && npm run build
+✓ built in 2.86s
+$ cd .. && git diff --exit-code internal/ui/dist
+[git diff exit=0]
+```
+
+### 3.3 Go（无 DSN，`GOCACHE=/tmp/gocache`）
+
+```
+$ go build ./...            # 无输出
+$ go vet ./...              # 无输出
+$ go test ./... -count=1
+ok  cmd/server   ok internal/admin  ok internal/clean  ok internal/ingest
+ok  internal/meta  ok internal/staging  ok internal/ui  ok internal/validate
+?   internal/{exception,latest,publish,settle,store}  [no test files]
+?   migrations  [no test files]
+```
+
+有 DSN 的整套用例**未运行**（Lead 指示：`internal/ingest` 的 DSN 用例不支持同库并发，需要时另行安排）。
+
+新增 Go 用例：`internal/ui/spa_test.go`（入口 / 深链 fallback / HEAD / POST 405 / 入口 `no-cache` / 哈希资源 `immutable` / `dist/index.html` 已入仓）、`cmd/server/main_test.go` 改写为 SPA 路由 + CSP + 真实资源可取。
+
+### 3.4 REVIEW-001 §3 逐条证据
+
+| 检查 | 命令 | 结果 |
+| --- | --- | --- |
+| 产物可复现 | `npm ci && npm run build && git diff --exit-code internal/ui/dist` | exit 0 |
+| vitest | `npx vitest run` | 4 文件 24 用例通过 |
+| 四态 4 断言 | 用例 `四态文案互不相同` | `Set.size === 4` |
+| 抽屉 Esc + 焦点回归 | 用例 `抽屉：role=dialog、Esc 关闭、焦点回到触发按钮` | 通过 |
+| 只渲染 10 行 | 用例 `只渲染服务端返回的当前页 10 行` | 通过 |
+| stylelint | `npx stylelint "src/**/*.css"` | exit 0 |
+| 无 node 的 Go | `go build ./... && go test ./...`（产物已入仓 + embed） | 全绿 |
+| §18 禁止清单 grep | 见下 | 无命中 |
+| table-query §2 无本地 filter/sort/slice | 见下 | 只对「筛选条件列表 / 字段列表 / 关联目标集合」做数组运算，不对 `rows` 做任何本地过滤/排序/截断 |
+
+```
+$ grep -rnE "#[0-9a-fA-F]{3,8}\b|rgba?\(|hsla?\(" web/src --include=*.ts --include=*.tsx   # 无命中（tokens.test.ts 除外）
+$ grep -rn "style={{" web/src --include=*.tsx                                                # 无命中
+$ grep -rn "!important" web/src --include=*.css                                               # 无命中
+$ grep -rnE "\.(filter|sort|slice)\(" web/src --include=*.tsx                                  # 仅 query.filters/fields/relationTargets 的数组运算
+$ grep -rn "html/template\|gohtml\|NewWithPool\|static/app" --include=*.go cmd internal       # 无命中
+$ git diff --stat rv-06..HEAD -- go.mod go.sum migrations internal/ingest/nongoal_test.go      # 空
+$ git diff --name-only rv-06..HEAD | grep -vE "^(web/|internal/ui/|cmd/server/|docs/design\.md)"  # 无越界
+```
+
+## 4. REVIEW-001 前端 4 项处置
+
+| 项 | 处置 |
+| --- | --- |
+| F1 内联样式 + 裸 div | `router.tsx` 的 `IndexRedirect` 改为 `AppShell + StatePanel/ErrorState`，去掉全部 `style={{}}`；`DataTable` 的列宽从内联样式改为 `widthStrategy` 类名（`colFixed/colMin/colFlex/colActions`）。这也让 CSP `default-src 'self'` 不需要 `style-src 'unsafe-inline'` |
+| F2 `setSort` 死分支 | 删除与末尾等价的 `field === defaultSort` 分支，签名从 `(state, field, defaultSort)` 收敛为 `(state, field)`，用例同步更新 |
+| F3 4px 网格例外 | 保留 0/±1px/2px 例外（边框、focus 描边、视觉隐藏），并在本报告 §2.3 显式声明理由 |
+| F4 4xx 重试 | `retry: (failureCount, error) => failureCount < 1 && !(error instanceof ApiError && error.status < 500)`：网络/5xx 重试一次，`invalid_query` 等 4xx 不重试 |
+
+## 5. 风险
+
+| 风险 | 说明 / 缓解 |
+| --- | --- |
+| bundle 体积 | `index-*.js` 571KB（gzip 178.7KB）+ CSS 11.5KB。首屏为内网管理面，先接受；若需优化按路由懒加载（`data-domains` 等实体页无独立 chunk 价值，主要是 Radix/TanStack/zod 体积） |
+| 产物入仓的 diff 噪声 | 每次前端变更会产生整文件 diff；缓解：`npm ci && npm run build && git diff --exit-code internal/ui/dist` 作为漂移闸门（本次实测 exit 0） |
+| XSS 面 | React 默认转义、无 `dangerouslySetInnerHTML`、无内联脚本/样式；后端统一下发 CSP `default-src 'self'`（`cmd/server` 用例断言）。仍然信任后端返回的字符串仅作文本渲染 |
+| `options` 上限 1000 | 超过 1000 个数据域/终端类型时，关系下拉与关系列名称会缺项（显示 id）。与 task-004 §4 的端点约定一致；规模化前需要远程搜索 |
+| 抽屉字段可编辑性靠推断 | `_meta` 的 `FieldMeta` 没有 `editable`/`required`，前端按「`id` 且 `filterable` ⇒ 用户自填主键」推断（`terminals` 成立，其余自增主键被排除）。契约若调整需同步 `formFields()` |
+| `web/node_modules` 干扰 `go test ./...` | 安装依赖后 `go test ./...` 会额外列出 `web/node_modules/flatted/...` 的 Go 包（无测试、不影响结果）。建议 CI 在干净树跑 Go 用例，或后续加 `web/go.mod` 把前端目录隔离出模块 |
+| npm install script 被环境策略拦截 | `npm ci` 会提示 esbuild/msw 的 postinstall 被 allowScripts 策略拦截；实测构建与测试均正常（esbuild 平台二进制走 optionalDependencies）。换机器时若构建失败，先 `npm install-scripts approve esbuild` |
+| 有 DSN 用例未跑 | 本次只跑无 DSN 全套；`internal/admin` 的 DSN 用例属于 `be-api` 交付范围 |
+
+## 6. 未闭环 / 需审核方回答
+
+- `Q-004` 已闭环：删除 `internal/ui/ui.go` 后，`entityLabels`/`exceptionEntities`/`exceptionRoutes` 不复存在，标签与异常页映射的唯一来源是 `admin.EntityLabel` / `admin.ExceptionPages` / `admin.ExceptionBySlot|ByEntity`，未新增重复定义。
+- `Open-Q（新增，非阻塞）`：`_meta` 的 `FieldMeta` 建议补 `editable`（抽屉可编辑列）与 `required`（前端必填提示）两个布尔位，前端目前用推断（见 §5）。若采纳，`formFields()`/`buildSchema()` 改为读契约即可，页面无需改动。
+- 无其他未闭环项。批量/导出/列偏好/保存视图按 R-018 整体豁免，已在本报告 §2.3 声明。
