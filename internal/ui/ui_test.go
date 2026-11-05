@@ -3,6 +3,7 @@ package ui_test
 import (
 	"context"
 	"errors"
+	"html"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -202,4 +203,58 @@ func head(s string) string {
 		return s[:400]
 	}
 	return s
+}
+
+// 验收 §8 步骤 4：异常两页只读渲染（枚举中文标签、绝对时间、无写入口）。
+func TestExceptionPagesReadOnly(t *testing.T) {
+	src := &fakeSource{rows: map[string][]map[string]any{
+		"exception-events": {{
+			"terminal_id": "T1", "gateway_id": "GW1", "hour_start": "2026-11-05T02:00:00Z",
+			"error_type": "quality_violation", "count": int64(3), "sample_digest": "hash=abc",
+			"first_seen": "2026-11-05T02:00:05Z", "last_seen": "2026-11-05T02:00:09Z",
+		}},
+		"exception-intervals": {{
+			"id": int64(1), "terminal_id": "T1", "gateway_id": "GW1", "item_code": "temp",
+			"error_type": "item_silent", "period": "[2026-11-05 10:00:00+08,)", "raw_count": int64(2),
+			"created_at": "2026-11-05T02:05:00Z",
+		}},
+	}}
+	h := ui.New(ui.Deps{Source: src}).Handler()
+
+	body := html.UnescapeString(get(t, h, "/ui/exceptions/events").Body.String())
+	for _, want := range []string{"异常事件", "只读页面", "质量违规", "2026-11-05 10:00:00 +08:00", "<table class=\"grid\">"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("异常事件页缺少 %q", want)
+		}
+	}
+	if strings.Contains(body, "btn-new") || strings.Contains(body, "data-delete-url") {
+		t.Fatal("异常事件页不得出现写入口")
+	}
+
+	body = html.UnescapeString(get(t, h, "/ui/exceptions/intervals").Body.String())
+	for _, want := range []string{"异常区间", "数据项沉默", "2026-11-05 10:05:00 +08:00"} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("异常区间页缺少 %q", want)
+		}
+	}
+
+	if rec := get(t, h, "/ui/exceptions/nope"); rec.Code != http.StatusNotFound {
+		t.Fatalf("未知异常页状态码 = %d，期望 404", rec.Code)
+	}
+}
+
+// 异常页的时间范围筛选进 URL、外显为标签，并回第一页。
+func TestExceptionTimeRangeFilterTag(t *testing.T) {
+	src := &fakeSource{rows: map[string][]map[string]any{
+		"exception-events": {{"terminal_id": "T1", "gateway_id": "GW1", "hour_start": "2026-11-05T02:00:00Z",
+			"error_type": "late_data", "count": int64(1)}},
+	}}
+	h := ui.New(ui.Deps{Source: src}).Handler()
+	body := get(t, h, "/ui/exceptions/events?filter.hour_start.gte=2026-11-01&page=2").Body.String()
+	if !strings.Contains(body, "归属小时") || !strings.Contains(body, "≥") {
+		t.Fatalf("时间范围条件未外显为标签: %s", head(body))
+	}
+	if !strings.Contains(body, "移除条件") {
+		t.Fatal("筛选标签应可单独移除")
+	}
 }

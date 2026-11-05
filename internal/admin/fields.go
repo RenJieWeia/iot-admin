@@ -50,6 +50,24 @@ var ruleTypeOptions = []Option{
 	{Value: "not_null", Label: "非空", Tone: "neutral"},
 }
 
+var eventTypeOptions = []Option{
+	{Value: "upload_timeout", Label: "上报超时", Tone: "warning"},
+	{Value: "protocol_error", Label: "协议错误", Tone: "negative"},
+	{Value: "msg_incomplete", Label: "消息不完整", Tone: "warning"},
+	{Value: "clean_failed", Label: "清洗失败", Tone: "warning"},
+	{Value: "cache_write_failed", Label: "写入失败", Tone: "negative"},
+	{Value: "mqtt_publish_failed", Label: "发布失败", Tone: "negative"},
+	{Value: "snapshot_failed", Label: "快照失败", Tone: "negative"},
+	{Value: "late_data", Label: "迟到数据", Tone: "warning"},
+	{Value: "quality_violation", Label: "质量违规", Tone: "warning"},
+}
+
+var intervalTypeOptions = []Option{
+	{Value: "gateway_disconnected", Label: "网关断连", Tone: "negative"},
+	{Value: "auth_failed", Label: "鉴权失败", Tone: "negative"},
+	{Value: "item_silent", Label: "数据项沉默", Tone: "warning"},
+}
+
 type fieldSet struct {
 	fields []FieldMeta
 	// relations 记录关联字段的目标实体，供列表页做名称回填。
@@ -137,6 +155,49 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "none", AdvancedOnly: true, WidthStrategy: "flex"},
 		},
 		relations: map[string]string{"terminal_id": "terminals"},
+	},
+	// 两张异常表只读：字段元数据只服务于管理后台的筛选/排序/白名单，不出现在 admin.Entities 里。
+	"exception-events": {
+		fields: []FieldMeta{
+			{Key: "terminal_id", Label: "终端", Type: "text", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
+			{Key: "gateway_id", Label: "网关", Type: "text", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
+			{Key: "error_type", Label: "异常类型", Type: "enum", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "multiSelect", Operators: []string{"in"}, OptionsSource: "static",
+				Options: eventTypeOptions, WidthStrategy: "min"},
+			{Key: "hour_start", Label: "归属小时", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
+			{Key: "count", Label: "次数", Type: "number", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "numberRange", Operators: []string{"gte", "lte"}, WidthStrategy: "fixed"},
+			{Key: "first_seen", Label: "首次出现", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "dateRange", Operators: []string{"gte", "lte"}, AdvancedOnly: true, WidthStrategy: "min"},
+			{Key: "last_seen", Label: "最近出现", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "dateRange", Operators: []string{"gte", "lte"}, AdvancedOnly: true, WidthStrategy: "min"},
+			{Key: "sample_digest", Label: "样本摘要", Type: "text", Visible: false, Sortable: false, Filterable: false,
+				FilterType: "none", AdvancedOnly: true, WidthStrategy: "flex"},
+		},
+	},
+	"exception-intervals": {
+		fields: []FieldMeta{
+			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
+			{Key: "terminal_id", Label: "终端", Type: "text", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
+			{Key: "gateway_id", Label: "网关", Type: "text", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
+			{Key: "item_code", Label: "数据项", Type: "text", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
+			{Key: "error_type", Label: "异常类型", Type: "enum", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "multiSelect", Operators: []string{"in"}, OptionsSource: "static",
+				Options: intervalTypeOptions, WidthStrategy: "min"},
+			// period 是 tstzrange：可展示但不可直接比较，时间范围筛选走 created_at。
+			{Key: "period", Label: "区间", Type: "text", Visible: true, Sortable: false, Filterable: false,
+				FilterType: "none", WidthStrategy: "flex"},
+			{Key: "raw_count", Label: "原始计数", Type: "number", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "numberRange", Operators: []string{"gte", "lte"}, WidthStrategy: "fixed"},
+			{Key: "created_at", Label: "创建时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
+		},
 	},
 	"settle-configs": {
 		fields: []FieldMeta{

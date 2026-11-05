@@ -134,6 +134,12 @@ func defaultSort(fields []FieldMeta) string {
 			return "id"
 		}
 	}
+	// 没有自增主键的表（如 exception_count）默认按时间列倒序，符合"最近异常先看"。
+	for _, f := range fields {
+		if f.Sortable && f.Type == "datetime" {
+			return f.Key
+		}
+	}
 	for _, f := range fields {
 		if f.Sortable {
 			return f.Key

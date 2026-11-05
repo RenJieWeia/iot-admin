@@ -71,6 +71,7 @@ func (h *Handler) Handler() http.Handler {
 		http.Redirect(w, r, "/ui/data-domains", http.StatusFound)
 	})
 	mux.Handle("GET /ui/static/", h.static)
+	mux.HandleFunc("GET /ui/exceptions/{slot}", h.exceptionList)
 	mux.HandleFunc("GET /ui/{entity}", h.list)
 	mux.HandleFunc("POST /ui/{entity}", h.create)
 	mux.HandleFunc("POST /ui/{entity}/{id}", h.update)
@@ -87,14 +88,39 @@ var entityLabels = map[string]string{
 	"terminals":              "终端",
 	"quality-rules":          "质量规则",
 	"settle-configs":         "结算窗口",
+	"exception-events":       "异常事件",
+	"exception-intervals":    "异常区间",
 }
 
-// entityByName 只在 6 个数据源实体里解析，未知实体一律 404。
+// 两张异常表只读：不在 admin.Entities 里，不进管理 API 白名单。
+var exceptionEntities = map[string]admin.Entity{
+	"exception-events": {
+		Name: "exception-events", Table: "exception_count",
+		Cols: []string{"terminal_id", "gateway_id", "hour_start", "error_type", "count", "sample_digest", "first_seen", "last_seen"},
+	},
+	// period 是 tstzrange，外层先转 text 才能直接展示；筛选/排序仍走普通列。
+	"exception-intervals": {
+		Name: "exception-intervals",
+		Table: "(select id, terminal_id, gateway_id, item_code, error_type, period::text as period, " +
+			"raw_count, created_at from exception_interval)",
+		Cols: []string{"id", "terminal_id", "gateway_id", "item_code", "error_type", "period", "raw_count", "created_at"},
+	},
+}
+
+var exceptionRoutes = map[string]string{
+	"events":    "exception-events",
+	"intervals": "exception-intervals",
+}
+
+// entityByName 解析 6 个数据源实体与 2 张异常只读表，未知实体一律 404。
 func entityByName(name string) (admin.Entity, bool) {
 	for _, e := range admin.Entities {
 		if e.Name == name {
 			return e, true
 		}
+	}
+	if e, ok := exceptionEntities[name]; ok {
+		return e, true
 	}
 	return admin.Entity{}, false
 }
@@ -109,6 +135,10 @@ func navItems(active string) []navItem {
 	out := make([]navItem, 0, len(admin.Entities)+2)
 	for _, e := range admin.Entities {
 		out = append(out, navItem{Label: entityLabels[e.Name], Href: "/ui/" + e.Name, Active: e.Name == active})
+	}
+	for _, slot := range []string{"events", "intervals"} {
+		name := exceptionRoutes[slot]
+		out = append(out, navItem{Label: entityLabels[name], Href: "/ui/exceptions/" + slot, Active: name == active})
 	}
 	return out
 }
@@ -209,6 +239,7 @@ type pageData struct {
 	StateActionURL string
 
 	CanWrite   bool
+	ReadOnly   bool
 	CurrentURL string
 	Now        string
 }
@@ -229,7 +260,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 			err.Error()+"。请清除筛选条件或返回默认列表后重试。")
 		return
 	}
-	page := h.buildPage(r, e, qs)
+	page := h.buildPage(r, e, qs, "/ui/"+e.Name)
 	if partialRequested(r) {
 		h.render(w, http.StatusOK, "listRegion", page)
 		return
@@ -237,7 +268,7 @@ func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	h.render(w, http.StatusOK, "list", page)
 }
 
-func (h *Handler) buildPage(r *http.Request, e admin.Entity, qs admin.QueryState) *pageData {
+func (h *Handler) buildPage(r *http.Request, e admin.Entity, qs admin.QueryState, base string) *pageData {
 	raw := r.URL.Query()
 	_, writable := h.source.(mutator)
 	page := &pageData{
@@ -251,8 +282,8 @@ func (h *Handler) buildPage(r *http.Request, e admin.Entity, qs admin.QueryState
 		Meta:        admin.ListMeta{Page: qs.Page, PageSize: qs.PageSize, Sort: qs.Sort, Order: qs.Order},
 		CanWrite:    writable,
 		Now:         h.now().Format("2006-01-02 15:04:05 -07:00"),
-		BaseURL:     "/ui/" + e.Name,
-		CurrentURL:  withQuery("/ui/"+e.Name, withoutDrawer(raw)),
+		BaseURL:     base,
+		CurrentURL:  withQuery(base, withoutDrawer(raw)),
 	}
 	page.Fields = admin.VisibleFields(e.Name)
 
@@ -268,7 +299,7 @@ func (h *Handler) buildPage(r *http.Request, e admin.Entity, qs admin.QueryState
 			page.StateTitle = "查询条件无效"
 			page.StateText = qerr.Error() + "。请清除筛选条件后重试。"
 			page.StateAction = "返回默认列表"
-			page.StateActionURL = "/ui/" + e.Name
+			page.StateActionURL = base
 			return page
 		}
 		h.log.Error("列表查询失败", "entity", e.Name, "err", err)
@@ -276,14 +307,14 @@ func (h *Handler) buildPage(r *http.Request, e admin.Entity, qs admin.QueryState
 		page.StateTitle = "加载失败"
 		page.StateText = "列表加载失败：" + err.Error() + "。数据未丢失，可稍后重试。"
 		page.StateAction = "重试"
-		page.StateActionURL = withQuery("/ui/"+e.Name, raw)
+		page.StateActionURL = withQuery(base, raw)
 		return page
 	}
 	page.Meta = res.Meta
 	page.Rows = h.buildRows(e.Name, page.Fields, res.Data, rel)
 	page.Tags = buildTags(e.Name, qs, raw)
-	page.SortURLs = sortURLs("/ui/"+e.Name, e.Name, qs, raw)
-	page.PageSizeURLs = pageSizeURLs("/ui/"+e.Name, raw)
+	page.SortURLs = sortURLs(base, e.Name, qs, raw)
+	page.PageSizeURLs = pageSizeURLs(base, raw)
 	page.PageSizeOptions = []int{10, 20, 50}
 
 	total := int(res.Meta.Total)
@@ -300,8 +331,8 @@ func (h *Handler) buildPage(r *http.Request, e admin.Entity, qs admin.QueryState
 	}
 	page.HasPrev = res.Meta.Page > 1 && total > 0
 	page.HasNext = int64(res.Meta.Page)*int64(res.Meta.PageSize) < res.Meta.Total
-	page.PrevURL = withPage("/ui/"+e.Name, raw, res.Meta.Page-1)
-	page.NextURL = withPage("/ui/"+e.Name, raw, res.Meta.Page+1)
+	page.PrevURL = withPage(base, raw, res.Meta.Page-1)
+	page.NextURL = withPage(base, raw, res.Meta.Page+1)
 	page.OutOfRange = total > 0 && len(res.Data) == 0
 
 	switch {
@@ -310,7 +341,7 @@ func (h *Handler) buildPage(r *http.Request, e admin.Entity, qs admin.QueryState
 		page.StateTitle = "没有匹配的记录"
 		page.StateText = "当前筛选条件排除了全部结果，换个条件或清除筛选再看。"
 		page.StateAction = "清除筛选"
-		page.StateActionURL = "/ui/" + e.Name
+		page.StateActionURL = base
 	case total == 0:
 		page.State = "empty"
 		page.StateTitle = "还没有" + entityLabels[e.Name]
@@ -345,7 +376,7 @@ func (h *Handler) buildRows(entity string, fields []admin.FieldMeta, data []map[
 
 func formatCell(entity string, f admin.FieldMeta, v any, rel map[string]string) cell {
 	if v == nil {
-		return cell{Text: "—", Kind: "muted", Tone: "neutral"}
+		return cell{Text: "—", Kind: "muted"}
 	}
 	switch f.Type {
 	case "boolean":
@@ -378,9 +409,23 @@ func formatCell(entity string, f admin.FieldMeta, v any, rel map[string]string) 
 		id := fmt.Sprint(v)
 		return cell{Text: id, Full: id, Kind: "mono"}
 	default:
-		text := fmt.Sprint(v)
+		text := cleanRange(fmt.Sprint(v))
 		return cell{Text: text, Full: text, Kind: "text"}
 	}
+}
+
+// cleanRange 把 Postgres 区间文本里的引号去掉，让 [起,止) 这种值更好读。
+func cleanRange(text string) string {
+	if !strings.HasPrefix(text, "[") && !strings.HasPrefix(text, "(") {
+		return text
+	}
+	if !strings.HasSuffix(text, ")") && !strings.HasSuffix(text, "]") {
+		return text
+	}
+	if !strings.Contains(text, ",") {
+		return text
+	}
+	return strings.ReplaceAll(text, `"`, "")
 }
 
 func formatNumber(v any) string {
@@ -853,4 +898,39 @@ func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
 	}
 	err := m.Delete(r.Context(), e.Name, r.PathValue("id"))
 	h.finishWrite(w, r, e.Name, returnTo(r, e.Name), "已删除"+entityLabels[e.Name], err)
+}
+
+// ---------- 异常只读页 ----------
+
+// exceptionList 渲染异常事件 / 异常区间：只读、服务端筛选排序分页、无写操作。
+func (h *Handler) exceptionList(w http.ResponseWriter, r *http.Request) {
+	slot := r.PathValue("slot")
+	name, ok := exceptionRoutes[slot]
+	if !ok {
+		h.renderError(w, r, http.StatusNotFound, "页面不存在",
+			"异常页只有 /ui/exceptions/events 与 /ui/exceptions/intervals 两个地址。")
+		return
+	}
+	e, ok := entityByName(name)
+	if !ok {
+		h.renderError(w, r, http.StatusNotFound, "页面不存在", "异常页数据源未装配。")
+		return
+	}
+	qs, err := admin.ParseQueryState(e, r.URL.Query())
+	if err != nil {
+		h.renderError(w, r, http.StatusBadRequest, "查询参数无效",
+			err.Error()+"。请清除筛选条件或返回默认列表后重试。")
+		return
+	}
+	page := h.buildPage(r, e, qs, "/ui/exceptions/"+slot)
+	page.ReadOnly = true
+	page.CanWrite = false
+	if page.State == "empty" {
+		page.StateText = "当前没有异常记录。接入管道产生异常后会在这里按小时汇总出现。"
+	}
+	if partialRequested(r) {
+		h.render(w, http.StatusOK, "listRegion", page)
+		return
+	}
+	h.render(w, http.StatusOK, "list", page)
 }

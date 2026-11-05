@@ -8,6 +8,9 @@
 
 {{define "listRegion"}}
 {{template "flash" .}}
+{{- if .ReadOnly}}
+<p class="hint">只读页面：异常数据由接入管道写入，这里只能查看与筛选。</p>
+{{- end}}
 <section class="filters" aria-label="搜索与筛选">
   {{template "filterForm" .}}
   {{- if .Tags}}
