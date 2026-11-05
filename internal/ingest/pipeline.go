@@ -66,6 +66,18 @@ func (p *Processor) Handle(ctx context.Context, ingressGateway string, raw []byt
 		"terminals", len(env.Terminals))
 
 	out := BatchResult{Results: make([]Result, 0, len(env.Terminals))}
+	// 接入网关与报文 gatewayId 的一致性只与信封有关：整批一次判定，逐终端给同样 reason。
+	if ingress != env.GatewayID {
+		terr := &validate.TerminalError{
+			Reason: validate.ReasonProtocolError,
+			Detail: fmt.Sprintf("网关标识不一致: 接入=%q 报文=%q", ingress, env.GatewayID),
+		}
+		for _, tw := range env.Terminals {
+			out.Results = append(out.Results, p.rejectTerminal(ctx, tw.TerminalID, ingress, now, terr, ""))
+		}
+		return out, nil
+	}
+
 	cfg, err := settle.LoadWindowConfig(ctx, p.DB)
 	if err != nil {
 		// 平台侧故障：逐终端标 internal_error，由 HTTP 层整包 503（不记数据类异常）。
@@ -90,13 +102,7 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 	if terr != nil {
 		return p.rejectTerminal(ctx, tw.TerminalID, ingress, now, terr, "")
 	}
-	// 2.3 网关三方一致（R9）：接入网关 == 报文 gatewayId == 注册表 gateway_id
-	if ingress != env.GatewayID {
-		return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
-			Reason: validate.ReasonProtocolError,
-			Detail: fmt.Sprintf("网关标识不一致: 接入=%q 报文=%q", ingress, env.GatewayID),
-		}, "")
-	}
+	// 2.3 网关三方一致（R9）中"注册表 gateway_id"这一侧；信封侧一致性已在 Handle 判定。
 	term, err := p.Reg.LoadTerminal(ctx, tp.TerminalID)
 	if err != nil {
 		if errors.Is(err, validate.ErrTerminalUnknown) {
