@@ -14,6 +14,7 @@
 | `internal/publish/` | 实时主题唯一出口（QoS 1、retain=false），`publishedAt`/`collectedAt` |
 | `internal/settle/` | 窗口配置（单一实现）、每分钟结算、月度分区维护 |
 | `internal/exception/` | 两张异常表 + 唯一 error_type 枚举 + 网关维度断连区间 |
+| `internal/meta/` | 四类元数据（终端/物模型/质量规则/结算窗口）进程内缓存 + 写时失效 |
 | `internal/admin/` | 6 个数据源实体 CRUD、统一返回结构、鉴权占位 |
 | `internal/store/` | 连接池、迁移执行、按终端分片写锁 |
 | `migrations/` | 0001 数据源 / 0002 运行时 / 0003 异常 / **0004 terminal_unknown** |
@@ -70,6 +71,19 @@
 | T6 质量违规来源 | 摘要加 `source=thing_model|rule` | `internal/ingest/pipeline.go` |
 | T7 错误体命名 | `bodyTooLargeError` → `envelopeErrorBody` | `internal/ingest/http.go` |
 
+## 三之三、元数据进程内缓存（rv-04）
+
+| 项 | 口径 |
+| --- | --- |
+| 落点 | `internal/meta.Store` 包装 4 个 loader（`validate.Registry` ×2、`clean.LoadRules`、`settle.LoadWindowConfig`），loader 本身不动 |
+| 命中 | 同一 key 连续读取不再访问 PG：首条消息 4 次元数据查询，之后 0 次 |
+| 失效 | 管理 API `create/update/delete` 成功后全量 `Flush()`；`list/get` 不失效 |
+| 负结果 | `ErrTerminalUnknown`、停用终端、任何 DB 错误一律不写缓存，下次继续穿透 |
+| TTL | `30 * time.Second` 常量兜底，防绕过管理 API 直接改库（U-001 假设成立时最多脏 30s） |
+| 并发 | 不做 singleflight，并发 miss 允许各自多查一次；`-race` 干净 |
+| 前提 | 与 `ShardedLock` 同口径的单实例部署；多实例一致性不在本期范围（风险 6） |
+| 不缓存 | 写入路径（`latest_value` / `hourly_staging` / `exception_*` / `hourly_snapshot`） |
+
 ## 四、测试（31 项 + 纯逻辑单测）
 
 | 需求用例 | 测试 |
@@ -125,13 +139,13 @@ IOT_TEST_DSN=... IOT_CAPACITY=1 go test ./internal/ingest -run TestCapacity -v
 5. **上传超时异常未实现**：`upload_timeout` 只有枚举没有写入路径，需随元数据治理（期望上报周期）一起排期。
 6. **单实例**：写锁是进程内的，多实例会破坏 `value_time` 串行化。
 7. **异常表无清理策略**：`exception_count` 长期累积，需按保留期归档。
-8. **元数据每批 4 次查询**：未加进程内缓存，元数据读成为吞吐上限时再优化（代码内有 `shortcut:` 注释）。
+8. **元数据缓存的一致性代价**：四类元数据已进程内缓存（TTL 30s + 管理 API 写时失效，见 §三之三）。代价有三：单实例前提，多实例各自持有副本；绕过管理 API 直接改库最长脏 30s；缓存命中期间 DB 不可用不再整包 503，故障推迟到写路径（`cache_write_failed` + 200）。
 9. **本期不产出区间型异常**：`gateway_disconnected` / `item_silent` / `auth_failed` 三类只有枚举与写入机制，没有任何生产写入路径；网关掉线对平台不可观测，需要 Broker 侧集成。
 10. **503 会触发整批重传**：平台故障恢复后网关会重发整批，可能重复发布实时消息与重复计数（已明确允许，不做幂等）。
 
 ## 六、未完成项与建议
 
-1. 元数据（终端/物模型/规则/窗口配置）进程内缓存 + 管理 API 写时失效。
+1. ~~元数据（终端/物模型/规则/窗口配置）进程内缓存 + 管理 API 写时失效~~ ✅ 已完成（rv-04，见 §三之三）。
 2. 上传超时异常需要"期望上报周期"元数据与扫描任务。
 3. 异常表保留期/分区化；`exception_count` 归档。
 4. 管理 API 权限、审计与操作日志（本期占位）。
