@@ -20,6 +20,7 @@ const (
 	SnapshotFailed    ErrorType = "snapshot_failed"
 	LateData          ErrorType = "late_data"
 	QualityViolation  ErrorType = "quality_violation"
+	TerminalUnknown   ErrorType = "terminal_unknown"
 )
 
 // IntervalTypes 状态型集合，与 migrations/0003 的 check 约束一致。
@@ -28,7 +29,7 @@ var IntervalTypes = []ErrorType{GatewayDisconnected, AuthFailed, ItemSilent}
 // EventTypes 事件型集合，与 migrations/0003 的 check 约束一致。
 var EventTypes = []ErrorType{
 	UploadTimeout, ProtocolError, MsgIncomplete, CleanFailed, CacheWriteFailed,
-	MQTTPublishFailed, SnapshotFailed, LateData, QualityViolation,
+	MQTTPublishFailed, SnapshotFailed, LateData, QualityViolation, TerminalUnknown,
 }
 
 func (t ErrorType) IsInterval() bool {
