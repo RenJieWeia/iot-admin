@@ -27,8 +27,8 @@ type Response struct {
 	Data    any    `json:"data,omitempty"`
 }
 
-// bodyTooLargeError 是整包级错误体。
-type bodyTooLargeError struct {
+// envelopeErrorBody 是整包级错误体（body 超限、ver 不支持、terminals 非法等共用）。
+type envelopeErrorBody struct {
 	Reason string `json:"reason"`
 	Detail string `json:"detail,omitempty"`
 }
@@ -46,7 +46,7 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &mbe) {
 			writeJSON(w, http.StatusBadRequest, Response{
 				Code: http.StatusBadRequest, Message: validate.ReasonBodyTooLarge,
-				Data: bodyTooLargeError{Reason: validate.ReasonBodyTooLarge, Detail: "请求体超过 1MB"},
+				Data: envelopeErrorBody{Reason: validate.ReasonBodyTooLarge, Detail: "请求体超过 1MB"},
 			})
 			return
 		}
@@ -60,7 +60,7 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &envelopeErr) {
 			writeJSON(w, http.StatusBadRequest, Response{
 				Code: http.StatusBadRequest, Message: envelopeErr.Reason,
-				Data: bodyTooLargeError{Reason: envelopeErr.Reason, Detail: envelopeErr.Detail},
+				Data: envelopeErrorBody{Reason: envelopeErr.Reason, Detail: envelopeErr.Detail},
 			})
 			return
 		}
