@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/RenJieWeia/iot-admin/internal/exception"
+	"github.com/RenJieWeia/iot-admin/internal/ingest"
 )
 
 // 用例 23：并发开同一区间 → EXCLUDE 拦截，不双开。
@@ -118,5 +119,67 @@ func TestEventAggregationSingleRow(t *testing.T) {
 	digest := e.digestOf(testTerminalID, exception.MQTTPublishFailed)
 	if digest == "" || len(digest) > 256 {
 		t.Fatalf("摘要应只存 hash+长度+截断样本，实际长度 %d: %q", len(digest), digest)
+	}
+}
+
+// T2：平台故障（DB 不可用）→ 整包 503，results 里逐终端标 internal_error；数据问题仍是 200。
+func TestPlatformFailureReturns503(t *testing.T) {
+	e := newEnv(t)
+	at := baseTime.Add(5 * time.Minute)
+	body := batch(testGatewayID, termOf(testTerminalID,
+		it("temp", 25.0, "C", at), it("power", 1.0, "kW", at)))
+
+	// 正常路径：200
+	status, resp := e.post(testGatewayID, body)
+	if status != 200 {
+		t.Fatalf("正常批量应返回 200，实际 %d %v", status, resp["message"])
+	}
+
+	// 平台故障：关闭连接池后同一请求
+	e.pool.Close()
+	status, resp = e.post(testGatewayID, body)
+	if status != 503 {
+		t.Fatalf("平台故障应返回 503，实际 %d %v", status, resp["message"])
+	}
+	if resp["message"] != ingest.ReasonInternal {
+		t.Fatalf("message = %v，期望 %s", resp["message"], ingest.ReasonInternal)
+	}
+	data, ok := resp["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("503 响应缺少 data: %v", resp)
+	}
+	results, ok := data["results"].([]any)
+	if !ok || len(results) != 1 {
+		t.Fatalf("data.results = %v，期望 1 条", data["results"])
+	}
+	first := results[0].(map[string]any)
+	if first["reason"] != ingest.ReasonInternal {
+		t.Fatalf("results[0].reason = %v，期望 %s", first["reason"], ingest.ReasonInternal)
+	}
+	if accepted, _ := first["accepted"].(bool); accepted {
+		t.Fatalf("平台故障不应标记 accepted: %v", first)
+	}
+}
+
+// T1：正常运行不产生任何区间异常（断连写入路径已移除）。
+func TestNoIntervalAnomaliesInNormalFlow(t *testing.T) {
+	e := newEnv(t)
+	at := baseTime.Add(5 * time.Minute)
+	res := e.handle(batch(testGatewayID,
+		termOf(testTerminalID, it("temp", 25.0, "C", at), it("power", 1.0, "kW", at)),
+		termOf("T-NOPE", it("temp", 25.0, "C", at), it("power", 1.0, "kW", at)),
+	))
+	if r := resultOf(t, res, testTerminalID); !r.Accepted {
+		t.Fatalf("正常终端应入库: %+v", r)
+	}
+	if n := e.count(`select count(*) from exception_interval`); n != 0 {
+		t.Fatalf("正常运行不应产生区间异常，实际 %d 行", n)
+	}
+	// 只有显式调用 OpenInterval 才会有区间行（保留机制，不接生产钩子）
+	if err := e.rec.OpenInterval(context.Background(), exception.GatewayDisconnected, testGatewayID, testGatewayID, nil); err != nil {
+		t.Fatalf("显式开启区间失败: %v", err)
+	}
+	if n := e.count(`select count(*) from exception_interval`); n != 1 {
+		t.Fatalf("显式开启后区间行数 = %d，期望 1", n)
 	}
 }
