@@ -19,7 +19,7 @@ func intp(v int) *int        { return &v }
 
 func rawItem(t *testing.T, code, valueJSON, unit, at string) validate.RawItem {
 	t.Helper()
-	parsed, _, err := validate.ParseCollectedAt(at)
+	parsed, err := validate.ParseCollectedAt(at)
 	if err != nil {
 		t.Fatalf("ParseCollectedAt(%q): %v", at, err)
 	}
@@ -272,7 +272,7 @@ func TestItemPrecision(t *testing.T) {
 
 func mustTime(t *testing.T, s string) time.Time {
 	t.Helper()
-	parsed, _, err := validate.ParseCollectedAt(s)
+	parsed, err := validate.ParseCollectedAt(s)
 	if err != nil {
 		t.Fatalf("ParseCollectedAt(%q): %v", s, err)
 	}

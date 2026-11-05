@@ -204,30 +204,26 @@ func TestParseTerminalSpanBoundary(t *testing.T) {
 	}
 }
 
-// 11) ParseCollectedAt 接受四种格式且 Instant 正确、hasOffset 正确。
+// 11) ParseCollectedAt 接受四种格式且 Instant 正确（统一到 Asia/Shanghai）。
 func TestParseCollectedAtAccepts(t *testing.T) {
 	base := time.Date(2026, 11, 5, 2, 0, 0, 0, time.UTC) // == 10:00+08:00
 	cases := []struct {
-		in        string
-		want      time.Time
-		hasOffset bool
+		in   string
+		want time.Time
 	}{
-		{"2026-11-05T10:00:00+08:00", base, true},
-		{"2026-11-05T02:00:00Z", base, true},
-		{"2026-11-05T10:00:00", base, false},
-		{"2026-11-05T10:00:00.500+08:00", base.Add(500 * time.Millisecond), true},
+		{"2026-11-05T10:00:00+08:00", base},
+		{"2026-11-05T02:00:00Z", base},
+		{"2026-11-05T10:00:00", base},
+		{"2026-11-05T10:00:00.500+08:00", base.Add(500 * time.Millisecond)},
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
-			got, hasOffset, err := validate.ParseCollectedAt(c.in)
+			got, err := validate.ParseCollectedAt(c.in)
 			if err != nil {
 				t.Fatalf("期望成功，实际 %v", err)
 			}
 			if !got.Equal(c.want) {
 				t.Fatalf("Instant: 期望 %s，实际 %s", c.want, got.UTC())
-			}
-			if hasOffset != c.hasOffset {
-				t.Fatalf("hasOffset: 期望 %v，实际 %v", c.hasOffset, hasOffset)
 			}
 			if got.Location().String() != staging.Zone.String() || got.Hour() != 10 {
 				t.Fatalf("期望统一到 %s 且小时为 10，实际 %s/%d", staging.Zone, got.Location(), got.Hour())
@@ -240,8 +236,8 @@ func TestParseCollectedAtAccepts(t *testing.T) {
 func TestParseCollectedAtRejects(t *testing.T) {
 	for _, in := range []string{"1700000000", "2026-11-05", "2026-11-05 10:00:00", ""} {
 		t.Run(in, func(t *testing.T) {
-			if got, hasOffset, err := validate.ParseCollectedAt(in); err == nil {
-				t.Fatalf("%q 期望失败，实际成功: %s hasOffset=%v", in, got, hasOffset)
+			if got, err := validate.ParseCollectedAt(in); err == nil {
+				t.Fatalf("%q 期望失败，实际成功: %s", in, got)
 			}
 		})
 	}

@@ -84,7 +84,6 @@ type RawItem struct {
 	CollectedAt string          `json:"collectedAt"`
 
 	ParsedTime time.Time `json:"-"`
-	HasOffset  bool      `json:"-"` // 是否显式带时区偏移，仅用于统计
 }
 
 // TerminalPayload 是逐终端解析结果，items 已完成结构与时间校验。
@@ -162,7 +161,7 @@ func ParseTerminal(tw TerminalWire) (TerminalPayload, *TerminalError) {
 			codes = append(codes, it.Code)
 			continue
 		}
-		t, hasOffset, err := ParseCollectedAt(it.CollectedAt)
+		t, err := ParseCollectedAt(it.CollectedAt)
 		if err != nil {
 			codes = append(codes, it.Code)
 			continue
@@ -174,7 +173,6 @@ func ParseTerminal(tw TerminalWire) (TerminalPayload, *TerminalError) {
 		}
 		seen[it.Code] = struct{}{}
 		it.ParsedTime = t
-		it.HasOffset = hasOffset
 		if minAt.IsZero() || t.Before(minAt) {
 			minAt = t
 		}
@@ -198,22 +196,22 @@ func ParseTerminal(tw TerminalWire) (TerminalPayload, *TerminalError) {
 // ParseCollectedAt 解析采集时间（R4）：
 //   - 接受 +08:00 偏移、Z（换算到 UTC+8）、省略偏移（按 UTC+8 解释）、毫秒精度；
 //   - 不接受 epoch 数字、仅日期、空格分隔、空串；
-//   - 返回值统一转 Asia/Shanghai；hasOffset 仅用于统计，不作为拒收依据。
-func ParseCollectedAt(s string) (t time.Time, hasOffset bool, err error) {
+//   - 返回值统一转 Asia/Shanghai。
+func ParseCollectedAt(s string) (time.Time, error) {
 	if strings.TrimSpace(s) == "" {
-		return time.Time{}, false, errors.New("collectedAt 为空")
+		return time.Time{}, errors.New("collectedAt 为空")
 	}
 	if isDigits(s) {
-		return time.Time{}, false, errors.New("collectedAt 不接受 epoch 数字")
+		return time.Time{}, errors.New("collectedAt 不接受 epoch 数字")
 	}
 	if parsed, perr := time.Parse(time.RFC3339Nano, s); perr == nil {
-		return parsed.In(staging.Zone), true, nil
+		return parsed.In(staging.Zone), nil
 	}
 	// 省略偏移：按 Asia/Shanghai 解释。
 	if parsed, perr := time.ParseInLocation("2006-01-02T15:04:05.999999999", s, staging.Zone); perr == nil {
-		return parsed, false, nil
+		return parsed, nil
 	}
-	return time.Time{}, false, fmt.Errorf("collectedAt 不可解析: %q", s)
+	return time.Time{}, fmt.Errorf("collectedAt 不可解析: %q", s)
 }
 
 func isDigits(s string) bool {
