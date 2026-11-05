@@ -1,0 +1,138 @@
+// 字段元数据与列表契约的 TS 映射，逐字对应 task-004 §4（R-019）。
+// 唯一事实源是 internal/admin/fields.go；前端不得硬编码列清单、业务枚举中文或列宽策略。
+export type Tone = 'neutral' | 'positive' | 'negative' | 'warning';
+
+export type FieldType =
+  | 'text'
+  | 'id'
+  | 'enum'
+  | 'number'
+  | 'boolean'
+  | 'relation'
+  | 'json'
+  | 'datetime';
+
+export type FilterType =
+  | 'text'
+  | 'multiSelect'
+  | 'numberRange'
+  | 'dateRange'
+  | 'boolean'
+  | 'relation'
+  | 'remoteSelect'
+  | 'none';
+
+export type FilterOp = 'contains' | 'eq' | 'prefix' | 'in' | 'gte' | 'lte';
+
+export type WidthStrategy = 'fixed' | 'min' | 'flex';
+
+export interface Option {
+  value: string;
+  label: string;
+  /** 状态标签颜色语义；后端未下发时前端按 neutral 渲染（文字始终保留）。 */
+  tone?: Tone;
+}
+
+/** 关联字段的目标（GET /admin/v1/options/{entity} 的取值与展示列）。 */
+export interface FieldRef {
+  entity: string;
+  valueKey: string;
+  labelKey: string;
+}
+
+export interface FieldMeta {
+  key: string;
+  label: string;
+  type: FieldType;
+  visible: boolean;
+  sortable: boolean;
+  filterable: boolean;
+  filterType: FilterType;
+  operators: FilterOp[];
+  /** 操作符 → 中文（后端下发，前端不再自维护一份）。 */
+  operatorLabels: Record<string, string>;
+  optionsSource?: 'dict' | 'remote' | 'static';
+  /** 永远是数组（后端把 nil 归一成 []），空数组表示无枚举。 */
+  options: Option[];
+  advancedOnly?: boolean;
+  widthStrategy: WidthStrategy;
+  ref?: FieldRef;
+  /** ref.entity 的兼容别名（R-019 首版键名）；新代码只用 ref。 */
+  relation?: string;
+}
+
+/** 可写实体（6 个，进 admin.Entities）。 */
+export interface EntityMeta {
+  /** URL 段，例如 terminals。 */
+  name: string;
+  /** 导航与页面标题。 */
+  title: string;
+  /** 后端列表路由（/admin/v1/<name>），仅作展示与排查用途。 */
+  route: string;
+  /** 只读实体不渲染任何写入口。 */
+  readOnly: boolean;
+  /** 服务端默认排序与方向，前端不再自行猜测。 */
+  defaultSort: string;
+  defaultOrder: 'asc' | 'desc';
+  fields: FieldMeta[];
+}
+
+/** 只读异常页（2 个，独立路由，不进 admin.Entities）。 */
+export interface ExceptionMeta {
+  slot: 'events' | 'intervals';
+  /** 对应的内部实体名（exception-events / exception-intervals）。 */
+  name: string;
+  title: string;
+  route: string;
+  readOnly: boolean;
+  defaultSort: string;
+  defaultOrder: 'asc' | 'desc';
+  fields: FieldMeta[];
+}
+
+/** 分页档位由后端下发（默认 10、上限 50）。 */
+export interface PaginationMeta {
+  default: number;
+  max: number;
+  options: number[];
+}
+
+export interface MetaPayload {
+  entities: EntityMeta[];
+  exceptions: ExceptionMeta[];
+  /** 枚举字典：字段名 → { 取值: 中文 }。 */
+  enums: Record<string, Record<string, string>>;
+  /** 布尔字典：{ "true": "是", "false": "否" }。 */
+  booleans: Record<string, string>;
+  pagination: PaginationMeta;
+}
+
+export interface OptionItem {
+  value: string;
+  label: string;
+}
+
+export interface ListMeta {
+  total: number;
+  page: number;
+  pageSize: number;
+  sort: string;
+  order: 'asc' | 'desc';
+}
+
+export interface ListPayload {
+  data: RowData[];
+  meta: ListMeta;
+}
+
+export type RowData = Record<string, unknown>;
+
+export interface Envelope<T> {
+  code: number;
+  message: string;
+  data?: T;
+  meta?: ListMeta;
+}
+
+/** 关联字段取值：value → label。 */
+export type RelationOptions = Record<string, string>;
