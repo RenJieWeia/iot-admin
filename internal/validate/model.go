@@ -3,14 +3,13 @@ package validate
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ErrTerminalUnknown 用于"终端不存在或停用"这一类拒收。
+// ErrTerminalUnknown 用于"终端不存在或停用"这一类拒收（记 terminal_unknown）。
 var ErrTerminalUnknown = errors.New("terminal_unavailable")
 
 // Terminal 是校验与清洗需要的终端上下文（含实时主题要用的 domain/type 编码）。
@@ -87,8 +86,9 @@ func (r *Registry) LoadProperties(ctx context.Context, typeID int64) ([]Property
 	return out, rows.Err()
 }
 
-// CheckComplete 校验"完整消息"：required 属性集合 ⊆ items.code 集合。
-func CheckComplete(props []Property, items []RawItem) error {
+// MissingRequired 返回未覆盖的 required 属性 code（最多 MaxMissingCodes 个）。
+// 完整消息 = 每个终端的 items 覆盖该终端类型全部 required 属性（R2）。
+func MissingRequired(props []Property, items []RawItem) []string {
 	have := make(map[string]struct{}, len(items))
 	for _, it := range items {
 		have[it.Code] = struct{}{}
@@ -100,12 +100,12 @@ func CheckComplete(props []Property, items []RawItem) error {
 		}
 		if _, ok := have[p.ItemCode]; !ok {
 			missing = append(missing, p.ItemCode)
+			if len(missing) == MaxMissingCodes {
+				break
+			}
 		}
 	}
-	if len(missing) > 0 {
-		return fmt.Errorf("%w: required 属性缺失: %v", ErrIncomplete, missing)
-	}
-	return nil
+	return missing
 }
 
 // MaxClockSkew 采集时间允许的超前量。

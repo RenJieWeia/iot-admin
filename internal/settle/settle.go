@@ -68,16 +68,6 @@ func (c WindowConfig) Resolve(typeID, domainID int64) int {
 	return staging.DefaultWindowSeconds
 }
 
-// WindowSeconds 解析单终端生效窗口。与结算任务共用同一套配置读取与解析（WindowConfig），
-// 避免"改口径只改一半"。过渡期供采集管道单点调用，批量契约落地后由 LoadWindowConfig 取代。
-func WindowSeconds(ctx context.Context, q RowsQuerier, typeID, domainID int64) (int, error) {
-	cfg, err := LoadWindowConfig(ctx, q)
-	if err != nil {
-		return 0, err
-	}
-	return cfg.Resolve(typeID, domainID), nil
-}
-
 // Settler 每分钟扫描一次可结算的小时。
 type Settler struct {
 	Pool *pgxpool.Pool

@@ -7,6 +7,8 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+
+	"github.com/RenJieWeia/iot-admin/internal/staging"
 )
 
 // Publisher 抽象发布动作，测试用假实现记录发布的报文。
@@ -21,22 +23,26 @@ func Topic(domainCode, typeCode, terminalID string) string {
 
 // Item 是实时报文中的数据项。
 type Item struct {
-	Code  string `json:"code"`
-	Value any    `json:"value"`
-	Unit  string `json:"unit"`
-	Time  string `json:"time"`
+	Code        string `json:"code"`
+	Value       any    `json:"value"`
+	Unit        string `json:"unit"`
+	CollectedAt string `json:"collectedAt"`
 }
 
-// Payload 是一条完整消息清洗后的一条实时报文。
+// Payload 是单终端的实时报文（按终端一条，不合并、不按数据项拆分）。
 type Payload struct {
-	TerminalID string `json:"terminalId"`
-	TS         string `json:"ts"`
-	Items      []Item `json:"items"`
+	TerminalID  string `json:"terminalId"`
+	PublishedAt string `json:"publishedAt"`
+	Items       []Item `json:"items"`
 }
 
-// Build 组装实时报文（ts 为平台发布时刻）。
-func Build(terminalID string, ts time.Time, items []Item) ([]byte, error) {
-	return json.Marshal(Payload{TerminalID: terminalID, TS: ts.Format(time.RFC3339Nano), Items: items})
+// Build 组装实时报文（publishedAt 为平台发布时刻，collectedAt 为采集时刻）。
+func Build(terminalID string, publishedAt time.Time, items []Item) ([]byte, error) {
+	return json.Marshal(Payload{
+		TerminalID:  terminalID,
+		PublishedAt: publishedAt.In(staging.Zone).Format(time.RFC3339Nano),
+		Items:       items,
+	})
 }
 
 // MQTT 用 paho 客户端发布。

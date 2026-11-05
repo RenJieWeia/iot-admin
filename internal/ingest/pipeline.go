@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -23,7 +24,7 @@ import (
 // ReasonInternal 表示平台侧故障（DB 不可用等），与数据问题区分。
 const ReasonInternal = "internal_error"
 
-// Processor 执行"校验 -> 清洗 -> 写缓存/暂存 -> 发布实时主题"。
+// Processor 执行"信封校验 -> 逐终端校验/清洗 -> 写缓存/暂存 -> 按终端发布"。
 type Processor struct {
 	DB    *pgxpool.Pool
 	Reg   *validate.Registry
@@ -34,62 +35,109 @@ type Processor struct {
 	Log   *slog.Logger
 }
 
-// Result 是一条消息的处理结局。
+// Result 是单个终端的处理结局（HTTP 响应的 results 项）。
 type Result struct {
-	Accepted  bool   `json:"accepted"`
-	Reason    string `json:"reason,omitempty"`
-	Written   int    `json:"written"`
-	Published bool   `json:"published"`
+	TerminalID   string   `json:"terminalId,omitempty"`
+	Accepted     bool     `json:"accepted"`
+	Reason       string   `json:"reason,omitempty"`
+	MissingCodes []string `json:"missingCodes,omitempty"`
+	Written      int      `json:"written"`
+	Published    bool     `json:"published"`
 }
 
-// Handle 处理一条完整消息。gatewayID 来自 HTTP header 或 MQTT 主题。
-func (p *Processor) Handle(ctx context.Context, gatewayID string, raw []byte) Result {
-	now := p.Now()
-	msg, err := validate.ParseMessage(raw)
-	if err != nil {
-		return p.reject(ctx, exception.MsgIncomplete, "", gatewayID, now, raw, err)
-	}
-	if gatewayID == "" {
-		gatewayID = msg.GatewayID
-	}
-	if msg.GatewayID != gatewayID {
-		return p.reject(ctx, exception.ProtocolError, msg.TerminalID, gatewayID, now, raw,
-			fmt.Errorf("网关标识不一致: 接入=%q 报文=%q", gatewayID, msg.GatewayID))
-	}
-	if item, bad := validate.FindFuture(msg.Items, now); bad {
-		return p.reject(ctx, exception.ProtocolError, msg.TerminalID, gatewayID, now, raw,
-			fmt.Errorf("采集时间超前平台时间 5 分钟以上: %s", item.Code))
-	}
-	p.Log.Debug("接入消息", "messageId", msg.MessageID, "gateway", gatewayID, "terminal", msg.TerminalID)
+// BatchResult 是一批消息的逐终端结果。
+type BatchResult struct {
+	Results []Result `json:"results"`
+}
 
-	term, err := p.Reg.LoadTerminal(ctx, msg.TerminalID)
+// Handle 处理一条 v2 批量消息。返回的 error 只可能是整包级错误（*validate.EnvelopeError）
+// 或平台故障；逐终端拒收体现在 Results 里，不影响同批其他终端。
+func (p *Processor) Handle(ctx context.Context, ingressGateway string, raw []byte) (BatchResult, error) {
+	now := p.Now()
+	env, err := validate.ParseEnvelope(raw)
+	if err != nil {
+		return BatchResult{}, err
+	}
+	ingress := strings.TrimSpace(ingressGateway)
+	if ingress == "" {
+		ingress = env.GatewayID
+	}
+	p.Log.Debug("接入批量消息", "messageId", env.MessageID, "gateway", ingress,
+		"terminals", len(env.Terminals))
+
+	cfg, err := settle.LoadWindowConfig(ctx, p.DB)
+	if err != nil {
+		p.Log.Error("读取结算窗口配置失败", "err", err)
+		return BatchResult{}, fmt.Errorf("读取结算窗口配置: %w", err)
+	}
+
+	out := BatchResult{Results: make([]Result, 0, len(env.Terminals))}
+	for _, tw := range env.Terminals {
+		out.Results = append(out.Results, p.handleTerminal(ctx, env, ingress, tw, now, cfg))
+	}
+	return out, nil
+}
+
+// handleTerminal 处理单个终端；任何失败都只影响本终端。
+func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, ingress string,
+	tw validate.TerminalWire, now time.Time, cfg settle.WindowConfig) Result {
+
+	// 2.1/2.2 结构、value、collectedAt、code 重复、跨度
+	tp, terr := validate.ParseTerminal(tw)
+	if terr != nil {
+		return p.rejectTerminal(ctx, tw.TerminalID, ingress, now, terr, "")
+	}
+	// 2.3 网关三方一致（R9）：接入网关 == 报文 gatewayId == 注册表 gateway_id
+	if ingress != env.GatewayID {
+		return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
+			Reason: validate.ReasonProtocolError,
+			Detail: fmt.Sprintf("网关标识不一致: 接入=%q 报文=%q", ingress, env.GatewayID),
+		}, "")
+	}
+	term, err := p.Reg.LoadTerminal(ctx, tp.TerminalID)
 	if err != nil {
 		if errors.Is(err, validate.ErrTerminalUnknown) {
-			return p.reject(ctx, exception.AuthFailed, msg.TerminalID, gatewayID, now, raw,
-				fmt.Errorf("终端不存在或已停用: %s", msg.TerminalID))
+			return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
+				Reason: validate.ReasonTerminalUnknown,
+				Detail: "终端未注册或已停用: " + tp.TerminalID,
+			}, "")
 		}
-		p.Log.Error("读取终端失败", "terminal", msg.TerminalID, "err", err)
-		return Result{Reason: ReasonInternal}
+		p.Log.Error("读取终端失败", "terminal", tp.TerminalID, "err", err)
+		return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}
 	}
+	if term.GatewayID != ingress {
+		return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
+			Reason: validate.ReasonProtocolError,
+			Detail: fmt.Sprintf("网关标识不一致: 接入=%q 注册=%q", ingress, term.GatewayID),
+		}, "")
+	}
+	if item, bad := validate.FindFuture(tp.Items, now); bad {
+		return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
+			Reason: validate.ReasonProtocolError,
+			Detail: fmt.Sprintf("采集时间超前平台时间 5 分钟以上: %s", item.Code),
+		}, "")
+	}
+	// 2.4 完整消息：required 属性全覆盖
 	props, err := p.Reg.LoadProperties(ctx, term.TypeID)
 	if err != nil {
 		p.Log.Error("读取物模型失败", "type", term.TypeID, "err", err)
-		return Result{Reason: ReasonInternal}
+		return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}
 	}
-	if err := validate.CheckComplete(props, msg.Items); err != nil {
-		return p.reject(ctx, exception.MsgIncomplete, term.ID, gatewayID, now, raw, err)
+	if missing := validate.MissingRequired(props, tp.Items); len(missing) > 0 {
+		return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
+			Reason: validate.ReasonMsgIncomplete,
+			Detail: fmt.Sprintf("required 属性缺失: %v", missing),
+			Codes:  missing,
+		}, "")
 	}
 	rules, err := clean.LoadRules(ctx, p.DB, term.ID)
 	if err != nil {
 		p.Log.Error("读取质量规则失败", "terminal", term.ID, "err", err)
-		return Result{Reason: ReasonInternal}
+		return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}
 	}
-	window, err := settle.WindowSeconds(ctx, p.DB, term.TypeID, term.DomainID)
-	if err != nil {
-		p.Log.Error("读取结算窗口失败", "type", term.TypeID, "err", err)
-		return Result{Reason: ReasonInternal}
-	}
+	window := cfg.Resolve(term.TypeID, term.DomainID)
 
+	// 2.5 逐项清洗
 	propByCode := make(map[string]validate.Property, len(props))
 	for _, pr := range props {
 		propByCode[pr.ItemCode] = pr
@@ -100,7 +148,7 @@ func (p *Processor) Handle(ctx context.Context, gatewayID string, raw []byte) Re
 		violationHours   []time.Time
 		unitUnknownHours []time.Time
 	)
-	for _, item := range msg.Items {
+	for _, item := range tp.Items {
 		pr, ok := propByCode[item.Code]
 		if !ok {
 			unknownCodes = append(unknownCodes, item.Code)
@@ -108,7 +156,11 @@ func (p *Processor) Handle(ctx context.Context, gatewayID string, raw []byte) Re
 		}
 		out, vios, cerr := clean.Item(pr, item)
 		if cerr != nil {
-			return p.reject(ctx, exception.CleanFailed, term.ID, gatewayID, now, raw, cerr)
+			return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
+				Reason: validate.ReasonCleanFailed,
+				Detail: cerr.Error(),
+				Codes:  []string{item.Code},
+			}, "")
 		}
 		if out.UnitUnknown {
 			unitUnknownHours = append(unitUnknownHours, staging.HourStart(out.Time))
@@ -116,53 +168,54 @@ func (p *Processor) Handle(ctx context.Context, gatewayID string, raw []byte) Re
 		vios = append(vios, clean.Check(rules, out)...)
 		if len(vios) > 0 {
 			violationHours = append(violationHours, staging.HourStart(out.Time))
-			p.Log.Info("质量规则命中", "terminal", term.ID, "item", out.Code,
-				"rules", fmt.Sprint(vios))
+			p.Log.Info("质量规则命中", "terminal", term.ID, "item", out.Code, "rules", fmt.Sprint(vios))
 		}
 		cleaned = append(cleaned, out)
 	}
 
-	// 归属小时 + 窗口判定：到达关闭时刻即迟到，不写缓存、不写暂存。
+	// 2.6 归属小时逐项独立判定：到达关闭时刻即迟到
 	var inWindow []clean.Out
 	lateCount := 0
 	for _, o := range cleaned {
 		hour := staging.HourStart(o.Time)
 		if !staging.InWindow(hour, window, now) {
 			lateCount++
-			p.Exc.Event(ctx, exception.LateData, term.ID, gatewayID, hour, 1, string(raw))
+			p.Exc.Event(ctx, exception.LateData, term.ID, ingress, hour, 1,
+				fmt.Sprintf("item=%s collectedAt=%s", o.Code, o.Time.Format(time.RFC3339Nano)))
 			continue
 		}
 		inWindow = append(inWindow, o)
 	}
 
-	var written []clean.Out
+	// 2.7 串行化写入
+	var written, regressed []clean.Out
 	if len(inWindow) > 0 {
-		var regressed []clean.Out
 		var werr error
 		written, regressed, werr = p.write(ctx, term.ID, inWindow)
 		if werr != nil {
 			p.Log.Error("写缓存/暂存失败", "terminal", term.ID, "err", werr)
-			p.Exc.Event(ctx, exception.CacheWriteFailed, term.ID, gatewayID, staging.HourStart(now), 1, werr.Error())
-			return Result{Reason: string(exception.CacheWriteFailed)}
+			p.Exc.Event(ctx, exception.CacheWriteFailed, term.ID, ingress, staging.HourStart(now), 1, werr.Error())
+			return Result{TerminalID: tp.TerminalID, Reason: string(exception.CacheWriteFailed)}
 		}
 		for _, o := range regressed {
-			p.Exc.Event(ctx, exception.ProtocolError, term.ID, gatewayID, staging.HourStart(o.Time), 1,
-				fmt.Sprintf("value_time 回拨不覆盖: item=%s time=%s", o.Code, o.Time.Format(time.RFC3339Nano)))
+			p.Exc.Event(ctx, exception.ProtocolError, term.ID, ingress, staging.HourStart(o.Time), 1,
+				fmt.Sprintf("collectedAt 回拨不覆盖: item=%s collectedAt=%s", o.Code, o.Time.Format(time.RFC3339Nano)))
 		}
 	}
 
-	res := Result{Accepted: true, Written: len(written)}
+	res := Result{TerminalID: tp.TerminalID, Accepted: true, Written: len(written)}
+	// 2.9 按终端发布一条
 	if len(written) > 0 {
-		res.Published = p.publishRealtime(ctx, term, written, gatewayID, now)
+		res.Published = p.publishRealtime(ctx, term, written, ingress, now)
 	}
 	for _, h := range violationHours {
-		p.Exc.Event(ctx, exception.QualityViolation, term.ID, gatewayID, h, 1, "")
+		p.Exc.Event(ctx, exception.QualityViolation, term.ID, ingress, h, 1, "")
 	}
 	for _, h := range unitUnknownHours {
-		p.Exc.Event(ctx, exception.CleanFailed, term.ID, gatewayID, h, 1, "单位不可识别，已透传原单位")
+		p.Exc.Event(ctx, exception.CleanFailed, term.ID, ingress, h, 1, "单位不在换算闭集内，已透传原单位")
 	}
 	if len(unknownCodes) > 0 {
-		p.Exc.Event(ctx, exception.CleanFailed, term.ID, gatewayID, staging.HourStart(now), 1,
+		p.Exc.Event(ctx, exception.CleanFailed, term.ID, ingress, staging.HourStart(now), 1,
 			fmt.Sprintf("物模型未声明的数据项被忽略: %v", unknownCodes))
 	}
 	if res.Written == 0 && len(cleaned) > 0 && lateCount == len(cleaned) {
@@ -211,11 +264,13 @@ func (p *Processor) write(ctx context.Context, terminalID string, outs []clean.O
 	return written, regressed, nil
 }
 
-func (p *Processor) publishRealtime(ctx context.Context, term validate.Terminal, outs []clean.Out, gatewayID string, now time.Time) bool {
+func (p *Processor) publishRealtime(ctx context.Context, term validate.Terminal, outs []clean.Out,
+	gatewayID string, now time.Time) bool {
 	items := make([]publish.Item, 0, len(outs))
 	for _, o := range outs {
 		items = append(items, publish.Item{
-			Code: o.Code, Value: o.Value, Unit: o.Unit, Time: o.Time.Format(time.RFC3339Nano),
+			Code: o.Code, Value: o.Value, Unit: o.Unit,
+			CollectedAt: o.Time.In(staging.Zone).Format(time.RFC3339Nano),
 		})
 	}
 	payload, err := publish.Build(term.ID, now, items)
@@ -232,27 +287,35 @@ func (p *Processor) publishRealtime(ctx context.Context, term validate.Terminal,
 	return true
 }
 
-// reject 拒收并记异常。状态型异常进区间表，事件型进计数表。
-func (p *Processor) reject(ctx context.Context, kind exception.ErrorType, terminalID, gatewayID string,
-	now time.Time, raw []byte, cause error) Result {
-	sample := string(raw)
-	if cause != nil {
-		sample += "\n# " + cause.Error()
+// rejectTerminal 只拒收一个终端并按 reason 记异常（事件型）。
+func (p *Processor) rejectTerminal(ctx context.Context, terminalID, gatewayID string, now time.Time,
+	terr *validate.TerminalError, sample string) Result {
+	kind := eventTypeFor(terr.Reason)
+	detail := terr.Error()
+	if sample != "" {
+		detail += " | " + sample
 	}
-	if kind.IsInterval() {
-		if err := p.Exc.OpenInterval(ctx, kind, terminalID, gatewayID, nil); err != nil {
-			p.Log.Error("记录区间型异常失败", "type", kind, "err", err)
-		}
-	} else {
-		p.Exc.Event(ctx, kind, terminalID, gatewayID, staging.HourStart(now), 1, sample)
+	p.Exc.Event(ctx, kind, terminalID, gatewayID, staging.HourStart(now), 1, detail)
+	p.Log.Info("终端被拒收", "reason", terr.Reason, "terminal", terminalID, "detail", detail)
+	codes := terr.Codes
+	if len(codes) > validate.MaxMissingCodes {
+		codes = codes[:validate.MaxMissingCodes]
 	}
-	p.Log.Info("消息被拒收", "reason", kind, "terminal", terminalID, "detail", errText(cause))
-	return Result{Reason: string(kind)}
+	return Result{TerminalID: terminalID, Reason: terr.Reason, MissingCodes: codes}
 }
 
-func errText(err error) string {
-	if err == nil {
-		return ""
+// eventTypeFor 把逐终端 reason 映射到唯一的事件型枚举。
+func eventTypeFor(reason string) exception.ErrorType {
+	switch reason {
+	case validate.ReasonMsgIncomplete:
+		return exception.MsgIncomplete
+	case validate.ReasonProtocolError:
+		return exception.ProtocolError
+	case validate.ReasonCleanFailed:
+		return exception.CleanFailed
+	case validate.ReasonTerminalUnknown:
+		return exception.TerminalUnknown
+	default:
+		return exception.ProtocolError
 	}
-	return err.Error()
 }
