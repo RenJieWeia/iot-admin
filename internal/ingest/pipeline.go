@@ -65,13 +65,16 @@ func (p *Processor) Handle(ctx context.Context, ingressGateway string, raw []byt
 	p.Log.Debug("接入批量消息", "messageId", env.MessageID, "gateway", ingress,
 		"terminals", len(env.Terminals))
 
+	out := BatchResult{Results: make([]Result, 0, len(env.Terminals))}
 	cfg, err := settle.LoadWindowConfig(ctx, p.DB)
 	if err != nil {
+		// 平台侧故障：逐终端标 internal_error，由 HTTP 层整包 503（不记数据类异常）。
 		p.Log.Error("读取结算窗口配置失败", "err", err)
-		return BatchResult{}, fmt.Errorf("读取结算窗口配置: %w", err)
+		for _, tw := range env.Terminals {
+			out.Results = append(out.Results, Result{TerminalID: tw.TerminalID, Reason: ReasonInternal})
+		}
+		return out, nil
 	}
-
-	out := BatchResult{Results: make([]Result, 0, len(env.Terminals))}
 	for _, tw := range env.Terminals {
 		out.Results = append(out.Results, p.handleTerminal(ctx, env, ingress, tw, now, cfg))
 	}

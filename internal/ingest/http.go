@@ -67,6 +67,17 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, Response{Code: http.StatusInternalServerError, Message: ReasonInternal})
 		return
 	}
+	// 平台侧故障（DB 不可用等）与数据问题必须区分：网关把 accepted:false 当成数据坏，
+	// 不会重传；这里整包给 503，body 仍带完整 results，调用方可据此判断哪些终端已成功。
+	// 整包重试是安全的：不做幂等，但 value_time 相等时不覆盖；重复发布实时消息属已允许行为。
+	for _, r := range res.Results {
+		if r.Reason == ReasonInternal {
+			writeJSON(w, http.StatusServiceUnavailable, Response{
+				Code: http.StatusServiceUnavailable, Message: ReasonInternal, Data: res,
+			})
+			return
+		}
+	}
 	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: res})
 }
 
