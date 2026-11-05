@@ -1,0 +1,22 @@
+{
+  "rules": {
+    "color-no-invalid-hex": true,
+    "color-no-hex": true,
+    "color-named": "never",
+    "declaration-block-no-duplicate-properties": true,
+    "declaration-no-important": true,
+    "function-disallowed-list": ["rgb", "rgba", "hsl", "hsla"],
+    "selector-pseudo-class-no-unknown": [true, { "ignorePseudoClasses": ["global", "local"] }],
+    "no-descending-specificity": null
+  },
+  "overrides": [
+    {
+      "files": ["src/styles/tokens.css"],
+      "rules": {
+        "color-no-hex": null,
+        "color-named": null,
+        "function-disallowed-list": null
+      }
+    }
+  ]
+}
