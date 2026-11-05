@@ -41,9 +41,19 @@ var Entities = []Entity{
 // API 是管理接口集合。
 type API struct {
 	Pool *pgxpool.Pool
+	// Invalidate 在 create/update/delete 成功后调用，用于失效进程内元数据缓存。
+	// 列表与详情是只读操作，不失效。为 nil 时忽略（无缓存装配的调用方不受影响）。
+	Invalidate func()
 }
 
 func New(pool *pgxpool.Pool) *API { return &API{Pool: pool} }
+
+// invalidate 安全调用失效钩子。
+func (a *API) invalidate() {
+	if a.Invalidate != nil {
+		a.Invalidate()
+	}
+}
 
 // Response 是统一返回结构。
 type Response struct {
@@ -142,6 +152,7 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		writeDBError(w, err)
 		return
 	}
+	a.invalidate()
 	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: row})
 }
 
@@ -180,6 +191,7 @@ func (a *API) update(w http.ResponseWriter, r *http.Request) {
 		writeDBError(w, err)
 		return
 	}
+	a.invalidate()
 	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: row})
 }
 
@@ -198,6 +210,7 @@ func (a *API) delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
 	}
+	a.invalidate()
 	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: map[string]any{"deleted": true}})
 }
 

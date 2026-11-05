@@ -77,9 +77,13 @@ func run(log *slog.Logger) error {
 	settler := settle.New(pool, rec, now, log)
 	go settler.Loop(ctx, time.Minute)
 
+	adminAPI := admin.New(pool)
+	// 元数据写入成功后失效进程内缓存，下一条消息立即使用新定义。
+	adminAPI.Invalidate = proc.Meta.Flush
+
 	mux := http.NewServeMux()
 	mux.Handle("POST /ingest/v1/messages", &ingest.HTTPHandler{P: proc})
-	mux.Handle("/admin/v1/", admin.WithAuth(nil, admin.New(pool).Handler()))
+	mux.Handle("/admin/v1/", admin.WithAuth(nil, adminAPI.Handler()))
 
 	addr := env("IOT_LISTEN", "127.0.0.1:8080")
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
