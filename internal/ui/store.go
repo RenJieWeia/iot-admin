@@ -88,16 +88,13 @@ func (s *PoolSource) Create(ctx context.Context, entity string, form url.Values)
 	for i := range cols {
 		placeholders[i] = fmt.Sprintf("$%d%s", i+1, casts[i])
 	}
-	var raw string
-	if err := s.Pool.QueryRow(ctx, fmt.Sprintf("select row_to_json(t)::text from (insert into %s (%s) values (%s) returning *) t",
-		e.Table, strings.Join(cols, ", "), strings.Join(placeholders, ", ")), args...).Scan(&raw); err != nil {
+	// INSERT 不能放进子查询，直接 RETURNING id；bigint 与 text 主键统一转成文本。
+	var id string
+	if err := s.Pool.QueryRow(ctx, fmt.Sprintf("insert into %s (%s) values (%s) returning id::text",
+		e.Table, strings.Join(cols, ", "), strings.Join(placeholders, ", ")), args...).Scan(&id); err != nil {
 		return "", err
 	}
-	var row map[string]any
-	if err := json.Unmarshal([]byte(raw), &row); err != nil {
-		return "", err
-	}
-	return fmt.Sprint(row["id"]), nil
+	return id, nil
 }
 
 // Update 更新白名单列；受影响行数为 0 视为不存在。

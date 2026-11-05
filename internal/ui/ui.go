@@ -4,6 +4,7 @@ package ui
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"log/slog"
@@ -71,6 +72,9 @@ func (h *Handler) Handler() http.Handler {
 	})
 	mux.Handle("GET /ui/static/", h.static)
 	mux.HandleFunc("GET /ui/{entity}", h.list)
+	mux.HandleFunc("POST /ui/{entity}", h.create)
+	mux.HandleFunc("POST /ui/{entity}/{id}", h.update)
+	mux.HandleFunc("POST /ui/{entity}/{id}/delete", h.delete)
 	return mux
 }
 
@@ -155,6 +159,7 @@ type drawerData struct {
 	Entity    string
 	Action    string
 	CloseURL  string
+	ReturnTo  string
 	Forms     []formField
 	Error     string
 	CanDelete bool
@@ -203,8 +208,9 @@ type pageData struct {
 	StateAction    string
 	StateActionURL string
 
-	CanWrite bool
-	Now      string
+	CanWrite   bool
+	CurrentURL string
+	Now        string
 }
 
 // ---------- 列表 ----------
@@ -246,6 +252,7 @@ func (h *Handler) buildPage(r *http.Request, e admin.Entity, qs admin.QueryState
 		CanWrite:    writable,
 		Now:         h.now().Format("2006-01-02 15:04:05 -07:00"),
 		BaseURL:     "/ui/" + e.Name,
+		CurrentURL:  withQuery("/ui/"+e.Name, withoutDrawer(raw)),
 	}
 	page.Fields = admin.VisibleFields(e.Name)
 
@@ -634,6 +641,7 @@ func (h *Handler) buildDrawer(r *http.Request, e admin.Entity, rawID string, rel
 	d := &drawerData{
 		Entity:   e.Name,
 		CloseURL: closeURL(e.Name, rawID),
+		ReturnTo: withQuery("/ui/"+e.Name, withoutDrawer(r.URL.Query())),
 	}
 	fields := formFields(e.Name)
 	row := map[string]any{}
@@ -722,4 +730,127 @@ func asQueryError(err error, target **admin.QueryError) bool {
 		*target = qe
 	}
 	return ok
+}
+
+func withoutDrawer(raw url.Values) url.Values {
+	v := cloneValues(raw)
+	v.Del("drawer")
+	v.Del("flash")
+	v.Del("flashText")
+	return v
+}
+
+// ---------- 写操作 ----------
+
+type writeResponse struct {
+	OK       bool   `json:"ok"`
+	Message  string `json:"message,omitempty"`
+	Redirect string `json:"redirect,omitempty"`
+}
+
+func wantsJSON(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "application/json")
+}
+
+// returnTo 只接受站内的列表地址，避免把跳转目标交给请求方。
+func returnTo(r *http.Request, entity string) string {
+	raw := strings.TrimSpace(r.PostFormValue("returnTo"))
+	if strings.HasPrefix(raw, "/ui/"+entity) {
+		return raw
+	}
+	return "/ui/" + entity
+}
+
+func withFlash(rawURL, kind, text string) string {
+	sep := "?"
+	if strings.Contains(rawURL, "?") {
+		sep = "&"
+	}
+	return rawURL + sep + url.Values{"flash": {kind}, "flashText": {text}}.Encode()
+}
+
+// finishWrite 统一两种响应：JSON（前端就地刷新）与 303 跳转（无 JS 时的整页回跳）。
+func (h *Handler) finishWrite(w http.ResponseWriter, r *http.Request, entity, back, okText string, err error) {
+	if err != nil {
+		h.log.Warn("写操作失败", "entity", entity, "err", err)
+		if wantsJSON(r) {
+			w.Header().Set("Content-Type", "application/json; charset=utf-8")
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(writeResponse{OK: false, Message: "保存失败：" + err.Error()})
+			return
+		}
+		http.Redirect(w, r, withFlash(back, "error", "操作失败："+err.Error()), http.StatusSeeOther)
+		return
+	}
+	redirect := withFlash(back, "ok", okText)
+	if wantsJSON(r) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(writeResponse{OK: true, Message: okText, Redirect: redirect})
+		return
+	}
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
+}
+
+// parseForm 限制请求体大小并解析表单。
+func (h *Handler) parseForm(w http.ResponseWriter, r *http.Request) error {
+	r.Body = http.MaxBytesReader(w, r.Body, 1<<20)
+	return r.ParseForm()
+}
+
+func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
+	e, ok := entityByName(r.PathValue("entity"))
+	if !ok {
+		h.renderError(w, r, http.StatusNotFound, "页面不存在", "地址里的实体名不是已知的数据源。")
+		return
+	}
+	m, ok := h.source.(mutator)
+	if !ok {
+		h.renderError(w, r, http.StatusMethodNotAllowed, "只读模式", "当前装配的数据源不接受写入。")
+		return
+	}
+	if err := h.parseForm(w, r); err != nil {
+		h.finishWrite(w, r, e.Name, "/ui/"+e.Name, "", err)
+		return
+	}
+	id, err := m.Create(r.Context(), e.Name, r.PostForm)
+	_ = id
+	h.finishWrite(w, r, e.Name, returnTo(r, e.Name), "已创建"+entityLabels[e.Name], err)
+}
+
+func (h *Handler) update(w http.ResponseWriter, r *http.Request) {
+	e, ok := entityByName(r.PathValue("entity"))
+	if !ok {
+		h.renderError(w, r, http.StatusNotFound, "页面不存在", "地址里的实体名不是已知的数据源。")
+		return
+	}
+	m, ok := h.source.(mutator)
+	if !ok {
+		h.renderError(w, r, http.StatusMethodNotAllowed, "只读模式", "当前装配的数据源不接受写入。")
+		return
+	}
+	if err := h.parseForm(w, r); err != nil {
+		h.finishWrite(w, r, e.Name, returnTo(r, e.Name), "", err)
+		return
+	}
+	err := m.Update(r.Context(), e.Name, r.PathValue("id"), r.PostForm)
+	h.finishWrite(w, r, e.Name, returnTo(r, e.Name), "已保存"+entityLabels[e.Name], err)
+}
+
+func (h *Handler) delete(w http.ResponseWriter, r *http.Request) {
+	e, ok := entityByName(r.PathValue("entity"))
+	if !ok {
+		h.renderError(w, r, http.StatusNotFound, "页面不存在", "地址里的实体名不是已知的数据源。")
+		return
+	}
+	m, ok := h.source.(mutator)
+	if !ok {
+		h.renderError(w, r, http.StatusMethodNotAllowed, "只读模式", "当前装配的数据源不接受写入。")
+		return
+	}
+	if err := h.parseForm(w, r); err != nil {
+		h.finishWrite(w, r, e.Name, returnTo(r, e.Name), "", err)
+		return
+	}
+	err := m.Delete(r.Context(), e.Name, r.PathValue("id"))
+	h.finishWrite(w, r, e.Name, returnTo(r, e.Name), "已删除"+entityLabels[e.Name], err)
 }

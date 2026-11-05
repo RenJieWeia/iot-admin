@@ -118,7 +118,7 @@
       {{- range .Rows}}
       <tr>
         {{- range .Cells}}
-        <td><span class="cell {{.Kind}} tone-{{.Tone}}" title="{{.Full}}">{{.Text}}</span></td>
+        <td><span class="cell {{.Kind}}{{if .Tone}} tone-{{.Tone}}{{end}}" title="{{.Full}}">{{.Text}}</span></td>
         {{- end}}
         {{- if $.CanWrite}}
         <td class="row-actions">
@@ -170,6 +170,7 @@
   <p class="error-text" role="alert">{{.Error}}</p>
   {{- end}}
   <form class="drawer-form" id="drawer-form" method="post" action="{{.Action}}">
+    <input type="hidden" name="returnTo" value="{{.ReturnTo}}">
     <div class="drawer-body">
       {{- range .Forms}}{{template "formField" .}}{{end}}
     </div>
@@ -214,6 +215,7 @@
   <h2 id="delete-title">确认删除</h2>
   <p class="dialog-text">删除后不可恢复。确定删除这一行吗？</p>
   <form method="post" id="delete-form" action="">
+    <input type="hidden" name="returnTo" value="{{$.CurrentURL}}">
     <footer class="dialog-foot">
       <button type="button" class="btn" id="delete-cancel">取消</button>
       <button type="submit" class="btn danger">删除</button>
