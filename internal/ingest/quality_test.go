@@ -1,6 +1,7 @@
 package ingest_test
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -22,6 +23,10 @@ func TestQualityRuleViolationStillPersisted(t *testing.T) {
 	e.requireLatestNum(testTerminalID, "temp", 150.0)
 	if n := e.eventCount(testTerminalID, exception.QualityViolation, hour); n != 1 {
 		t.Fatalf("quality_violation 计数 = %d，期望 1", n)
+	}
+	// T6：来源标记必须写进摘要
+	if digest := e.digestOf(testTerminalID, exception.QualityViolation); !bytes.Contains([]byte(digest), []byte("source=rule")) {
+		t.Fatalf("质量规则命中的摘要应带 source=rule，实际 %q", digest)
 	}
 	e.clock.Set(closeOf(hour))
 	if _, err := e.settler.Run(context.Background()); err != nil {
@@ -80,5 +85,28 @@ func TestUnitConversionClosedSet(t *testing.T) {
 	}
 	if n := e.eventCount(testTerminalID, exception.CleanFailed, hourOf(at.Add(time.Minute))); n != 1 {
 		t.Fatalf("clean_failed 计数 = %d，期望 1", n)
+	}
+}
+
+// T6：物模型 min/max 越界的摘要带 source=thing_model，与规则命中区分。
+func TestQualityViolationMarksThingModelSource(t *testing.T) {
+	e := newEnv(t)
+	if _, err := e.pool.Exec(context.Background(), `
+		update thing_model_property set min_value = 0, max_value = 100
+		where type_id = $1 and item_code = 'temp'`, e.typeID); err != nil {
+		t.Fatalf("设置物模型边界: %v", err)
+	}
+	at := baseTime.Add(5 * time.Minute)
+	res := e.handle(single(testTerminalID,
+		it("temp", 150.0, "C", at), it("power", 1.0, "kW", at)))
+	if r := resultOf(t, res, testTerminalID); !r.Accepted {
+		t.Fatalf("物模型越界不得拒收: %+v", r)
+	}
+	digest := e.digestOf(testTerminalID, exception.QualityViolation)
+	if !bytes.Contains([]byte(digest), []byte("source=thing_model")) {
+		t.Fatalf("物模型越界的摘要应带 source=thing_model，实际 %q", digest)
+	}
+	if bytes.Contains([]byte(digest), []byte("source=rule")) {
+		t.Fatalf("不应出现规则来源标记，实际 %q", digest)
 	}
 }
