@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -213,9 +214,12 @@ func TestExceptionRowsWithDB(t *testing.T) {
 	if err := store.Migrate(ctx, pool, migrations.FS); err != nil {
 		t.Fatalf("执行迁移: %v", err)
 	}
+	// 每次运行用独立的终端前缀：同一 DSN 上并行跑同一用例（另一个进程/worktree）互不删数据。
+	prefix := fmt.Sprintf("qtest-ex-%d-", os.Getpid())
+	termA, termB := prefix+"a", prefix+"b"
 	cleanup := func() {
-		_, _ = pool.Exec(ctx, `delete from exception_count where terminal_id like 'qtest-ex%'`)
-		_, _ = pool.Exec(ctx, `delete from exception_interval where terminal_id like 'qtest-ex%'`)
+		_, _ = pool.Exec(ctx, `delete from exception_count where terminal_id like $1`, prefix+"%")
+		_, _ = pool.Exec(ctx, `delete from exception_interval where terminal_id like $1`, prefix+"%")
 	}
 	cleanup()
 	t.Cleanup(cleanup)
@@ -224,9 +228,9 @@ func TestExceptionRowsWithDB(t *testing.T) {
 		terminal, gateway, hour, kind string
 		count                         int
 	}{
-		{"qtest-ex-a", "GWX", "2026-01-01T00:00:00Z", "upload_timeout", 1},
-		{"qtest-ex-a", "GWX", "2026-01-01T01:00:00Z", "upload_timeout", 3},
-		{"qtest-ex-b", "GWX", "2026-01-01T00:00:00Z", "protocol_error", 2},
+		{termA, "GWX", "2026-01-01T00:00:00Z", "upload_timeout", 1},
+		{termA, "GWX", "2026-01-01T01:00:00Z", "upload_timeout", 3},
+		{termB, "GWX", "2026-01-01T00:00:00Z", "protocol_error", 2},
 	}
 	for _, r := range countRows {
 		if _, err := pool.Exec(ctx,
@@ -240,9 +244,9 @@ func TestExceptionRowsWithDB(t *testing.T) {
 		terminal, item, kind, period string
 		raw                          int
 	}{
-		{"qtest-ex-a", "", "gateway_disconnected",
+		{termA, "", "gateway_disconnected",
 			"[2026-01-01 00:00:00+00,2026-01-01 01:00:00+00)", 5},
-		{"qtest-ex-a", "item-x", "item_silent",
+		{termA, "item-x", "item_silent",
 			"[2026-01-02 00:00:00+00,2026-01-02 01:00:00+00)", 7},
 	}
 	for _, r := range intervalRows {
@@ -277,9 +281,9 @@ func TestExceptionRowsWithDB(t *testing.T) {
 	}
 
 	// 1) 按终端筛选 + 时间升序：两行，首行 count=1。
-	data, meta := fetch("/admin/v1/exceptions/events?filter.terminal_id.eq=qtest-ex-a&sort=hour_start&order=asc")
+	data, meta := fetch("/admin/v1/exceptions/events?filter.terminal_id.eq=" + termA + "&sort=hour_start&order=asc")
 	if meta.Total != 2 || len(data) != 2 {
-		t.Fatalf("filter.terminal_id=qtest-ex-a → total=%d rows=%d，期望 2/2", meta.Total, len(data))
+		t.Fatalf("filter.terminal_id=%s → total=%d rows=%d，期望 2/2", termA, meta.Total, len(data))
 	}
 	if got, _ := data[0]["count"].(float64); got != 1 {
 		t.Fatalf("首行 count = %v，期望 1", data[0]["count"])
@@ -298,7 +302,7 @@ func TestExceptionRowsWithDB(t *testing.T) {
 	}
 
 	// 2) 按 count 倒序 + 分页：第 2 页只剩一行。
-	data, meta = fetch("/admin/v1/exceptions/events?filter.terminal_id.eq=qtest-ex-a&sort=count&order=desc&page=2&pageSize=1")
+	data, meta = fetch("/admin/v1/exceptions/events?filter.terminal_id.eq=" + termA + "&sort=count&order=desc&page=2&pageSize=1")
 	if meta.Total != 2 || len(data) != 1 {
 		t.Fatalf("第 2 页 total=%d rows=%d，期望 2/1", meta.Total, len(data))
 	}
@@ -306,8 +310,8 @@ func TestExceptionRowsWithDB(t *testing.T) {
 		t.Fatalf("第 2 页 count = %v，期望 1", data[0]["count"])
 	}
 
-	// 3) 枚举 in 筛选命中另一终端。
-	data, meta = fetch("/admin/v1/exceptions/events?filter.error_type=protocol_error")
+	// 3) 枚举 in 筛选命中另一终端（同时用本次运行的前缀限域，避免并行运行互相看见）。
+	data, meta = fetch("/admin/v1/exceptions/events?filter.terminal_id.eq=" + termB + "&filter.error_type=protocol_error")
 	if meta.Total != 1 || len(data) != 1 {
 		t.Fatalf("filter.error_type=protocol_error → total=%d rows=%d，期望 1/1", meta.Total, len(data))
 	}
@@ -316,7 +320,7 @@ func TestExceptionRowsWithDB(t *testing.T) {
 	}
 
 	// 4) 异常区间：period 以 text 展示，默认 id desc。
-	data, meta = fetch("/admin/v1/exceptions/intervals?filter.terminal_id.eq=qtest-ex-a")
+	data, meta = fetch("/admin/v1/exceptions/intervals?filter.terminal_id.eq=" + termA)
 	if meta.Total != 2 || len(data) != 2 {
 		t.Fatalf("intervals total=%d rows=%d，期望 2/2", meta.Total, len(data))
 	}
@@ -342,7 +346,7 @@ func TestExceptionRowsWithDB(t *testing.T) {
 	}
 
 	// 5) 超出范围：空页但 total 正确。
-	data, meta = fetch("/admin/v1/exceptions/intervals?filter.terminal_id.eq=qtest-ex-a&page=9")
+	data, meta = fetch("/admin/v1/exceptions/intervals?filter.terminal_id.eq=" + termA + "&page=9")
 	if meta.Total != 2 || len(data) != 0 {
 		t.Fatalf("超范围页 total=%d rows=%d，期望 2/0", meta.Total, len(data))
 	}
