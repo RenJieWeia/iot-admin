@@ -15,7 +15,8 @@
 | `internal/settle/` | 窗口配置（单一实现）、每分钟结算、月度分区维护 |
 | `internal/exception/` | 两张异常表 + 唯一 error_type 枚举 + 网关维度断连区间 |
 | `internal/meta/` | 四类元数据（终端/物模型/质量规则/结算窗口）进程内缓存 + 写时失效 |
-| `internal/admin/` | 6 个数据源实体 CRUD、统一返回结构、鉴权占位 |
+| `internal/ui/` | 管理后台 SSR（`html/template` + `embed`）：6 实体列表/抽屉增删改 + 异常表只读页 |
+| `internal/admin/` | 6 个数据源实体 CRUD、统一返回结构、鉴权占位、字段元数据与 QueryState 查询 |
 | `internal/store/` | 连接池、迁移执行、按终端分片写锁 |
 | `migrations/` | 0001 数据源 / 0002 运行时 / 0003 异常 / **0004 terminal_unknown** |
 | `configs/` | 默认配置样例（无凭据、无业务参数） |
@@ -25,7 +26,8 @@
 - `POST /ingest/v1/messages`（Header `X-Gateway-Id`）：整包级错误 400（`invalid_json` / `terminals_invalid` / `unsupported_version` / `gateway_id_missing` / `body_too_large`），其余一律 200 + 逐终端 `results`
 - MQTT 接入 `iot/ingest/{gateway_id}`，QoS 1，与 HTTP 同一 `Processor`
 - MQTT 发布 `iot/realtime/{domain_code}/{type_code}/{terminal_id}`，QoS 1，retain=false，按终端一条
-- 管理 API `/admin/v1/{data-domains,device-types,thing-model-properties,terminals,quality-rules,settle-configs}`，统一 `{code,message,data}`
+- 管理 API `/admin/v1/{data-domains,device-types,thing-model-properties,terminals,quality-rules,settle-configs}`，统一 `{code,message,data}`；列表支持 `q/sort/order/page/pageSize/filter.<col>[.<op>]` 并返回 `meta{total,page,pageSize,sort,order}`（`limit/offset` 兼容）
+- 管理后台 UI `/ui/{entity}`（6 实体）、`/ui/exceptions/{events,intervals}`（只读）、`/ui/static/*`；`/` 与 `/ui/` 重定向到列表
 
 ## 二、v2 契约要点
 
@@ -151,3 +153,18 @@ IOT_TEST_DSN=... IOT_CAPACITY=1 go test ./internal/ingest -run TestCapacity -v
 4. 管理 API 权限、审计与操作日志（本期占位）。
 5. 大小时结算改 COPY/分片提交。
 6. 端到端容量：补 `fsync=on` 真实磁盘 + BroMQ 发布链路的联合压测。
+
+## 七、管理后台 UI（rv-05）
+
+| 项 | 口径 |
+| --- | --- |
+| 交付形态 | 单二进制：`html/template` + `go:embed` + 原生 JS，无构建链、无 npm、无 CDN、`go.mod` 不变（R-008） |
+| 页面范围 | 6 个数据源实体（列表 + 侧滑抽屉增删改）+ 异常事件/异常区间只读页（R-009）；运行态看板不做 |
+| 查询 | 关键词/筛选/排序/分页全部服务端执行，复用 `admin.QueryState`；URL 是唯一查询事实源，刷新/返回不丢状态（R-010） |
+| 字段元数据 | `internal/admin/fields.go`：`Key/Label/Type/Visible/Sortable/Filterable/FilterType/Operators/Options/OptionsSource/AdvancedOnly/WidthStrategy`；页面控件、SQL 白名单、排序/筛选能力、枚举中文标签与状态颜色全部由它派生 |
+| 筛选区 | 常驻筛选 ≤5，其余进「更多筛选」；已生效条件始终以标签外显，可单删/全清 |
+| 排序/分页 | 排序白名单 + 默认 `id desc` + 唯一 tie-breaker；每页 10/20/50，上限 50；条件或 pageSize 变化回第一页；超范围返回空页并提示修正 |
+| 空/无匹配/失败 | 三态文案互不相同，失败态含原因与重试入口 |
+| 令牌 | 颜色/间距/字号/圆角/行高集中在 `internal/ui/static/app.css` 的 `:root`；`lint_test.go` 断言 `:root` 之外无颜色字面量、间距为 4 的倍数 |
+| 可访问性 | `<table>` + `scope`、`<label for>`、抽屉 `role="dialog" aria-modal="true"` + Esc 关闭 + 焦点回触发元素、状态文字+颜色双载体 |
+| 非目标 | 批量选择/导出/列偏好持久化/SSE/图表/i18n/深色主题/登录页/移动端专项（R-013） |

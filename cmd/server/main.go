@@ -82,11 +82,8 @@ func run(log *slog.Logger) error {
 	// 元数据写入成功后失效进程内缓存，下一条消息立即使用新定义。
 	adminAPI.Invalidate = proc.Meta.Flush
 
-	mux := http.NewServeMux()
-	mux.Handle("POST /ingest/v1/messages", &ingest.HTTPHandler{P: proc})
-	mux.Handle("/admin/v1/", admin.WithAuth(nil, adminAPI.Handler()))
 	// 管理后台 UI：模板与静态资源走 embed，单二进制交付（R-008）。
-	mux.Handle("/ui/", ui.NewWithPool(pool, log, now).Handler())
+	mux := newMux(proc, admin.WithAuth(nil, adminAPI.Handler()), ui.NewWithPool(pool, log, now).Handler())
 
 	addr := env("IOT_LISTEN", "127.0.0.1:8080")
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
@@ -101,6 +98,19 @@ func run(log *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// newMux 汇总全部对外路由；抽出来便于用例断言路径与重定向。
+func newMux(proc *ingest.Processor, adminHandler, uiHandler http.Handler) http.Handler {
+	mux := http.NewServeMux()
+	mux.Handle("POST /ingest/v1/messages", &ingest.HTTPHandler{P: proc})
+	mux.Handle("/admin/v1/", adminHandler)
+	mux.Handle("/ui/", uiHandler)
+	// 根路径直接进管理后台；接入与管理 API 仍走各自的明确路径。
+	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/ui/", http.StatusFound)
+	})
+	return mux
 }
 
 // connectMQTT 连接 BroMQ（独立进程）。接入凭证由 Broker 管理，平台只透传。
