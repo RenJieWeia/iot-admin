@@ -82,11 +82,15 @@ func run(log *slog.Logger) error {
 	// 元数据写入成功后失效进程内缓存，下一条消息立即使用新定义。
 	adminAPI.Invalidate = proc.Meta.Flush
 
-	// 管理后台 UI：模板与静态资源走 embed，单二进制交付（R-008）。
-	mux := newMux(proc, admin.WithAuth(nil, adminAPI.Handler()), ui.NewWithPool(pool, log, now).Handler())
+	// 管理后台 UI：React SPA 产物走 embed，单二进制交付（R-015/R-016），不再渲染 HTML。
+	mux := newMux(proc, admin.WithAuth(nil, adminAPI.Handler()), ui.Handler())
 
 	addr := env("IOT_LISTEN", "127.0.0.1:8080")
-	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{
+		Addr:              addr,
+		Handler:           withSecurityHeaders(mux),
+		ReadHeaderTimeout: 10 * time.Second,
+	}
 	go func() {
 		log.Info("HTTP 监听", "addr", addr)
 		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -100,12 +104,26 @@ func run(log *slog.Logger) error {
 	return srv.Shutdown(shutdownCtx)
 }
 
+// withSecurityHeaders 给所有响应加安全头：管理面同源部署，CSP 不允许任何外源脚本/样式/连接。
+// 前端产物没有内联脚本与内联样式，因此 default-src 'self' 即可生效。
+func withSecurityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy",
+			"default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "same-origin")
+		next.ServeHTTP(w, r)
+	})
+}
+
 // newMux 汇总全部对外路由；抽出来便于用例断言路径与重定向。
 func newMux(proc *ingest.Processor, adminHandler, uiHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("POST /ingest/v1/messages", &ingest.HTTPHandler{P: proc})
 	mux.Handle("/admin/v1/", adminHandler)
-	mux.Handle("/ui/", uiHandler)
+	// SPA 处理器只看 /ui 之后的路径，前缀在这里剥掉，处理器本身与挂载点解耦。
+	mux.Handle("/ui/", http.StripPrefix("/ui", uiHandler))
 	// 根路径直接进管理后台；接入与管理 API 仍走各自的明确路径。
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/ui/", http.StatusFound)
