@@ -13,7 +13,6 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
-	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/RenJieWeia/iot-admin/internal/admin"
 	"github.com/RenJieWeia/iot-admin/internal/exception"
@@ -56,7 +55,7 @@ func run(log *slog.Logger) error {
 		return err
 	}
 
-	client, err := connectMQTT(log, rec, pool)
+	client, err := connectMQTT(log)
 	if err != nil {
 		return err
 	}
@@ -98,8 +97,10 @@ func run(log *slog.Logger) error {
 }
 
 // connectMQTT 连接 BroMQ（独立进程）。接入凭证由 Broker 管理，平台只透传。
-// 断连/重连时按网关维度写、关 exception_interval 的 gateway_disconnected 区间。
-func connectMQTT(log *slog.Logger, rec *exception.Recorder, pool *pgxpool.Pool) (mqtt.Client, error) {
+// 注意：本连接是"平台 -> Broker"的客户端连接，它与"网关是否在线"无关。
+// 平台侧连接抖动不得记为网关断连（会为所有网关产生假区间），故两个回调只打日志；
+// 真正的网关断连需要 Broker 侧事件（client tracking / 遗嘱消息），随 Broker 集成排期。
+func connectMQTT(log *slog.Logger) (mqtt.Client, error) {
 	opts := mqtt.NewClientOptions().
 		AddBroker(env("IOT_MQTT_URL", "tcp://127.0.0.1:1883")).
 		SetClientID(env("IOT_MQTT_CLIENT_ID", "iot-admin")).
@@ -113,22 +114,8 @@ func connectMQTT(log *slog.Logger, rec *exception.Recorder, pool *pgxpool.Pool) 
 	if p := env("IOT_MQTT_PASSWORD", ""); p != "" {
 		opts.SetPassword(p)
 	}
-	opts.SetOnConnectHandler(func(mqtt.Client) {
-		log.Info("MQTT 已连接")
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if err := rec.MarkGatewaysConnected(ctx); err != nil {
-			log.Error("关闭网关断连区间失败", "err", err)
-		}
-	})
-	opts.SetConnectionLostHandler(func(_ mqtt.Client, err error) {
-		log.Warn("MQTT 连接断开", "err", err)
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		if merr := rec.MarkGatewaysDisconnected(ctx, pool); merr != nil {
-			log.Error("记录网关断连异常失败", "err", merr)
-		}
-	})
+	opts.SetOnConnectHandler(func(mqtt.Client) { log.Info("MQTT 已连接") })
+	opts.SetConnectionLostHandler(func(_ mqtt.Client, err error) { log.Warn("MQTT 连接断开", "err", err) })
 
 	client := mqtt.NewClient(opts)
 	tok := client.Connect()
