@@ -1,6 +1,7 @@
 package clean
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -104,6 +105,9 @@ func Check(rules map[string][]Rule, out Out) []Violation {
 }
 
 func parseNumber(raw json.RawMessage) (float64, error) {
+	if len(bytes.TrimSpace(raw)) == 0 || string(bytes.TrimSpace(raw)) == "null" {
+		return 0, errors.New("值为 null")
+	}
 	var f float64
 	if err := json.Unmarshal(raw, &f); err == nil {
 		if math.IsNaN(f) || math.IsInf(f, 0) {
