@@ -1,0 +1,49 @@
+/* 设计令牌：颜色/间距/字号/圆角/行高只在这里出现，其余样式一律引用变量。
+   迁移自 SSR 版 internal/ui/static/app.css 的 :root（R-017 删除 SSR 资产后这里是唯一来源）。
+   stylelint 规则：tokens.css 之外禁止颜色字面量；间距只允许 4px 网格（见 src/styles/tokens.test.ts）。 */
+:root {
+  --color-bg: #f5f6f8;
+  --color-surface: #ffffff;
+  --color-text: #1f2328;
+  --color-muted: #5b6472;
+  --color-border: #d8dee6;
+  --color-primary: #1a56db;
+  --color-primary-hover: #1746b0;
+  --color-on-primary: #ffffff;
+  --color-positive-bg: #e6f4ea;
+  --color-positive-text: #116329;
+  --color-negative-bg: #fde7e9;
+  --color-negative-text: #a40e26;
+  --color-warning-bg: #fff4e5;
+  --color-warning-text: #8a4b08;
+  --color-neutral-bg: #eef1f5;
+  --color-neutral-text: #39424f;
+  --color-skeleton: #e7eaef;
+  --color-overlay: rgba(20, 24, 31, 0.45);
+
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  --font-sm: 12px;
+  --font-md: 14px;
+  --font-lg: 16px;
+  --font-xl: 20px;
+  --line-md: 20px;
+  --line-lg: 24px;
+  --font-mono: "SFMono-Regular", "Menlo", "Consolas", monospace;
+
+  --radius-sm: 4px;
+  --radius-md: 8px;
+  --row-height: 48px;
+  --nav-width: 200px;
+  --control-height: 36px;
+  --touch-target: 44px;
+  --drawer-width: 480px;
+  --z-drawer: 40;
+  --z-toast: 60;
+}
