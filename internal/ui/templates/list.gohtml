@@ -1,0 +1,223 @@
+{{define "list"}}{{template "head" .}}
+<div id="list-region">
+  {{- template "listRegion" .}}
+</div>
+{{template "drawer" .}}
+{{template "deleteDialog" .}}
+{{template "foot" .}}{{end}}
+
+{{define "listRegion"}}
+{{template "flash" .}}
+<section class="filters" aria-label="搜索与筛选">
+  {{template "filterForm" .}}
+  {{- if .Tags}}
+  <ul class="tags" aria-label="已生效筛选条件">
+    {{- range .Tags}}
+    <li class="tag">
+      <span class="tag-label">{{.Label}}</span>
+      <span class="tag-op">{{.OpLabel}}</span>
+      <span class="tag-value">{{.Value}}</span>
+      <a class="tag-remove" href="{{.RemoveURL}}" aria-label="移除条件 {{.Label}}">×</a>
+    </li>
+    {{- end}}
+    <li><a class="link" href="{{.BaseURL}}">清除全部</a></li>
+  </ul>
+  {{- end}}
+</section>
+
+{{- if eq .State "ready"}}
+{{template "table" .}}
+{{template "pagination" .}}
+{{- else}}
+{{template "stateBlock" .}}
+{{- end}}
+
+{{- if .OutOfRange}}
+<p class="hint" role="status">当前页超出范围，列表已返回空页。<a class="link" href="{{.BaseURL}}">回到第一页</a>（筛选条件会保留）。</p>
+{{- end}}
+{{end}}
+
+{{define "filterForm"}}
+<form class="filter-form" id="filter-form" method="get" action="{{.BaseURL}}" role="search">
+  <div class="field">
+    <label for="q">关键词</label>
+    <input id="q" name="q" type="search" value="{{.Q}}" placeholder="编码 / 名称" autocomplete="off">
+  </div>
+  {{- range .Quick}}{{template "filterInput" .}}{{end}}
+  {{- if .Advanced}}
+  <details class="advanced">
+    <summary>更多筛选（{{len .Advanced}}）</summary>
+    <div class="advanced-body">
+      {{- range .Advanced}}{{template "filterInput" .}}{{end}}
+    </div>
+  </details>
+  {{- end}}
+  <input type="hidden" name="sort" value="{{.Sort}}">
+  <input type="hidden" name="order" value="{{.Order}}">
+  <input type="hidden" name="pageSize" value="{{.Meta.PageSize}}">
+  <div class="form-actions">
+    <button class="btn primary" type="submit">应用</button>
+    <a class="btn" href="{{.BaseURL}}">重置</a>
+  </div>
+</form>
+{{end}}
+
+{{define "filterInput"}}
+{{- if eq .F.FilterType "boolean"}}
+<div class="field">
+  <label for="{{.Name}}">{{.F.Label}}</label>
+  <select id="{{.Name}}" name="{{.Name}}">
+    <option value="">全部</option>
+    {{- range .Options}}
+    <option value="{{.Value}}"{{if eq $.Value .Value}} selected{{end}}>{{.Label}}</option>
+    {{- end}}
+  </select>
+</div>
+{{- else if or (eq .F.FilterType "relation") (eq .F.FilterType "multiSelect")}}
+<div class="field">
+  <label for="{{.Name}}">{{.F.Label}}</label>
+  <select id="{{.Name}}" name="{{.Name}}" multiple size="3">
+    {{- range .Options}}
+    <option value="{{.Value}}"{{if contains $.Values .Value}} selected{{end}}>{{.Label}}</option>
+    {{- end}}
+  </select>
+</div>
+{{- else if eq .F.FilterType "numberRange"}}
+<div class="field range">
+  <span class="field-label">{{.F.Label}}</span>
+  <input id="{{.Name}}-min" name="{{.Name}}.gte" inputmode="decimal" value="{{.Min}}" aria-label="{{.F.Label}} 下限" placeholder="最小">
+  <input id="{{.Name}}-max" name="{{.Name}}.lte" inputmode="decimal" value="{{.Max}}" aria-label="{{.F.Label}} 上限" placeholder="最大">
+</div>
+{{- else}}
+<div class="field">
+  <label for="{{.Name}}">{{.F.Label}}</label>
+  <input id="{{.Name}}" name="{{.Name}}" type="search" value="{{.Value}}" autocomplete="off">
+</div>
+{{- end}}
+{{end}}
+
+{{define "table"}}
+<div class="table-wrap">
+  <table class="grid">
+    <colgroup>
+      {{- range .Fields}}<col class="col-{{.WidthStrategy}}">{{end}}
+      {{- if .CanWrite}}<col class="col-actions">{{end}}
+    </colgroup>
+    <thead>
+      <tr>
+        {{- range .Fields}}
+        <th scope="col">
+          {{- if .Sortable}}<a class="sort" href="{{index $.SortURLs .Key}}">{{.Label}}{{sortMark .Key $.Sort $.Order}}</a>
+          {{- else}}{{.Label}}{{end}}
+        </th>
+        {{- end}}
+        {{- if .CanWrite}}<th scope="col">操作</th>{{end}}
+      </tr>
+    </thead>
+    <tbody id="rows">
+      {{- range .Rows}}
+      <tr>
+        {{- range .Cells}}
+        <td><span class="cell {{.Kind}} tone-{{.Tone}}" title="{{.Full}}">{{.Text}}</span></td>
+        {{- end}}
+        {{- if $.CanWrite}}
+        <td class="row-actions">
+          <a class="link" href="{{.EditURL}}">编辑</a>
+          <button type="button" class="link danger" data-delete-url="{{.DeleteURL}}" data-delete-name="{{.ID}}">删除</button>
+        </td>
+        {{- end}}
+      </tr>
+      {{- end}}
+    </tbody>
+  </table>
+</div>
+<template id="skeleton-template">
+  {{- range .Fields}}<td><span class="skeleton-cell"></span></td>{{end}}
+  {{- if .CanWrite}}<td><span class="skeleton-cell"></span></td>{{end}}
+</template>
+{{end}}
+
+{{define "pagination"}}
+<nav class="pagination" aria-label="分页">
+  <span class="range">{{.RangeText}}</span>
+  <div class="pager">
+    {{- if .HasPrev}}<a class="btn" href="{{.PrevURL}}" rel="prev">上一页</a>
+    {{- else}}<span class="btn disabled" aria-disabled="true">上一页</span>{{end}}
+    <span class="page-no">第 {{.Meta.Page}} 页</span>
+    {{- if .HasNext}}<a class="btn" href="{{.NextURL}}" rel="next">下一页</a>
+    {{- else}}<span class="btn disabled" aria-disabled="true">下一页</span>{{end}}
+  </div>
+  <div class="page-size">
+    <label for="page-size">每页</label>
+    <select id="page-size" data-nav>
+      {{- range .PageSizeOptions}}
+      <option value="{{index $.PageSizeURLs .}}"{{if eq $.Meta.PageSize .}} selected{{end}}>{{.}}</option>
+      {{- end}}
+    </select>
+  </div>
+</nav>
+{{end}}
+
+{{define "drawer"}}
+{{- with .Drawer}}
+<div class="drawer-backdrop" id="drawer-backdrop"></div>
+<aside class="drawer" id="drawer" role="dialog" aria-modal="true" aria-labelledby="drawer-title" tabindex="-1">
+  <header class="drawer-head">
+    <h2 id="drawer-title">{{.Title}}</h2>
+    <a class="icon" id="drawer-close" href="{{.CloseURL}}" aria-label="关闭抽屉">×</a>
+  </header>
+  {{- if .Error}}
+  <p class="error-text" role="alert">{{.Error}}</p>
+  {{- end}}
+  <form class="drawer-form" id="drawer-form" method="post" action="{{.Action}}">
+    <div class="drawer-body">
+      {{- range .Forms}}{{template "formField" .}}{{end}}
+    </div>
+    <footer class="drawer-foot">
+      {{- if and .CanDelete .ID}}
+      <button type="button" class="btn danger" data-delete-url="{{.DeleteURL}}" data-delete-name="{{.ID}}">删除</button>
+      {{- end}}
+      <span class="spacer"></span>
+      <a class="btn" href="{{.CloseURL}}" id="drawer-cancel">取消</a>
+      <button class="btn primary" type="submit">保存</button>
+    </footer>
+  </form>
+</aside>
+{{- end}}
+{{end}}
+
+{{define "formField"}}
+<div class="field">
+  <label for="f-{{.F.Key}}">{{.F.Label}}</label>
+  {{- if or (eq .F.Type "boolean") (eq .F.Type "enum") (eq .F.Type "relation")}}
+  <select id="f-{{.F.Key}}" name="{{.F.Key}}">
+    <option value="">未设置</option>
+    {{- range .Options}}
+    <option value="{{.Value}}"{{if eq $.Value .Value}} selected{{end}}>{{.Label}}</option>
+    {{- end}}
+  </select>
+  {{- else if eq .F.Type "json"}}
+  <textarea id="f-{{.F.Key}}" name="{{.F.Key}}" rows="4" spellcheck="false">{{.Value}}</textarea>
+  {{- else if eq .F.Type "number"}}
+  <input id="f-{{.F.Key}}" name="{{.F.Key}}" type="number" step="any" value="{{.Value}}">
+  {{- else if eq .F.Type "datetime"}}
+  <input id="f-{{.F.Key}}" name="{{.F.Key}}" type="text" value="{{.Value}}" placeholder="2026-11-05T10:00:00+08:00">
+  {{- else}}
+  <input id="f-{{.F.Key}}" name="{{.F.Key}}" type="text" value="{{.Value}}">
+  {{- end}}
+</div>
+{{end}}
+
+{{define "deleteDialog"}}
+<div class="dialog-backdrop" id="delete-backdrop" hidden></div>
+<div class="dialog" id="delete-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-title" hidden>
+  <h2 id="delete-title">确认删除</h2>
+  <p class="dialog-text">删除后不可恢复。确定删除这一行吗？</p>
+  <form method="post" id="delete-form" action="">
+    <footer class="dialog-foot">
+      <button type="button" class="btn" id="delete-cancel">取消</button>
+      <button type="submit" class="btn danger">删除</button>
+    </footer>
+  </form>
+</div>
+{{end}}

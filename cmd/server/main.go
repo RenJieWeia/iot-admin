@@ -21,6 +21,7 @@ import (
 	"github.com/RenJieWeia/iot-admin/internal/publish"
 	"github.com/RenJieWeia/iot-admin/internal/settle"
 	"github.com/RenJieWeia/iot-admin/internal/store"
+	"github.com/RenJieWeia/iot-admin/internal/ui"
 	"github.com/RenJieWeia/iot-admin/migrations"
 )
 
@@ -84,6 +85,8 @@ func run(log *slog.Logger) error {
 	mux := http.NewServeMux()
 	mux.Handle("POST /ingest/v1/messages", &ingest.HTTPHandler{P: proc})
 	mux.Handle("/admin/v1/", admin.WithAuth(nil, adminAPI.Handler()))
+	// 管理后台 UI：模板与静态资源走 embed，单二进制交付（R-008）。
+	mux.Handle("/ui/", ui.NewWithPool(pool, log, now).Handler())
 
 	addr := env("IOT_LISTEN", "127.0.0.1:8080")
 	srv := &http.Server{Addr: addr, Handler: mux, ReadHeaderTimeout: 10 * time.Second}

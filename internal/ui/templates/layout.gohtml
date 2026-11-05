@@ -1,0 +1,55 @@
+{{define "head"}}<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{.Title}} · IoT 管理后台</title>
+<link rel="stylesheet" href="/ui/static/app.css">
+</head>
+<body>
+<a class="skip-link" href="#main">跳到主要内容</a>
+<div class="shell">
+  <aside class="sidebar">
+    <p class="brand">IoT 管理后台</p>
+    <nav aria-label="主导航">
+      <ul class="nav">
+        {{- range .Nav}}
+        <li><a href="{{.Href}}"{{if .Active}} class="active" aria-current="page"{{end}}>{{.Label}}</a></li>
+        {{- end}}
+      </ul>
+    </nav>
+  </aside>
+  <main id="main" class="main">
+    <header class="page-head">
+      <h1>{{.Title}}</h1>
+      <div class="page-actions">
+        {{- if .CanWrite}}
+        <a class="btn primary" id="btn-new" href="{{.BaseURL}}?drawer=new">新建</a>
+        {{- end}}
+      </div>
+    </header>
+{{end}}
+
+{{define "foot"}}
+  </main>
+</div>
+<script src="/ui/static/app.js" defer></script>
+</body>
+</html>
+{{end}}
+
+{{define "flash"}}
+{{- with .Flash}}
+<div class="toast toast-{{.Kind}}" role="status" aria-live="polite">{{.Text}}</div>
+{{- end}}
+{{end}}
+
+{{define "stateBlock"}}
+<div class="state" role="status">
+  <h2 class="state-title">{{.StateTitle}}</h2>
+  <p class="state-text">{{.StateText}}</p>
+  {{- if .StateAction}}
+  <a class="btn" href="{{.StateActionURL}}">{{.StateAction}}</a>
+  {{- end}}
+</div>
+{{end}}
