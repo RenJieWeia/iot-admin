@@ -14,6 +14,7 @@ import (
 	"github.com/RenJieWeia/iot-admin/internal/clean"
 	"github.com/RenJieWeia/iot-admin/internal/exception"
 	"github.com/RenJieWeia/iot-admin/internal/latest"
+	"github.com/RenJieWeia/iot-admin/internal/meta"
 	"github.com/RenJieWeia/iot-admin/internal/publish"
 	"github.com/RenJieWeia/iot-admin/internal/settle"
 	"github.com/RenJieWeia/iot-admin/internal/staging"
@@ -27,7 +28,7 @@ const ReasonInternal = "internal_error"
 // Processor 执行"信封校验 -> 逐终端校验/清洗 -> 写缓存/暂存 -> 按终端发布"。
 type Processor struct {
 	DB    *pgxpool.Pool
-	Reg   *validate.Registry
+	Meta  *meta.Store
 	Pub   publish.Publisher
 	Exc   *exception.Recorder
 	Locks *store.ShardedLock
@@ -78,7 +79,7 @@ func (p *Processor) Handle(ctx context.Context, ingressGateway string, raw []byt
 		return out, nil
 	}
 
-	cfg, err := settle.LoadWindowConfig(ctx, p.DB)
+	cfg, err := p.Meta.LoadWindowConfig(ctx)
 	if err != nil {
 		// 平台侧故障：逐终端标 internal_error，由 HTTP 层整包 503（不记数据类异常）。
 		p.Log.Error("读取结算窗口配置失败", "err", err)
@@ -103,7 +104,7 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 		return p.rejectTerminal(ctx, tw.TerminalID, ingress, now, terr, "")
 	}
 	// 2.3 网关三方一致（R9）中"注册表 gateway_id"这一侧；信封侧一致性已在 Handle 判定。
-	term, err := p.Reg.LoadTerminal(ctx, tp.TerminalID)
+	term, err := p.Meta.LoadTerminal(ctx, tp.TerminalID)
 	if err != nil {
 		if errors.Is(err, validate.ErrTerminalUnknown) {
 			return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
@@ -127,7 +128,7 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 		}, "")
 	}
 	// 2.4 完整消息：required 属性全覆盖
-	props, err := p.Reg.LoadProperties(ctx, term.TypeID)
+	props, err := p.Meta.LoadProperties(ctx, term.TypeID)
 	if err != nil {
 		p.Log.Error("读取物模型失败", "type", term.TypeID, "err", err)
 		return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}
@@ -139,7 +140,7 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 			Codes:  missing,
 		}, "")
 	}
-	rules, err := clean.LoadRules(ctx, p.DB, term.ID)
+	rules, err := p.Meta.LoadRules(ctx, term.ID)
 	if err != nil {
 		p.Log.Error("读取质量规则失败", "terminal", term.ID, "err", err)
 		return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}

@@ -18,10 +18,10 @@ import (
 
 	"github.com/RenJieWeia/iot-admin/internal/exception"
 	"github.com/RenJieWeia/iot-admin/internal/ingest"
+	"github.com/RenJieWeia/iot-admin/internal/meta"
 	"github.com/RenJieWeia/iot-admin/internal/settle"
 	"github.com/RenJieWeia/iot-admin/internal/staging"
 	"github.com/RenJieWeia/iot-admin/internal/store"
-	"github.com/RenJieWeia/iot-admin/internal/validate"
 	"github.com/RenJieWeia/iot-admin/migrations"
 )
 
@@ -123,7 +123,7 @@ func newEnv(t *testing.T) *testEnv {
 	e.rec = exception.New(pool, e.clock.Now, quietLog)
 	e.proc = &ingest.Processor{
 		DB:    pool,
-		Reg:   validate.NewRegistry(pool),
+		Meta:  meta.NewStore(meta.NewPGLoader(pool), meta.DefaultTTL, e.clock.Now),
 		Pub:   e.pub,
 		Exc:   e.rec,
 		Locks: store.NewShardedLock(16),

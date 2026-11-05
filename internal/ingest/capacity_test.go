@@ -10,9 +10,9 @@ import (
 
 	"github.com/RenJieWeia/iot-admin/internal/exception"
 	"github.com/RenJieWeia/iot-admin/internal/ingest"
+	"github.com/RenJieWeia/iot-admin/internal/meta"
 	"github.com/RenJieWeia/iot-admin/internal/publish"
 	"github.com/RenJieWeia/iot-admin/internal/store"
-	"github.com/RenJieWeia/iot-admin/internal/validate"
 )
 
 // 容量实测（批量契约 v2）：1 万条终端消息 x 15 个数据项。
@@ -48,7 +48,7 @@ func TestCapacityBaseline10kMessages(t *testing.T) {
 
 	proc := &ingest.Processor{
 		DB:    e.pool,
-		Reg:   validate.NewRegistry(e.pool),
+		Meta:  meta.NewStore(meta.NewPGLoader(e.pool), meta.DefaultTTL, nil),
 		Pub:   publish.Discard{},
 		Exc:   exception.New(e.pool, e.clock.Now, quietLog),
 		Locks: store.NewShardedLock(256),

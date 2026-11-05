@@ -12,9 +12,9 @@ import (
 
 	"github.com/RenJieWeia/iot-admin/internal/exception"
 	"github.com/RenJieWeia/iot-admin/internal/ingest"
+	"github.com/RenJieWeia/iot-admin/internal/meta"
 	"github.com/RenJieWeia/iot-admin/internal/publish"
 	"github.com/RenJieWeia/iot-admin/internal/store"
-	"github.com/RenJieWeia/iot-admin/internal/validate"
 )
 
 // 用例 30：HTTP 与 MQTT 两路同源数据 → 落库结果与发布内容完全一致。
@@ -50,7 +50,7 @@ func TestHTTPAndMQTTPathsProduceIdenticalResults(t *testing.T) {
 
 	mqttProc := &ingest.Processor{
 		DB:    e.pool,
-		Reg:   validate.NewRegistry(e.pool),
+		Meta:  meta.NewStore(meta.NewPGLoader(e.pool), meta.DefaultTTL, nil),
 		Pub:   publish.NewMQTT(client),
 		Exc:   exception.New(e.pool, e.clock.Now, quietLog),
 		Locks: store.NewShardedLock(16),

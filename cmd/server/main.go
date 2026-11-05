@@ -17,10 +17,10 @@ import (
 	"github.com/RenJieWeia/iot-admin/internal/admin"
 	"github.com/RenJieWeia/iot-admin/internal/exception"
 	"github.com/RenJieWeia/iot-admin/internal/ingest"
+	"github.com/RenJieWeia/iot-admin/internal/meta"
 	"github.com/RenJieWeia/iot-admin/internal/publish"
 	"github.com/RenJieWeia/iot-admin/internal/settle"
 	"github.com/RenJieWeia/iot-admin/internal/store"
-	"github.com/RenJieWeia/iot-admin/internal/validate"
 	"github.com/RenJieWeia/iot-admin/migrations"
 )
 
@@ -63,7 +63,7 @@ func run(log *slog.Logger) error {
 
 	proc := &ingest.Processor{
 		DB:    pool,
-		Reg:   validate.NewRegistry(pool),
+		Meta:  meta.NewStore(meta.NewPGLoader(pool), meta.DefaultTTL, now),
 		Pub:   publish.NewMQTT(client),
 		Exc:   rec,
 		Locks: store.NewShardedLock(64),
