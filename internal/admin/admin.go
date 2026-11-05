@@ -69,6 +69,7 @@ func (a *API) Handler() http.Handler {
 	// 字面量段优先于通配段：_meta 与 exceptions/* 不会被 {entity} / {entity}/{id} 抢走。
 	mux.HandleFunc("GET /admin/v1/_meta", a.meta)
 	mux.HandleFunc("GET /admin/v1/exceptions/{slot}", a.exceptionList)
+	mux.HandleFunc("GET /admin/v1/options/{entity}", a.options)
 	mux.HandleFunc("GET /admin/v1/{entity}", a.list)
 	mux.HandleFunc("POST /admin/v1/{entity}", a.create)
 	mux.HandleFunc("GET /admin/v1/{entity}/{id}", a.get)

@@ -46,6 +46,13 @@ type MetaOption struct {
 	Tone  string `json:"tone"`
 }
 
+// MetaRef 是关联字段的目标实体与取值/标签列（前端据此拼 options 请求与展示）。
+type MetaRef struct {
+	Entity   string `json:"entity"`
+	ValueKey string `json:"valueKey"`
+	LabelKey string `json:"labelKey"`
+}
+
 // MetaField 是 FieldMeta 的全字段 JSON 契约。
 type MetaField struct {
 	Key            string            `json:"key"`
@@ -61,13 +68,15 @@ type MetaField struct {
 	Options        []MetaOption      `json:"options"`
 	AdvancedOnly   bool              `json:"advancedOnly"`
 	WidthStrategy  string            `json:"widthStrategy"`
-	Relation       string            `json:"relation,omitempty"`
+	Ref            *MetaRef          `json:"ref,omitempty"`
+	// Relation 是 ref.entity 的兼容别名（R-019 首版键名），新代码用 ref。
+	Relation string `json:"relation,omitempty"`
 }
 
-// MetaEntity 是一个可 CRUD 实体的元数据。
+// MetaEntity 是一个可 CRUD 实体的元数据；title 是中文名（task-004 §4 契约键名）。
 type MetaEntity struct {
 	Name         string      `json:"name"`
-	Label        string      `json:"label"`
+	Title        string      `json:"title"`
 	Route        string      `json:"route"`
 	ReadOnly     bool        `json:"readOnly"`
 	DefaultSort  string      `json:"defaultSort"`
@@ -79,7 +88,7 @@ type MetaEntity struct {
 type MetaException struct {
 	Slot         string      `json:"slot"`
 	Name         string      `json:"name"`
-	Label        string      `json:"label"`
+	Title        string      `json:"title"`
 	Route        string      `json:"route"`
 	ReadOnly     bool        `json:"readOnly"`
 	DefaultSort  string      `json:"defaultSort"`
@@ -95,10 +104,13 @@ type MetaPagination struct {
 }
 
 // MetaPayload 是 GET /admin/v1/_meta 的 data。
+// enums / booleans 是静态字典（枚举值 → 中文），前端筛选与状态文案直接取用。
 type MetaPayload struct {
-	Entities   []MetaEntity    `json:"entities"`
-	Exceptions []MetaException `json:"exceptions"`
-	Pagination MetaPagination  `json:"pagination"`
+	Entities   []MetaEntity                 `json:"entities"`
+	Exceptions []MetaException              `json:"exceptions"`
+	Enums      map[string]map[string]string `json:"enums"`
+	Booleans   map[string]string            `json:"booleans"`
+	Pagination MetaPagination               `json:"pagination"`
 }
 
 // meta 返回全部实体与异常页的字段元数据；不访问数据库，nil pool 也可用。
@@ -111,12 +123,14 @@ func BuildMeta() MetaPayload {
 	payload := MetaPayload{
 		Entities:   make([]MetaEntity, 0, len(Entities)),
 		Exceptions: make([]MetaException, 0, len(exceptionPages)),
+		Enums:      enumDictionaries(),
+		Booleans:   optionLabels(boolOptions),
 		Pagination: MetaPagination{Default: DefaultPageSize, Max: MaxPageSize, Options: PageSizeOptions},
 	}
 	for _, e := range Entities {
 		payload.Entities = append(payload.Entities, MetaEntity{
 			Name:         e.Name,
-			Label:        EntityLabel(e.Name),
+			Title:        EntityLabel(e.Name),
 			Route:        "/admin/v1/" + e.Name,
 			ReadOnly:     false,
 			DefaultSort:  defaultSortOf(e.Name),
@@ -128,7 +142,7 @@ func BuildMeta() MetaPayload {
 		payload.Exceptions = append(payload.Exceptions, MetaException{
 			Slot:         page.Slot,
 			Name:         page.Entity.Name,
-			Label:        EntityLabel(page.Entity.Name),
+			Title:        EntityLabel(page.Entity.Name),
 			Route:        "/admin/v1/exceptions/" + page.Slot,
 			ReadOnly:     true,
 			DefaultSort:  defaultSortOf(page.Entity.Name),
@@ -146,6 +160,34 @@ func defaultSortOf(entity string) string {
 		return ""
 	}
 	return defaultSort(fields)
+}
+
+// labelKeyOf 是关联下拉的展示列：目标实体有 name 用 name，其次 code，最后回退 id。
+func labelKeyOf(entity string) string {
+	if _, ok := FieldMetaOf(entity, "name"); ok {
+		return "name"
+	}
+	if _, ok := FieldMetaOf(entity, "code"); ok {
+		return "code"
+	}
+	return "id"
+}
+
+// enumDictionaries 下发静态枚举字典（value_type / rule_type），文案仍以 fields.go 为准。
+func enumDictionaries() map[string]map[string]string {
+	return map[string]map[string]string{
+		"value_type": optionLabels(valueTypeOptions),
+		"rule_type":  optionLabels(ruleTypeOptions),
+	}
+}
+
+// optionLabels 把 Option 列表压成 值 → 中文 的字典。
+func optionLabels(options []Option) map[string]string {
+	out := make(map[string]string, len(options))
+	for _, o := range options {
+		out[o.Value] = o.Label
+	}
+	return out
 }
 
 // metaFields 把 FieldMeta 投影成 JSON 契约；nil 切片归一成空数组，前端拿到的永远是数组。
@@ -179,6 +221,7 @@ func metaFields(entity string) []MetaField {
 			mf.Options = append(mf.Options, MetaOption{Value: o.Value, Label: o.Label, Tone: o.Tone})
 		}
 		if target, ok := RelationTarget(entity, f.Key); ok {
+			mf.Ref = &MetaRef{Entity: target, ValueKey: "id", LabelKey: labelKeyOf(target)}
 			mf.Relation = target
 		}
 		out = append(out, mf)

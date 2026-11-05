@@ -59,8 +59,8 @@ func TestMetaSections(t *testing.T) {
 		if e.Name != Entities[i].Name {
 			t.Fatalf("entities[%d] = %q，期望 %q（顺序即导航顺序）", i, e.Name, Entities[i].Name)
 		}
-		if e.Label == "" || e.Label == e.Name {
-			t.Fatalf("实体 %q 缺少中文标签", e.Name)
+		if e.Title == "" || e.Title == e.Name {
+			t.Fatalf("实体 %q 缺少中文标题（键名 title）", e.Name)
 		}
 		if e.Route != "/admin/v1/"+e.Name {
 			t.Fatalf("实体 %q 的 route = %q", e.Name, e.Route)
@@ -87,8 +87,8 @@ func TestMetaSections(t *testing.T) {
 	wantNames := []string{"exception-events", "exception-intervals"}
 	wantLabels := []string{"异常事件", "异常区间"}
 	for i, ex := range exceptions {
-		if ex.Slot != wantSlots[i] || ex.Name != wantNames[i] || ex.Label != wantLabels[i] {
-			t.Fatalf("exceptions[%d] = %+v，期望 slot/name/label = %s/%s/%s",
+		if ex.Slot != wantSlots[i] || ex.Name != wantNames[i] || ex.Title != wantLabels[i] {
+			t.Fatalf("exceptions[%d] = %+v，期望 slot/name/title = %s/%s/%s",
 				i, ex, wantSlots[i], wantNames[i], wantLabels[i])
 		}
 		if ex.Route != "/admin/v1/exceptions/"+ex.Slot {
@@ -100,6 +100,16 @@ func TestMetaSections(t *testing.T) {
 		if len(ex.Fields) == 0 {
 			t.Fatalf("异常页 %q 没有字段元数据", ex.Slot)
 		}
+	}
+
+	gotDataKeys := make([]string, 0, len(data))
+	for k := range data {
+		gotDataKeys = append(gotDataKeys, k)
+	}
+	sort.Strings(gotDataKeys)
+	wantDataKeys := []string{"booleans", "entities", "enums", "exceptions", "pagination"}
+	if strings.Join(gotDataKeys, ",") != strings.Join(wantDataKeys, ",") {
+		t.Fatalf("data 顶层键 = %v，期望 %v", gotDataKeys, wantDataKeys)
 	}
 
 	var pagination MetaPagination
@@ -133,7 +143,7 @@ func TestMetaFieldShape(t *testing.T) {
 		// relation 允许缺省（omitempty），其余键必须齐全。
 		filtered := got[:0]
 		for _, k := range got {
-			if k != "relation" {
+			if k != "relation" && k != "ref" {
 				filtered = append(filtered, k)
 			}
 		}
@@ -171,9 +181,9 @@ func TestMetaFieldShape(t *testing.T) {
 			// 每个段的键集合也是契约：实体与异常页各自的字段名固定。
 			var wantKeys []string
 			if name == "entities" {
-				wantKeys = []string{"name", "label", "route", "readOnly", "defaultSort", "defaultOrder", "fields"}
+				wantKeys = []string{"name", "title", "route", "readOnly", "defaultSort", "defaultOrder", "fields"}
 			} else {
-				wantKeys = []string{"slot", "name", "label", "route", "readOnly", "defaultSort", "defaultOrder", "fields"}
+				wantKeys = []string{"slot", "name", "title", "route", "readOnly", "defaultSort", "defaultOrder", "fields"}
 			}
 			sort.Strings(wantKeys)
 			got := make([]string, 0, len(raw))
@@ -234,6 +244,15 @@ func TestMetaEnumsRelationsAndPeriod(t *testing.T) {
 			case "relation":
 				if f.Relation == "" || !known[f.Relation] {
 					t.Fatalf("%s 关系字段 %q 的目标实体 = %q，未知", where, f.Key, f.Relation)
+				}
+				if f.Ref == nil {
+					t.Fatalf("%s 关系字段 %q 缺少 ref 契约", where, f.Key)
+				}
+				if f.Ref.Entity != f.Relation || f.Ref.ValueKey != "id" {
+					t.Fatalf("%s 关系字段 %q 的 ref 不符: %+v", where, f.Key, *f.Ref)
+				}
+				if f.Ref.LabelKey != "name" && f.Ref.LabelKey != "code" && f.Ref.LabelKey != "id" {
+					t.Fatalf("%s 关系字段 %q 的 ref.labelKey = %q", where, f.Key, f.Ref.LabelKey)
 				}
 			}
 			for _, op := range f.Operators {
@@ -307,5 +326,41 @@ func TestEntityLabelsCoverAllSections(t *testing.T) {
 	}
 	if got := EntityLabel("nope"); got != "nope" {
 		t.Fatalf("未知实体应原样返回名字，实际 %q", got)
+	}
+}
+
+// 枚举与布尔字典是前端筛选/状态文案的直接来源（task-004 §4：enums / booleans）。
+func TestMetaDictionaries(t *testing.T) {
+	data := decodeMeta(t)
+
+	var enums map[string]map[string]string
+	if err := json.Unmarshal(data["enums"], &enums); err != nil {
+		t.Fatalf("enums 解析失败: %v", err)
+	}
+	wantEnums := map[string][]Option{"value_type": valueTypeOptions, "rule_type": ruleTypeOptions}
+	if len(enums) != len(wantEnums) {
+		t.Fatalf("enums 字典 = %v，期望只有 %d 张", enums, len(wantEnums))
+	}
+	for key, options := range wantEnums {
+		dict, ok := enums[key]
+		if !ok {
+			t.Fatalf("enums 缺少 %q 字典", key)
+		}
+		if len(dict) != len(options) {
+			t.Fatalf("enums[%q] 取值数 = %d，期望 %d", key, len(dict), len(options))
+		}
+		for _, o := range options {
+			if got := dict[o.Value]; got != o.Label {
+				t.Fatalf("enums[%q][%q] = %q，期望 %q", key, o.Value, got, o.Label)
+			}
+		}
+	}
+
+	var booleans map[string]string
+	if err := json.Unmarshal(data["booleans"], &booleans); err != nil {
+		t.Fatalf("booleans 解析失败: %v", err)
+	}
+	if len(booleans) != 2 || booleans["true"] != "是" || booleans["false"] != "否" {
+		t.Fatalf("booleans 字典 = %v，期望 true=是 false=否", booleans)
 	}
 }
