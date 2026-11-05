@@ -55,11 +55,12 @@ func (a *API) invalidate() {
 	}
 }
 
-// Response 是统一返回结构。
+// Response 是统一返回结构。Meta 只出现在列表响应里，旧客户端忽略即可。
 type Response struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    any    `json:"data,omitempty"`
+	Code    int       `json:"code"`
+	Message string    `json:"message"`
+	Data    any       `json:"data,omitempty"`
+	Meta    *ListMeta `json:"meta,omitempty"`
 }
 
 // Handler 注册全部管理路由。
@@ -88,20 +89,22 @@ func (a *API) list(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown_entity")
 		return
 	}
-	limit := clampInt(r.URL.Query().Get("limit"), 200, 1, 1000)
-	offset := clampInt(r.URL.Query().Get("offset"), 0, 0, 1<<30)
-	rows, err := a.Pool.Query(r.Context(),
-		fmt.Sprintf("select * from %s order by id limit $1 offset $2", e.Table), limit, offset)
+	qs, err := ParseQueryState(e, r.URL.Query())
 	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	res, err := ListRows(r.Context(), a.Pool, e, qs)
+	if err != nil {
+		var qerr *QueryError
+		if errors.As(err, &qerr) {
+			writeError(w, http.StatusBadRequest, qerr.Error())
+			return
+		}
 		writeDBError(w, err)
 		return
 	}
-	items, err := collect(rows)
-	if err != nil {
-		writeDBError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: items})
+	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: res.Data, Meta: &res.Meta})
 }
 
 func (a *API) get(w http.ResponseWriter, r *http.Request) {
