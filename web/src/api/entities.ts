@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchOptions } from './client';
+import { fetchOptions, fetchOptionsSearch } from './client';
 import type { OptionItem } from './types';
 
 /**
@@ -22,6 +22,20 @@ export function useFieldOptions(entities: string[]) {
     },
     enabled: entities.length > 0,
     staleTime: 60 * 1000,
+  });
+}
+
+/**
+ * 下拉搜索（F4）：`GET /admin/v1/options/{entity}?q=…&limit=…`。
+ * q 作为 queryKey 的一部分，配合 fetch 的 AbortSignal，旧响应不会覆盖新结果。
+ */
+export function useOptionSearch(entity: string | undefined, q: string, enabled: boolean) {
+  return useQuery({
+    queryKey: ['option-search', entity ?? '', q],
+    queryFn: ({ signal }) => fetchOptionsSearch(entity ?? '', { q, limit: 50 }, signal),
+    enabled: Boolean(entity) && enabled,
+    staleTime: 30 * 1000,
+    placeholderData: (prev) => prev,
   });
 }
 

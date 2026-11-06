@@ -102,6 +102,23 @@ export async function fetchList(
  * 关联字段选项（R-019：GET /admin/v1/options/{entity}，上限 1000 行）。
  * 用于关系下拉、关系筛选项与关系列的名称回填。
  */
+/** 下拉搜索：q 为空时按无参查询（后端等价于全量前 limit 行）。 */
+export async function fetchOptionsSearch(
+  entity: string,
+  params: { q?: string; limit?: number },
+  signal?: AbortSignal,
+): Promise<OptionItem[]> {
+  const search = new URLSearchParams();
+  if (params.q) search.set('q', params.q);
+  if (params.limit) search.set('limit', String(params.limit));
+  const suffix = search.toString();
+  const payload = await request<OptionItem[]>(
+    `/options/${entity}${suffix ? `?${suffix}` : ''}`,
+    { signal },
+  );
+  return Array.isArray(payload.data) ? payload.data : [];
+}
+
 export async function fetchOptions(entity: string, signal?: AbortSignal): Promise<OptionItem[]> {
   const payload = await request<OptionItem[]>(`/options/${entity}`, { signal });
   return Array.isArray(payload.data) ? payload.data : [];

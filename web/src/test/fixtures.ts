@@ -490,6 +490,8 @@ export const allTerminals = Array.from({ length: 128 }).map((_, index) => ({
 export const deviceTypeOptions = [
   { value: '1', label: '泵站' },
   { value: '2', label: '阀门' },
+  { value: '3', label: '电表' },
+  { value: '4', label: '水表' },
 ];
 
 /** 最新值 128 行：quality 轮转 0..7，用于验证「按 options 渲染标签」与总数 128。 */

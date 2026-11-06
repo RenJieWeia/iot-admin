@@ -19,8 +19,12 @@ export interface WriteCall {
 
 export const writeCalls: WriteCall[] = [];
 
+/** options 端点收到的查询串（用于断言防抖/搜索参数）。 */
+export const optionQueries: string[] = [];
+
 export function resetWriteCalls() {
   writeCalls.length = 0;
+  optionQueries.length = 0;
 }
 
 const ok = <T>(data: T, extra: Record<string, unknown> = {}) =>
@@ -57,9 +61,21 @@ function filterTerminals(url: URL) {
 export const server = setupServer(
   http.get('/admin/v1/_meta', () => ok(metaFixture)),
 
-  http.get('/admin/v1/options/:entity', ({ params }) => {
-    if (params.entity === 'device-types') return ok(deviceTypeOptions);
-    return ok([]);
+  // task-012 F4：支持 ?q=（label 模糊）与 ?ids=（精确取 label），两者互斥由后端保证。
+  http.get('/admin/v1/options/:entity', ({ params, request }) => {
+    const url = new URL(request.url);
+    optionQueries.push(url.search);
+    if (params.entity !== 'device-types') return ok([]);
+    const ids = url.searchParams.get('ids');
+    if (ids) {
+      const wanted = ids.split(',').map((id) => id.trim());
+      return ok(deviceTypeOptions.filter((option) => wanted.includes(option.value)));
+    }
+    const q = (url.searchParams.get('q') ?? '').trim();
+    if (q) {
+      return ok(deviceTypeOptions.filter((option) => option.label.includes(q)));
+    }
+    return ok(deviceTypeOptions);
   }),
 
   // 小时快照（task-010）：游标分页，meta 只有 hasMore/nextCursor/limit。
