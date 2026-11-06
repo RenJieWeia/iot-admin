@@ -1,0 +1,56 @@
+/*
+ * Tailwind CSS v4 接入层：只做「令牌 → 工具类」的映射，不定义第二套语义变量。
+ *
+ * - 颜色/间距/字号/圆角/行高的**唯一来源**仍是 styles/tokens.css 的 :root；
+ *   这里用 `@theme inline` 把同名变量映射成 Tailwind 的命名空间
+ *   （`--color-surface` → `bg-surface`/`text-surface`/`border-surface` 等）。
+ * - 刻意不引入 preflight（不 `@import "tailwindcss"`）：全局 reset 已由 global.css 负责，
+ *   引入 preflight 会让既有页面产生像素漂移。
+ * - 不定义 `--background` / `--card` / `--popover` 之类的第二套语义变量。
+ */
+@layer theme, base, components, utilities;
+
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
+
+@theme inline {
+  /* 颜色：与 tokens.css 一一对应 */
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-text: var(--color-text);
+  --color-muted: var(--color-muted);
+  --color-border: var(--color-border);
+  --color-primary: var(--color-primary);
+  --color-primary-hover: var(--color-primary-hover);
+  --color-on-primary: var(--color-on-primary);
+  --color-positive-bg: var(--color-positive-bg);
+  --color-positive-text: var(--color-positive-text);
+  --color-negative-bg: var(--color-negative-bg);
+  --color-negative-text: var(--color-negative-text);
+  --color-warning-bg: var(--color-warning-bg);
+  --color-warning-text: var(--color-warning-text);
+  --color-neutral-bg: var(--color-neutral-bg);
+  --color-neutral-text: var(--color-neutral-text);
+  --color-skeleton: var(--color-skeleton);
+  --color-overlay: var(--color-overlay);
+
+  /* 字号与行高 */
+  --text-sm: var(--font-sm);
+  --text-base: var(--font-md);
+  --text-lg: var(--font-lg);
+  --text-xl: var(--font-xl);
+  --leading-md: var(--line-md);
+  --leading-lg: var(--line-lg);
+
+  /* 字体与圆角 */
+  --font-mono: var(--font-mono);
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+
+  /* 组件尺寸令牌（供下方 @utility 使用） */
+  --height-row: var(--row-height);
+  --height-control: var(--control-height);
+  --min-height-touch: var(--touch-target);
+  --width-nav: var(--nav-width);
+  --width-drawer: var(--drawer-width);
+}
