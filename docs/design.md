@@ -21,6 +21,7 @@
 | `internal/store/` | 连接池、迁移执行、按终端分片写锁 |
 | `migrations/` | 0001 数据源 / 0002 运行时 / 0003 异常 / **0004 terminal_unknown** |
 | `configs/` | 默认配置样例（无凭据、无业务参数） |
+| `Makefile` | 本地/CI 通用护栏：`web-check`/`web-build`/`dist-check`/`go-check`/`check`（只校验，不自动 `git add`） |
 | `docs/` | 本说明 + `capacity-record.md` |
 
 ### 接口
@@ -45,12 +46,14 @@
 9. **结算**：窗口解析只有一个实现（`settle.WindowConfig`）；快照写入只有一个实现（`settle.UpsertSnapshot`，结算与窗口外分流共用），结算按窗口分组"读待结算暂存 → UPSERT 快照 → 删暂存"。
 15. **两段写入模型（R-030）**：`冻结`概念作废，任何时间到达的数据都落库，按归属小时是否已关闭分两段——窗口内写 `latest_value` + `hourly_staging` 等结算；窗口外 `latest_value` 照常写，并直接 UPSERT `hourly_snapshot`（不发布实时主题、仍记 `late_data`，detail 带 `source=mqtt|api` 与 `msgType`）。窗口内路径行为与两段模型之前完全一致。
 16. **快照版本化（R-030）**：`hourly_snapshot` 带 `revision int not null default 0` 与 `settled_at timestamptz not null default now()`。同一格只有 `value_time` **更大**时才覆盖，且 `revision = revision + 1`、`settled_at = now()` 在 SQL 内原子完成；相等/更早的写入整行跳过（幂等）。历史改写通过 `GET /admin/v1/snapshot/changes?since=&limit=&cursor=` 查询：返回 `settled_at > since` 的行，按 `(settled_at, terminal_id, item_code, hour_start)` 升序游标分页（`limit` 默认 200、上限 1000），`revision > 0` 即被修正过的格子。
+17. **补录留痕（R-034）**：`msgType=2`（MQTT 补录）或手工 API（`source=2`）**且本次对快照实际产生 insert/update** 时，在同一事务里往 `snapshot_cell_history` 追加一行（`revision` 取写入后的值、`source` 1=MQTT 补录/2=手工 API、`value_time`=本次采集时间、`actor` 仅手工 API）。**实时写入（`msgType` 缺省或 1）不写版本行**——否则版本表会与快照同量级。首次插入即补录也记（`revision=0`）。版本行与快照同寿命，`EnsurePartitions` 清理过期分区前先删 `changed_at < cutoff` 的版本行。本期不提供版本历史查询端点。
+18. **结果口径（R-035）**：`results[].written` = **实际写入任一表的行数**（窗口内 staging、窗口外 snapshot 都算），不再是"只等于 `latest_value` 的返回行数"；窗口外数据写入成功即 `accepted=true` / `reason=""`（迟到信息只由 `late_data` 事件承载，R-026），幂等重发（`value_time` 相等被守卫跳过）同样算受理；`regressed`（回拨 `protocol_error`）**只对窗口内项生效**。写失败仍是 `internal_error` + HTTP 503，不会被 `accepted=true` 掩盖。
 10. **区间异常**：`exception_interval` 的写入机制（`OpenInterval` / `CloseInterval` / 抖动合并 / `upper_inf`）完整保留，但**本期没有任何生产写入路径**——见下条。
 11. **本期区间表无生产写入路径**（能力具备、平台侧未实现）：BroMQ 侧已具备网关离线观测能力——`tracking` hook 维护 `mqtt_clients` 连接状态（`/api/mqtt/clients` 与 `/metrics` 可读），且支持 MQTT 遗嘱（LWT，仅当网关自己在 CONNECT 里声明 `WillTopic` 时才可用，正常 DISCONNECT 不触发）。**平台侧写入路径仍未实现**：`gateway_disconnected` 只能由 Broker 侧信号判定，把"平台到 Broker 的客户端连接断开"记为网关断连仍会产生 100% 假阳性 + 100% 假阴性，因此当前不得用平台连接状态冒充。写入路径随网关离线观测任务排期（证据：`docs/review/RESEARCH-002.md` §5/§6）。
 12. **平台故障与数据问题分离**：DB 等平台侧故障时逐终端标 `internal_error`，HTTP 整包 503（body 仍带完整 `results`）；数据问题仍是 200 + 逐终端 `results`。网关按状态码决定是否整批重传。写路径失败（`latest.Upsert`/`staging.Upsert` 事务失败）同属平台侧故障：异常仍记 `cache_write_failed` 保可观测，但逐终端返回 `internal_error`、整包 503。
 13. **质量违规来源**：`quality_violation` 摘要前缀固定 `source=thing_model`（物模型 min/max 越界）或 `source=rule`（终端质量规则命中），同一项两类都命中计 2 次。
 14. **行级质量标记（R-022）**：`latest_value` / `hourly_staging` / `hourly_snapshot` 各带 `quality smallint not null default 0` 与 `quality_reason text`。`quality` 是位掩码、可叠加：`1` 物模型 min/max 越界、`2` 终端质量规则命中、`4` 单位不在换算闭集内；`0` 正常，高位留给后续扩展。`quality_reason` 存可读摘要（如 `source=thing_model item=power 低于下限`，多来源用 `; ` 连接）。**原值照常入库**（`value_num`/`value_text`/`unit` 不因质量异常而改变），`exception_count.quality_violation` 的计数口径不变；质量标记跟随"胜出"的行（`value_time` 更大者覆盖，含标记本身），结算时从 staging 原样带进 snapshot。
-14. **单位换算短路**：`from == target` 时直接透传、不计数——即使该单位不在换算闭集内。否则电表场景里 A / V / kvar 等只要物模型声明与上报一致就会每分钟刷出大量假 `clean_failed`。
+19. **单位换算短路**：`from == target` 时直接透传、不计数——即使该单位不在换算闭集内。否则电表场景里 A / V / kvar 等只要物模型声明与上报一致就会每分钟刷出大量假 `clean_failed`。
 
 ## 三、本轮必修项落地（对应任务书第二章）
 
@@ -152,6 +155,10 @@ IOT_TEST_DSN=... IOT_CAPACITY=1 go test ./internal/ingest -run TestCapacity -v
 10. **快照 UPSERT 带来的 UPDATE 膨胀（R-030）**：被修正的格子会产生新版本行版本（revision++），依赖 autovacuum 回收；历史回填集中写入时会放大 WAL 与表膨胀，保留期仍靠按月 DROP 分区兜底。
 11. **窗口外写入依赖分区已存在**：补传跨度超出已建月度分区时写入失败（按设计不自动建分区，由 `EnsurePartitions` 负责），表现为整包 503 而非静默丢数据。
 12. **503 会触发整批重传**：平台故障恢复后网关会重发整批，可能重复发布实时消息与重复计数（已明确允许，不做幂等）。读元数据失败与写路径失败（`cache_write_failed`）都归入这一条：重传由 `value_time` 相等不覆盖兜底，重复发布属已接受行为。
+13. **版本表容量（R-034）**：`snapshot_cell_history` 只随**补录写入次数**增长（实时不写），量级与补录频率成正比；
+    补录集中回填时同样会快速累积，靠保留期（`changed_at` 早于快照截止月即删）兜底，不另设保留策略。
+14. **`results[].written` 数值变大（R-035）**：口径从"`latest_value` 返回行数"改为"实际写入任一表的行数"，
+    窗口外补录从 `written=0` 变成实际行数；网关/对账侧若按旧数值做阈值需要同步调整。
 
 ## 六、未完成项与建议
 
