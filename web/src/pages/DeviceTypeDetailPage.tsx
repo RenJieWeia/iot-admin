@@ -79,7 +79,8 @@ export function DeviceTypeDetailPage() {
   const listQuery = useMemo(
     () => ({
       ...toListQuery(query),
-      filters: [{ field: LOCK_FIELD, op: 'eq' as const, values: [id] }],
+      // type_id 是 relation 字段，后端操作符白名单只有 in（eq 会 400 invalid_query）。
+      filters: [{ field: LOCK_FIELD, op: 'in' as const, values: [id] }],
     }),
     [query, id],
   );
@@ -192,6 +193,23 @@ export function DeviceTypeDetailPage() {
           }
           onRetry={() => (meta.isError ? void meta.refetch() : backToList())}
           retryLabel={meta.isError ? '重试' : '返回列表'}
+        />
+      </AppShell>
+    );
+  }
+
+  if (typeQuery.isError && !typeQuery.data) {
+    return (
+      <AppShell title="终端类型不可用">
+        <ErrorState
+          title="终端类型不存在或加载失败"
+          text={`${errorDetail(typeQuery.error) ?? '未知错误'}。请返回列表重新选择终端类型。`}
+          onRetry={() => void typeQuery.refetch()}
+          extra={
+            <button type="button" className="btn" onClick={backToList}>
+              返回列表
+            </button>
+          }
         />
       </AppShell>
     );

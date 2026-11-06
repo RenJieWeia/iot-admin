@@ -23,9 +23,10 @@ describe('终端类型详情页（task-016）', () => {
     const view = renderApp('/device-types/1?filter.type_id.eq=2');
     await waitForRows(4);
 
-    // 请求层固定注入 type_id=1。
-    expect(propertyQueries.at(-1)).toContain('filter.type_id.eq=1');
-    expect(propertyQueries.at(-1)).not.toContain('filter.type_id.eq=2');
+    // 请求层固定注入 type_id=1，且必须用 relation 字段唯一支持的 in（eq 会被后端 400）。
+    expect(propertyQueries.at(-1)).toContain('filter.type_id.in=1');
+    expect(propertyQueries.at(-1)).not.toContain('filter.type_id.eq=');
+    expect(propertyQueries.at(-1)).not.toContain('filter.type_id.in=2');
     // 类型 2 独有的点位不应出现。
     expect(screen.queryByText('flow')).not.toBeInTheDocument();
     // 固定条件说明存在，但不是可删除的 chip。
@@ -109,6 +110,14 @@ describe('终端类型详情页（task-016）', () => {
     expect(writeCalls[0]?.method).toBe('PUT');
     expect(writeCalls[0]?.path).toBe('device-types/1');
     expect(writeCalls[0]?.body).toMatchObject({ name: '泵站-改' });
+  });
+
+  it('类型不存在：给明确错误态，不落到「还没有属性」也不暴露裸 invalid_query', async () => {
+    renderApp('/device-types/999');
+    expect(await screen.findByText('终端类型不存在或加载失败')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '返回列表' })).toBeInTheDocument();
+    expect(screen.queryByText('该终端类型下还没有属性')).not.toBeInTheDocument();
+    expect(screen.queryByText(/invalid_query/)).not.toBeInTheDocument();
   });
 
   it('导航只来自 _meta.entities：终端属性不进导航，但详情页仍用其字段元数据', async () => {

@@ -200,8 +200,25 @@ export const server = setupServer(
   http.get('/admin/v1/thing-model-properties', ({ request }) => {
     const url = new URL(request.url);
     propertyQueries.push(url.search);
-    const typeID = url.searchParams.getAll('filter.type_id.eq')[0] ?? '';
-    const rows = (typeID ? allProperties.filter((row) => row.type_id === typeID) : [...allProperties]) as RowData[];
+    // 按后端真实白名单收紧：type_id 是 relation 字段，只支持 in（裸字段按字段声明的第一个操作符）。
+    // 其它操作符（如 eq）后端会 400，这里必须同样 400，否则测试会放过后端不认的请求。
+    for (const key of url.searchParams.keys()) {
+      if (!key.startsWith('filter.type_id')) continue;
+      if (key !== 'filter.type_id' && key !== 'filter.type_id.in') {
+        const op = key.slice('filter.type_id.'.length);
+        return HttpResponse.json(
+          { code: 400, message: `invalid_query: 字段 \"type_id\" 不支持操作符 \"${op}\"` },
+          { status: 400 },
+        );
+      }
+    }
+    const typeIDs = [
+      ...url.searchParams.getAll('filter.type_id.in'),
+      ...url.searchParams.getAll('filter.type_id'),
+    ];
+    const rows = (typeIDs.length > 0
+      ? allProperties.filter((row) => typeIDs.includes(row.type_id))
+      : [...allProperties]) as RowData[];
     const { slice, page, pageSize } = paginate(rows, url);
     return HttpResponse.json({
       code: 0,
