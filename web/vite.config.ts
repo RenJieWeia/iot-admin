@@ -10,6 +10,23 @@ export default defineConfig({
     outDir: '../internal/ui/dist',
     emptyOutDir: true,
     sourcemap: false,
+    rollupOptions: {
+      output: {
+        // vendor 分组按「变更频率」切，不按体积切：框架/组件库半年不动，业务代码天天动。
+        // 收益是长缓存与警告消除，不降首屏字节；首屏改善来自路由级 lazy。
+        manualChunks(id: string) {
+          if (!id.includes('node_modules')) return undefined;
+          if (id.includes('react-router')) return 'vendor-router';
+          if (id.includes('@tanstack')) return 'vendor-tanstack';
+          if (id.includes('@radix-ui')) return 'vendor-radix';
+          if (id.includes('/zod/')) return 'vendor-zod';
+          if (id.includes('react-dom') || id.includes('/react/') || id.includes('scheduler')) {
+            return 'vendor-react';
+          }
+          return 'vendor-misc';
+        },
+      },
+    },
   },
   server: {
     proxy: {
