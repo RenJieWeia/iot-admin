@@ -6,8 +6,8 @@ interface Props {
   open: boolean;
   title: string;
   children: ReactNode;
-  /** 底部操作区（取消/保存/删除）。 */
-  footer: ReactNode;
+  /** 底部操作区（取消/保存/删除）；导航类抽屉没有底部操作时可省略。 */
+  footer?: ReactNode;
   onClose: () => void;
   onOpenChange?: (open: boolean) => void;
   /** Radix Dialog 提供的 aria-describedby 目标；没有说明时显式置空，避免读屏念出无关文本。 */
@@ -16,7 +16,7 @@ interface Props {
 
 /**
  * 侧滑抽屉：Radix Dialog 提供 role=dialog / aria-modal / 焦点陷阱 / Esc 关闭 / 关闭后焦点归还。
- * 底部操作区固定，始终可见（admin-ui-spec §5）。
+ * 底部操作区固定，始终可见；没有底部操作的导航抽屉省略该区域（admin-ui-spec §5、§3.1）。
  */
 export function Drawer({ open, title, children, footer, onClose, onOpenChange, description }: Props) {
   return (
@@ -49,9 +49,11 @@ export function Drawer({ open, title, children, footer, onClose, onOpenChange, d
             </p>
           )}
           <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">{children}</div>
-          <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-border bg-surface px-4 py-3">
-            {footer}
-          </div>
+          {footer && (
+            <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-border bg-surface px-4 py-3">
+              {footer}
+            </div>
+          )}
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>

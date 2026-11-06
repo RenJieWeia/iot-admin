@@ -110,17 +110,6 @@
   width: min(440px, calc(100vw - var(--space-6)));
 }
 
-/* 结构性布局：列宽/栅格这类精确值集中在 CSS，TSX 只引用类名。 */
-@utility shell {
-  display: grid;
-  grid-template-columns: var(--nav-width) 1fr;
-  min-height: 100vh;
-
-  @media (max-width: 1024px) {
-    grid-template-columns: 1fr;
-  }
-}
-
 @utility skip-link {
   position: absolute;
   left: -9999px;
@@ -188,28 +177,41 @@
   border-radius: var(--radius-card);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
-  box-shadow: var(--shadow-card);
 }
 
+/* 活跃态只用语义色（§3.2）：不加粗、不加色条。 */
 @utility nav-item-active {
   background: var(--color-primary-weak);
-  box-shadow: inset 2px 0 0 0 var(--color-primary);
 }
 
 @utility table-shell {
   overflow-x: auto;
 }
 
-/* 筛选区栅格：自适应列宽，最后一项（更多筛选）右对齐。 */
-@utility filter-span-2 {
-  grid-column: span 2;
-}
-
+/* 筛选区栅格：自适应列宽，最后一项（更多筛选）右对齐。
+   列宽下限取 min(200px, 100%)：容器比 200px 还窄时退化成 100%，不撑出横向溢出。 */
 @utility filter-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: var(--space-3);
   align-items: end;
+}
+
+/* 跨列只在 ≥40rem 生效：窄屏若保留 span 2，auto-fit 会为它强开第二条轨道并溢出。 */
+@utility filter-span-2 {
+  grid-column: span 2;
+
+  @media (max-width: 639px) {
+    grid-column: auto;
+  }
+}
+
+/* 触摸目标 ≥44×44（admin-ui-spec §14）：只约束窄屏，桌面保持既有密度。 */
+@utility touch-target {
+  @media (max-width: 1024px) {
+    min-height: var(--touch-target);
+    min-width: var(--touch-target);
+  }
 }
 
 /* 日期输入：去掉原生日历按钮与浏览器默认外观（C1）。 */
