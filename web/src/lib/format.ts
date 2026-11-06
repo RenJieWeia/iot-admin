@@ -74,6 +74,15 @@ export function formatCell(
   relationLabels: Record<string, string> = {},
 ): CellView {
   const raw = value === null || value === undefined ? '' : value;
+  // 带 options 的字段（枚举/布尔/带语义的数值，如 quality）一律渲染成「文字 + 颜色」标签，
+  // 取值与色调全部来自 _meta，前端不硬编码文案。
+  if (field.options && field.options.length > 0) {
+    if (raw === '') return { text: EMPTY, full: '', kind: 'muted', tone: 'neutral' };
+    const key = String(raw);
+    const label = optionLabel(field, key);
+    const tone = optionTone(field, key);
+    return { text: label, full: label, kind: 'tag', tone };
+  }
   switch (field.type) {
     case 'boolean': {
       const text = raw === '' ? EMPTY : optionLabel(field, String(raw));

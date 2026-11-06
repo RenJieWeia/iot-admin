@@ -1,7 +1,8 @@
 .toolbar {
   display: flex;
   flex-wrap: wrap;
-  align-items: flex-end;
+  /* 顶部对齐：范围控件天生比单行输入高，底部对齐会让同排标签整体错位（R2 同类问题）。 */
+  align-items: flex-start;
   gap: var(--space-3);
   margin-bottom: var(--space-3);
 }
@@ -9,6 +10,18 @@
 .toolbarItem {
   min-width: 160px;
   flex: 0 1 200px;
+}
+
+/* 范围控件（数值/日期）需要放下两个输入，比单行控件宽一点。 */
+.toolbarItemWide {
+  flex: 0 1 280px;
+}
+
+/* 全局 .input 是 width:100%，放在横向 flex 里会把两个输入挤成上下两行。 */
+.optionGroup > input {
+  flex: 1 1 0;
+  min-width: 0;
+  width: auto;
 }
 
 .keyword {

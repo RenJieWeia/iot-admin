@@ -44,6 +44,10 @@ export function normalizeMeta(payload: MetaPayload): MetaPayload {
       ...slot,
       fields: normalizeFields(slot.fields ?? []),
     })),
+    readonly: (payload.readonly ?? []).map((slot) => ({
+      ...slot,
+      fields: normalizeFields(slot.fields ?? []),
+    })),
     enums: payload.enums ?? {},
     booleans: payload.booleans ?? {},
     pagination: payload.pagination ?? { default: 10, max: 50, options: [10, 20, 50] },

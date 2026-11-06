@@ -4,6 +4,7 @@ import {
   allTerminals,
   deviceTypeOptions,
   exceptionEvents,
+  latestValues,
   metaFixture,
 } from './fixtures';
 import type { RowData } from '../api/types';
@@ -57,6 +58,42 @@ export const server = setupServer(
   http.get('/admin/v1/options/:entity', ({ params }) => {
     if (params.entity === 'device-types') return ok(deviceTypeOptions);
     return ok([]);
+  }),
+
+  // 通用只读源（task-009）：latest-values，支持 quality.gte 与 terminal_id 过滤。
+  http.get('/admin/v1/readonly/:slot', ({ params, request }) => {
+    const url = new URL(request.url);
+    if (params.slot !== 'latest-values') {
+      return HttpResponse.json({ code: 404, message: 'unknown_slot' }, { status: 404 });
+    }
+    let rows = [...latestValues] as RowData[];
+    const qualityGte = url.searchParams.getAll('filter.quality.gte');
+    if (qualityGte.length > 0) {
+      const threshold = Number(qualityGte[0] ?? '0');
+      rows = rows.filter((row) => Number(row.quality) >= threshold);
+    }
+    const terminal = url.searchParams.getAll('filter.terminal_id.contains');
+    if (terminal.length > 0) {
+      rows = rows.filter((row) =>
+        terminal.some((needle) => String(row.terminal_id).includes(needle)),
+      );
+    }
+    const q = (url.searchParams.get('q') ?? '').trim();
+    if (q) {
+      rows = rows.filter(
+        (row) =>
+          String(row.terminal_id).includes(q) ||
+          String(row.item_code).includes(q) ||
+          String(row.quality_reason ?? '').includes(q),
+      );
+    }
+    const { slice, page, pageSize } = paginate(rows, url);
+    return HttpResponse.json({
+      code: 0,
+      message: 'ok',
+      data: slice,
+      ...envelopeMeta(rows.length, page, pageSize, 'value_time', 'desc'),
+    });
   }),
 
   http.get('/admin/v1/exceptions/:slot', ({ params, request }) => {

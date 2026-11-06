@@ -46,8 +46,9 @@ describe('异常只读两页', () => {
   });
 
   it('未知 slot 给出原因与返回路径', async () => {
+    // 异常两页与通用只读页共用一个实现，文案统一为「未知只读页」。
     renderApp('/exceptions/unknown');
-    expect(await screen.findByText('未知异常页')).toBeInTheDocument();
+    expect(await screen.findByText('未知只读页')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '返回上一页' })).toBeInTheDocument();
   });
 });

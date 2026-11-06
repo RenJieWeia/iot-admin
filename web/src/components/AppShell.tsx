@@ -17,6 +17,7 @@ export function AppShell({ title, actions, children }: Props) {
   const meta = useMeta();
   const entities = meta.data?.entities ?? [];
   const exceptions = meta.data?.exceptions ?? [];
+  const readonly = meta.data?.readonly ?? [];
 
   return (
     <div className={styles.shell}>
@@ -40,6 +41,25 @@ export function AppShell({ title, actions, children }: Props) {
               </li>
             ))}
           </ul>
+          {readonly.length > 0 && (
+            <>
+              <p className={styles.sectionTitle}>数据</p>
+              <ul className={styles.nav}>
+                {readonly.map((slot) => (
+                  <li key={slot.slot}>
+                    <NavLink
+                      to={`/readonly/${slot.slot}`}
+                      className={({ isActive }) =>
+                        isActive ? `${styles.navLink} ${styles.navLinkActive}` : styles.navLink
+                      }
+                    >
+                      {slot.title}
+                    </NavLink>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
           {exceptions.length > 0 && (
             <>
               <p className={styles.sectionTitle}>异常</p>

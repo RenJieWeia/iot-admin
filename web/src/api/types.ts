@@ -81,6 +81,22 @@ export interface EntityMeta {
   fields: FieldMeta[];
 }
 
+/**
+ * 通用只读页（task-009 §2 A3：`_meta.readonly`）。
+ * `exceptions` 是它的特例，本期保留独立键，前端不改其用法。
+ */
+export interface ReadonlyMeta {
+  /** URL 段，例如 latest-values。 */
+  slot: string;
+  name: string;
+  title: string;
+  route: string;
+  readOnly: boolean;
+  defaultSort: string;
+  defaultOrder: 'asc' | 'desc';
+  fields: FieldMeta[];
+}
+
 /** 只读异常页（2 个，独立路由，不进 admin.Entities）。 */
 export interface ExceptionMeta {
   slot: 'events' | 'intervals';
@@ -104,6 +120,8 @@ export interface PaginationMeta {
 export interface MetaPayload {
   entities: EntityMeta[];
   exceptions: ExceptionMeta[];
+  /** 通用只读页；后端未下发时按空数组处理（fail-closed：不出现多余导航）。 */
+  readonly?: ReadonlyMeta[];
   /** 枚举字典：字段名 → { 取值: 中文 }。 */
   enums: Record<string, Record<string, string>>;
   /** 布尔字典：{ "true": "是", "false": "否" }。 */

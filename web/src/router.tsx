@@ -3,7 +3,7 @@ import { useMeta } from './api/meta';
 import { AppShell } from './components/AppShell';
 import { ErrorState } from './components/ErrorState';
 import { StatePanel } from './components/StatePanel';
-import { LazyEntityPage, LazyExceptionPage } from './pages/LazyRoutes';
+import { LazyEntityPage, LazyExceptionPage, LazyReadonlyPage } from './pages/LazyRoutes';
 
 /** 根路径跳到第一个实体：目标来自 /_meta，避免在前端硬编码实体名。 */
 function IndexRedirect() {
@@ -39,6 +39,7 @@ export function AppRoutes() {
     <Routes>
       <Route path="/" element={<IndexRedirect />} />
       <Route path="/exceptions/:slot" element={<LazyExceptionPage />} />
+      <Route path="/readonly/:slot" element={<LazyReadonlyPage />} />
       <Route path="/:entity" element={<LazyEntityPage />} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

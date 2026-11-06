@@ -128,7 +128,7 @@ function FilterControl({
       onChange(patchQuery(query, { filters: next }));
     };
     return (
-      <div className={`field ${styles.toolbarItem}`}>
+      <div className={`field ${styles.toolbarItem} ${styles.toolbarItemWide}`}>
         <label htmlFor={`${inputId}-gte`}>{field.label}（范围）</label>
         <div className={styles.optionGroup}>
           <input

@@ -1,6 +1,7 @@
 import { Suspense, lazy } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { useMeta } from '../api/meta';
+import type { SlotSource } from '../api/exceptions';
 import { AppShell } from '../components/AppShell';
 import { DataTable } from '../components/DataTable';
 import { MetaGate } from '../components/MetaGate';
@@ -12,8 +13,8 @@ import { parseQueryState } from '../lib/queryState';
 const EntityListPage = lazy(() =>
   import('./EntityListPage').then((module) => ({ default: module.EntityListPage })),
 );
-const ExceptionListPage = lazy(() =>
-  import('./ExceptionListPage').then((module) => ({ default: module.ExceptionListPage })),
+const ReadonlySlotPage = lazy(() =>
+  import('./ReadonlySlotPage').then((module) => ({ default: module.ReadonlySlotPage })),
 );
 
 interface FallbackProps {
@@ -81,24 +82,28 @@ export function LazyEntityPage() {
   );
 }
 
-export function LazyExceptionPage() {
+/** 两个只读源共用同一个页面实现，只有数据源前缀不同。 */
+function LazySlotPage({ source }: { source: SlotSource }) {
   const params = useParams();
   const [searchParams] = useSearchParams();
   const meta = useMeta();
-  const exception = meta.data?.exceptions.find((item) => item.slot === params.slot);
+  const holder =
+    source === 'exceptions'
+      ? meta.data?.exceptions.find((item) => item.slot === params.slot)
+      : meta.data?.readonly?.find((item) => item.slot === params.slot);
   const pageSize = parseQueryState(searchParams).pageSize;
 
   return (
     <MetaGate>
       <Suspense
         fallback={
-          exception ? (
+          holder ? (
             <TableFallback
-              title={exception.title}
-              fields={visibleFields(exception)}
+              title={holder.title}
+              fields={visibleFields(holder)}
               writable={false}
-              sort={exception.defaultSort}
-              order={exception.defaultOrder}
+              sort={holder.defaultSort}
+              order={holder.defaultOrder}
               skeletonRows={pageSize}
             />
           ) : (
@@ -108,8 +113,16 @@ export function LazyExceptionPage() {
           )
         }
       >
-        <ExceptionListPage />
+        <ReadonlySlotPage source={source} />
       </Suspense>
     </MetaGate>
   );
+}
+
+export function LazyExceptionPage() {
+  return <LazySlotPage source="exceptions" />;
+}
+
+export function LazyReadonlyPage() {
+  return <LazySlotPage source="readonly" />;
 }

@@ -1,4 +1,4 @@
-import type { FieldMeta, MetaPayload } from '../api/types';
+import type { FieldMeta, MetaPayload, ReadonlyMeta } from '../api/types';
 
 /**
  * 假元数据严格按 task-004 §4 契约 + 本轮新增的 editable/required 构造。
@@ -20,6 +20,84 @@ function field(partial: Partial<FieldMeta> & Pick<FieldMeta, 'key' | 'label' | '
     ...partial,
   };
 }
+
+/** quality 的 8 种组合（task-009 §2 A2）：文案与色调全部由后端下发，前端只是渲染。 */
+export const qualityOptions = [
+  { value: '0', label: '正常', tone: 'neutral' as const },
+  { value: '1', label: '越界', tone: 'warning' as const },
+  { value: '2', label: '规则命中', tone: 'warning' as const },
+  { value: '3', label: '越界+规则', tone: 'warning' as const },
+  { value: '4', label: '单位闭集外', tone: 'warning' as const },
+  { value: '5', label: '越界+单位', tone: 'warning' as const },
+  { value: '6', label: '规则+单位', tone: 'warning' as const },
+  { value: '7', label: '越界+规则+单位', tone: 'warning' as const },
+];
+
+/** `_meta.readonly`（task-009 §2 A3）：本批只有 latest-values 一项。 */
+export const readonlyFixture: ReadonlyMeta[] = [
+  {
+    slot: 'latest-values',
+    name: 'latest-values',
+    title: '最新值',
+    route: '/admin/v1/readonly/latest-values',
+    readOnly: true,
+    defaultSort: 'value_time',
+    defaultOrder: 'desc',
+    fields: [
+      field({ key: 'terminal_id', label: '终端', type: 'text', operators: ['contains', 'eq'], widthStrategy: 'min' }),
+      field({ key: 'item_code', label: '数据项编码', type: 'text', widthStrategy: 'min' }),
+      field({
+        key: 'value_num',
+        label: '数值',
+        type: 'number',
+        filterType: 'numberRange',
+        operators: ['gte', 'lte'],
+        advancedOnly: true,
+        widthStrategy: 'fixed',
+      }),
+      field({
+        key: 'value_text',
+        label: '文本值',
+        type: 'text',
+        advancedOnly: true,
+        widthStrategy: 'min',
+      }),
+      field({
+        key: 'unit',
+        label: '单位',
+        type: 'text',
+        advancedOnly: true,
+        widthStrategy: 'fixed',
+      }),
+      field({
+        key: 'value_time',
+        label: '取值时间',
+        type: 'datetime',
+        filterType: 'dateRange',
+        operators: ['gte', 'lte'],
+        widthStrategy: 'min',
+      }),
+      field({
+        key: 'quality',
+        label: '质量',
+        type: 'number',
+        filterType: 'numberRange',
+        operators: ['gte', 'lte'],
+        optionsSource: 'static',
+        options: qualityOptions,
+        widthStrategy: 'fixed',
+      }),
+      field({
+        key: 'quality_reason',
+        label: '质量原因',
+        type: 'text',
+        sortable: false,
+        advancedOnly: true,
+        widthStrategy: 'flex',
+      }),
+    ],
+  },
+];
 
 export const metaFixture: MetaPayload = {
   entities: [
@@ -294,6 +372,7 @@ export const metaFixture: MetaPayload = {
   },
   booleans: { true: '是', false: '否' },
   pagination: { default: 10, max: 50, options: [10, 20, 50] },
+  readonly: readonlyFixture,
 };
 
 /** 128 条终端，用于验证「只渲染当前页 10 行」。 */
@@ -309,6 +388,21 @@ export const deviceTypeOptions = [
   { value: '1', label: '泵站' },
   { value: '2', label: '阀门' },
 ];
+
+/** 最新值 128 行：quality 轮转 0..7，用于验证「按 options 渲染标签」与总数 128。 */
+export const latestValues = Array.from({ length: 128 }).map((_, index) => {
+  const quality = index % 8;
+  return {
+    terminal_id: `t-${String((index % 20) + 1).padStart(3, '0')}`,
+    item_code: `item-${(index % 6) + 1}`,
+    value_num: (index * 7) % 100,
+    value_text: null,
+    unit: index % 5 === 0 ? 'kW' : '℃',
+    value_time: new Date(Date.UTC(2026, 10, 5, 12, 0, index % 60)).toISOString(),
+    quality: String(quality),
+    quality_reason: quality === 0 ? null : `原因-${quality}`,
+  };
+});
 
 export const exceptionEvents = [
   { terminal_id: 't-001', error_type: 'upload_timeout', count: 3 },
