@@ -74,3 +74,11 @@
   max-width: 30rem; /* 480px */
   box-shadow: 0 var(--space-1) var(--space-3) var(--color-overlay);
 }
+
+@utility drawer-panel {
+  width: min(var(--drawer-width), 100vw);
+}
+
+@utility confirm-panel {
+  width: min(440px, calc(100vw - var(--space-6)));
+}

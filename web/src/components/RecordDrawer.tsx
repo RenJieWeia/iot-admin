@@ -3,9 +3,9 @@ import { z } from 'zod';
 import type { EntityMeta, FieldMeta, RowData } from '../api/types';
 import { formFields } from '../lib/fieldMeta';
 import { toFormValue, toSubmitValue } from '../lib/format';
+import * as Checkbox from '@radix-ui/react-checkbox';
 import { Drawer } from './Drawer';
 import { RelationSelect } from './RelationSelect';
-import styles from './Panel.module.css';
 
 interface Props {
   entity: EntityMeta;
@@ -125,7 +125,26 @@ export function RecordDrawer({
         />
       );
     }
-    if (field.type === 'boolean' || field.type === 'enum') {
+    if (field.type === 'boolean') {
+      return (
+        <div className="flex h-9 items-center gap-2">
+          <Checkbox.Root
+            id={id}
+            checked={values[field.key] === '' ? 'indeterminate' : values[field.key] === 'true'}
+            onCheckedChange={(checked) => setValue(field.key, checked === true ? 'true' : 'false')}
+            aria-invalid={Boolean(errors[field.key])}
+            aria-describedby={errors[field.key] ? `${id}-error` : undefined}
+            className="flex h-4 w-4 items-center justify-center rounded-sm border border-border bg-surface"
+          >
+            <Checkbox.Indicator>✓</Checkbox.Indicator>
+          </Checkbox.Root>
+          <label htmlFor={id} className="text-sm text-muted">
+            {values[field.key] === '' ? '未设置' : values[field.key] === 'true' ? '是' : '否'}
+          </label>
+        </div>
+      );
+    }
+    if (field.type === 'enum') {
       return (
         <select
           id={id}
@@ -183,7 +202,7 @@ export function RecordDrawer({
           {mode === 'edit' && writable && (
             <button
               type="button"
-              className={`btn btn-danger ${styles.drawerFooterDanger}`}
+              className="btn btn-danger mr-auto"
               onClick={onDelete}
               disabled={saving || deleting}
             >
@@ -200,7 +219,7 @@ export function RecordDrawer({
       }
     >
       {error && (
-        <p className={styles.formError} role="alert">
+        <p className="m-0 rounded-sm border border-negative-text bg-negative-bg px-3 py-2 text-negative-text" role="alert">
           保存失败：{error}
         </p>
       )}
@@ -214,7 +233,10 @@ export function RecordDrawer({
             </label>
             {renderControl(field)}
             {errors[field.key] && (
-              <p id={`${id}-error`} className={styles.formError}>
+              <p
+                id={`${id}-error`}
+                className="m-0 rounded-sm border border-negative-text bg-negative-bg px-3 py-2 text-negative-text"
+              >
                 {errors[field.key]}
               </p>
             )}

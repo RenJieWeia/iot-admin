@@ -24,7 +24,10 @@ export default defineConfig({
           if (id.includes('react-dom') || id.includes('/react/') || id.includes('scheduler')) {
             return 'vendor-react';
           }
-          return 'vendor-misc';
+          // 其余（clsx/tailwind-merge/CVA/floating-ui 等）不单独分组：
+          // 它们与 React 有初始化顺序依赖，单拆 chunk 会产生循环依赖（vendor-misc 先于
+          // vendor-react 求值 → P.useLayoutEffect 读 undefined）。让它们跟着引用方进 chunk。
+          return undefined;
         },
       },
     },
