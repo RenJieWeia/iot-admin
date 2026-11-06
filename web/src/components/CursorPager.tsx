@@ -14,12 +14,12 @@ interface Props {
  */
 export function CursorPager({ hasMore, loading, limit, loaded, onMore }: Props) {
   return (
-    <div className="mt-4 flex flex-wrap items-center gap-3">
+    <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
       <span className="range-text text-muted">
         已加载 {loaded} 条 · 每批 {limit || '—'} 条（游标分页，不显示总数）
       </span>
       {hasMore ? (
-        <button type="button" className="btn" onClick={onMore} disabled={loading}>
+        <button type="button" className="btn h-8" onClick={onMore} disabled={loading}>
           {loading ? '加载中…' : '加载更多'}
         </button>
       ) : (

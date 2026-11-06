@@ -98,7 +98,7 @@ export function DataTable({
           <span className="inline-flex items-center justify-end gap-2">
             <button
               type="button"
-              className="btn"
+              className="inline-flex h-8 items-center rounded-control border border-border bg-surface px-3 text-body text-text hover:border-border-strong"
               data-action="edit"
               data-row-id={String(row.original.id ?? '')}
               onClick={(event) => onEdit?.(row.original, event.currentTarget)}
@@ -107,7 +107,7 @@ export function DataTable({
             </button>
             <button
               type="button"
-              className="btn btn-danger"
+              className="inline-flex h-8 items-center rounded-control px-2 text-body text-muted hover:bg-danger-weak hover:text-danger"
               data-action="delete"
               data-row-id={String(row.original.id ?? '')}
               onClick={(event) => onDelete?.(row.original, event.currentTarget)}
@@ -159,7 +159,7 @@ export function DataTable({
                   <th
                     key={header.id}
                     scope="col"
-                    className="h-12 whitespace-nowrap border-b border-border bg-neutral-bg px-3 text-left text-sm font-semibold text-muted"
+                    className="h-11 whitespace-nowrap border-b border-border bg-surface-2 px-3 text-left text-meta font-medium text-muted"
                     aria-sort={active ? ariaSort : canSort ? 'none' : undefined}
                   >
                     {canSort && field ? (
@@ -198,26 +198,29 @@ export function DataTable({
                   {fields.map((field, cellIndex) => (
                     <td
                       key={field.key}
-                      className="h-12 overflow-hidden border-b border-border px-3 align-middle"
+                      className="h-11 overflow-hidden border-b border-border px-3 align-middle"
                     >
                       <SkeletonCell short={cellIndex % 3 === 2} />
                     </td>
                   ))}
                   {writable && (
-                    <td className="h-12 overflow-hidden border-b border-border px-3 align-middle">
+                    <td className="h-11 overflow-hidden border-b border-border px-3 align-middle">
                       <SkeletonCell />
                     </td>
                   )}
                 </tr>
               ))
             : table.getRowModel().rows.map((row) => (
-                <tr key={String(row.original.id ?? row.id)}>
+                <tr key={String(row.original.id ?? row.id)} className="group hover:bg-surface-2">
                   {row.getVisibleCells().map((cell) => (
                     <td
                       key={cell.id}
                       className={cn(
-                        'h-12 overflow-hidden border-b border-border px-3 align-middle',
-                        cell.column.id === '__actions' && 'whitespace-nowrap text-right',
+                        'h-11 overflow-hidden border-b border-border px-3 align-middle',
+                        cell.column.id === fields[0]?.key &&
+                          'sticky left-0 z-10 bg-surface group-hover:bg-surface-2',
+                        cell.column.id === '__actions' &&
+                          'sticky right-0 z-10 whitespace-nowrap bg-surface text-right group-hover:bg-surface-2',
                       )}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}

@@ -12,6 +12,9 @@ export interface CellView {
 }
 
 const TIME_ZONE = 'Asia/Shanghai';
+/** 编码类文本列：用等宽字体展示（D2）。 */
+const MONO_TEXT_KEYS = new Set(['terminal_id', 'item_code', 'gateway_id', 'code']);
+
 /** 快照页的修正次数列（task-010 §4.3）。 */
 const REVISION_FIELD_KEY = 'revision';
 const OFFSET_SUFFIX = '+08:00';
@@ -27,6 +30,17 @@ const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
   second: '2-digit',
   hour12: false,
 });
+
+/** 表格里的短时间：`MM-DD HH:mm:ss`；完整值与 +08:00 放在 title 与页面说明里（D1）。 */
+export function formatTimeShort(raw: unknown): { text: string; full: string } {
+  if (raw === null || raw === undefined || raw === '') return { text: EMPTY, full: '' };
+  const full = formatTime(raw);
+  if (full === EMPTY) return { text: EMPTY, full: '' };
+  // full 形如 `2026-11-05 20:00:12 +08:00`，取 MM-DD 与时分秒。
+  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2}:\d{2})/.exec(full);
+  if (!match) return { text: full, full };
+  return { text: `${match[2]}-${match[3]} ${match[4]}`, full };
+}
 
 /** 时间一律显示绝对时间并带时区（§16 语义规范），不用相对时间。 */
 export function formatTime(raw: unknown): string {
@@ -125,8 +139,8 @@ export function formatCell(
       return { text: label ?? id, full: label ?? id, kind: 'text', tone: 'neutral' };
     }
     case 'datetime': {
-      const text = formatTime(raw);
-      return { text, full: text, kind: text === EMPTY ? 'muted' : 'text', tone: 'neutral' };
+      const { text, full } = formatTimeShort(raw);
+      return { text, full, kind: text === EMPTY ? 'muted' : 'text', tone: 'neutral' };
     }
     case 'number': {
       const text = formatNumber(raw);
@@ -140,9 +154,16 @@ export function formatCell(
       const text = raw === '' ? EMPTY : String(raw);
       return { text, full: text, kind: text === EMPTY ? 'muted' : 'mono', tone: 'neutral' };
     }
+    // 编码类文本列（终端/数据项/网关）用等宽字体，便于逐字符比对（D2）。
     default: {
       const text = raw === '' ? EMPTY : String(raw);
-      return { text, full: text, kind: text === EMPTY ? 'muted' : 'text', tone: 'neutral' };
+      const mono = MONO_TEXT_KEYS.has(field.key);
+      return {
+        text,
+        full: text,
+        kind: text === EMPTY ? 'muted' : mono ? 'mono' : 'text',
+        tone: 'neutral',
+      };
     }
   }
 }

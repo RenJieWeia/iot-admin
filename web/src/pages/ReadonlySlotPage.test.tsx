@@ -33,8 +33,11 @@ describe('最新值只读页（task-009 Part B）', () => {
     // 质量原因单行截断 + title 全文。
     const reason = within(table).getAllByTitle(/原因-/)[0];
     expect(reason).toBeInTheDocument();
-    // 时间显示为绝对时间 +08:00。
-    expect(within(table).getAllByText(/\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \+08:00/).length).toBeGreaterThan(0);
+    // D1：单元格显示 MM-DD HH:mm:ss，完整时间（含 +08:00）在 title 里，页面只出现一次时区说明。
+    expect(within(table).getAllByText(/^\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/).length).toBeGreaterThan(0);
+    expect(
+      within(table).getAllByTitle(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \+08:00$/).length,
+    ).toBeGreaterThan(0);
   });
 
   it('只读：无新建/编辑/删除入口、不渲染抽屉、零写请求', async () => {

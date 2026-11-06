@@ -71,12 +71,12 @@ function FilterControl({
     const selected = valuesOf(query, field.key, field.operators[0] ?? '');
     const multi = field.filterType !== 'boolean';
     return (
-      <div className="field min-w-40 basis-50">
+      <div className="field">
         <label htmlFor={inputId}>{field.label}</label>
         {multi ? (
           <select
             id={inputId}
-            className="select"
+            className="select h-8"
             multiple
             size={3}
             value={selected}
@@ -96,7 +96,7 @@ function FilterControl({
         ) : (
           <select
             id={inputId}
-            className="select"
+            className="select h-8"
             value={selected[0] ?? ''}
             onChange={(event) =>
               commit(field.operators[0] ?? 'eq', event.target.value ? [event.target.value] : [])
@@ -115,7 +115,7 @@ function FilterControl({
   }
 
   if (field.filterType === 'numberRange' || field.filterType === 'dateRange') {
-    const inputType = field.filterType === 'numberRange' ? 'number' : 'date';
+    const isNumber = field.filterType === 'numberRange';
     const gte = valuesOf(query, field.key, 'gte')[0] ?? '';
     const lte = valuesOf(query, field.key, 'lte')[0] ?? '';
     const commitRange = (nextGte: string, nextLte: string) => {
@@ -126,13 +126,18 @@ function FilterControl({
       onChange(patchQuery(query, { filters: next }));
     };
     return (
-      <div className="field min-w-40 basis-70">
+      <div className="field">
         <label htmlFor={`${inputId}-gte`}>{field.label}（范围）</label>
         <div className="flex min-h-9 flex-wrap items-center gap-2 rounded-sm border border-border p-2">
           <input
             id={`${inputId}-gte`}
-            className="input option-group-field"
-            type={inputType}
+            className={
+              isNumber
+                ? 'input option-group-field number-input h-8'
+                : 'input option-group-field date-input h-8'
+            }
+            type={isNumber ? 'number' : 'text'}
+            placeholder={isNumber ? '最小值' : 'YYYY-MM-DD'}
             aria-label={`${field.label} 下限`}
             defaultValue={gte}
             onKeyDown={(event) => {
@@ -142,8 +147,13 @@ function FilterControl({
           />
           <span aria-hidden="true">–</span>
           <input
-            className="input option-group-field"
-            type={inputType}
+            className={
+              isNumber
+                ? 'input option-group-field number-input h-8'
+                : 'input option-group-field date-input h-8'
+            }
+            type={isNumber ? 'number' : 'text'}
+            placeholder={isNumber ? '最小值' : 'YYYY-MM-DD'}
             aria-label={`${field.label} 上限`}
             defaultValue={lte}
             onKeyDown={(event) => {
@@ -158,11 +168,11 @@ function FilterControl({
 
   const current = valuesOf(query, field.key, field.operators[0] ?? '').join('、');
   return (
-    <div className="field min-w-40 basis-50">
+    <div className="field">
       <label htmlFor={inputId}>{field.label}</label>
       <input
         id={inputId}
-        className="input"
+        className="input h-8"
         type="search"
         defaultValue={current}
         placeholder={`按${field.label}筛选`}
@@ -274,12 +284,13 @@ export function FilterBar({ entity, query, relationOptions, onChange }: Props) {
 
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-start gap-3">
-        <div className="field min-w-50 flex-1 basis-60">
+      <div className="mb-3 flex items-end gap-3">
+        <div className="filter-grid flex-1">
+        <div className="field filter-span-2">
           <label htmlFor="filter-keyword">关键词</label>
           <input
             id="filter-keyword"
-            className="input"
+            className="input h-8"
             type="search"
             value={keyword}
             placeholder="在可搜索的文本列中匹配"
@@ -296,21 +307,24 @@ export function FilterBar({ entity, query, relationOptions, onChange }: Props) {
             }}
           />
         </div>
-        {quick.map((field) => (
-          <FilterControl
-            key={field.key}
-            field={field}
-            query={query}
-            relationOptions={relationOptions}
-            onChange={onChange}
-          />
-        ))}
+          {quick.map((field) => (
+            <FilterControl
+              key={field.key}
+              field={field}
+              query={query}
+              relationOptions={relationOptions}
+              onChange={onChange}
+            />
+          ))}
+        </div>
         {advanced.length > 0 && (
-          <div className="min-w-40 basis-50">
-            <button type="button" className="btn" onClick={() => setDialogOpen(true)}>
-              更多筛选
-            </button>
-          </div>
+          <button
+            type="button"
+            className="btn mb-0.5 h-8 shrink-0"
+            onClick={() => setDialogOpen(true)}
+          >
+            更多筛选
+          </button>
         )}
       </div>
 
