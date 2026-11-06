@@ -33,7 +33,7 @@ const COLOR_LITERAL =
 
 /** Radix 变体选择器白名单：只允许 data-/aria-/has-/group-/peer- 前缀内的任意值。 */
 const ARBITRARY = /\[[^\]]+\]/g;
-const ALLOWED_ARBITRARY = /^(?:data|aria|has|group|peer)-\[[^\]]+\]$/;
+const ALLOWED_PREFIX = /(?:^|[\s:])(?:data|aria|has|group|peer)-$/;
 
 const DEFAULT_PALETTE =
   /\b(?:bg|text|border|ring|outline|fill|stroke)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/;
@@ -79,8 +79,14 @@ describe('样式规则（Tailwind 迁移后）', () => {
     const offenders: string[] = [];
     for (const file of tsxFiles) {
       for (const value of classAttributeValues(readFileSync(file, 'utf8'))) {
-        for (const token of value.match(ARBITRARY) ?? []) {
-          if (!ALLOWED_ARBITRARY.test(token.trim())) offenders.push(`${file}: ${token}`);
+        for (const match of value.matchAll(ARBITRARY)) {
+          const token = match[0];
+          const start = match.index ?? 0;
+          const prefix = value.slice(Math.max(0, start - 6), start);
+          // 只有 `data-[…]` / `aria-[…]` / `has-[…]` / `group-[…]` / `peer-[…]` 这类
+          // Radix/原生状态选择器放行；其余一律视为 arbitrary value。
+          if (ALLOWED_PREFIX.test(prefix)) continue;
+          offenders.push(`${file}: ${prefix}${token}`);
         }
       }
     }

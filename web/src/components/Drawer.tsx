@@ -28,10 +28,10 @@ export function Drawer({ open, title, children, footer, onClose, onOpenChange, d
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 bg-overlay" />
+        <Dialog.Overlay className="fixed inset-0 z-40 bg-overlay" />
         <Dialog.Content
           className={cn(
-            'drawer-panel fixed inset-y-0 right-0 flex flex-col border-l border-border bg-surface',
+            'drawer-panel fixed inset-y-0 right-0 z-40 flex flex-col border-l border-border bg-surface',
           )}
           aria-describedby={description ? 'drawer-description' : undefined}
         >

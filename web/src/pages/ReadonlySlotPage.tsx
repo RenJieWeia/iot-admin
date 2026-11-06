@@ -128,11 +128,13 @@ export function ReadonlySlotPage({ source }: Props) {
 
   const presets = presetsFor(holder.fields);
 
+  const hasTimeColumn = holder.fields.some((field) => field.type === 'datetime');
+  const readonlyNote = hasTimeColumn
+    ? '只读页面 · 时间以 +08:00 显示'
+    : '只读页面 · 不提供新建、编辑或删除入口';
+
   return (
-    <AppShell
-      title={holder.title}
-      actions={<span className="muted">只读页面：不提供新建、编辑或删除入口。</span>}
-    >
+    <AppShell title={holder.title} subtitle={readonlyNote}>
       {presets.length > 0 && (
         <div className="preset-row">
           {presets.map((preset) => (

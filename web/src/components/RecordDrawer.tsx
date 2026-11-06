@@ -127,16 +127,18 @@ export function RecordDrawer({
     }
     if (field.type === 'boolean') {
       return (
-        <div className="flex h-9 items-center gap-2">
+        <div className="flex h-8 items-center gap-2">
           <Checkbox.Root
             id={id}
             checked={values[field.key] === '' ? 'indeterminate' : values[field.key] === 'true'}
             onCheckedChange={(checked) => setValue(field.key, checked === true ? 'true' : 'false')}
             aria-invalid={Boolean(errors[field.key])}
             aria-describedby={errors[field.key] ? `${id}-error` : undefined}
-            className="flex h-4 w-4 items-center justify-center rounded-sm border border-border bg-surface"
+            className="relative h-5 w-9 rounded-pill border border-border-strong bg-surface-2 transition-colors data-[state=checked]:border-primary data-[state=checked]:bg-primary"
           >
-            <Checkbox.Indicator>✓</Checkbox.Indicator>
+            <Checkbox.Indicator asChild>
+              <span className="pointer-events-none absolute right-0.5 top-0.5 block h-4 w-4 rounded-pill bg-surface shadow-card" />
+            </Checkbox.Indicator>
           </Checkbox.Root>
           <label htmlFor={id} className="text-sm text-muted">
             {values[field.key] === '' ? '未设置' : values[field.key] === 'true' ? '是' : '否'}
@@ -218,6 +220,12 @@ export function RecordDrawer({
         </>
       }
     >
+      <p className="m-0 text-meta text-muted">
+        <span className="text-danger" aria-hidden="true">
+          *
+        </span>{' '}
+        为必填项
+      </p>
       {error && (
         <p className="m-0 rounded-sm border border-negative-text bg-negative-bg px-3 py-2 text-negative-text" role="alert">
           保存失败：{error}
@@ -227,9 +235,13 @@ export function RecordDrawer({
         const id = `field-${field.key}`;
         return (
           <div key={field.key} className={errors[field.key] ? 'field field-error' : 'field'}>
-            <label htmlFor={id}>
-              {field.label}
-              {field.required ? '（必填）' : ''}
+            <label htmlFor={id} className="flex items-center gap-1">
+              <span>{field.label}</span>
+              {field.required && (
+                <span className="text-danger" aria-hidden="true">
+                  *
+                </span>
+              )}
             </label>
             {renderControl(field)}
             {errors[field.key] && (

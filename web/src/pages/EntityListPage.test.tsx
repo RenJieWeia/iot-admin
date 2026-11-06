@@ -255,10 +255,12 @@ describe('实体列表页（服务端驱动）', () => {
 
     await user.click(screen.getByRole('button', { name: '新建' }));
     const dialog = await screen.findByRole('dialog');
-    // 必填提示由 _meta.required 驱动（不是按字段类型猜）：terminals 只有 id 是 required。
-    expect(within(dialog).getByLabelText('终端 ID（必填）')).toBeInTheDocument();
-    expect(within(dialog).queryByLabelText('名称（必填）')).not.toBeInTheDocument();
-    expect(within(dialog).queryByLabelText('网关 ID（必填）')).not.toBeInTheDocument();
+    // C6：必填改用红色星号（aria-hidden），可访问名里不再带「（必填）」；
+    // 断言仍是「只有 required 字段带标记」。
+    // 1 个字段星号 + 顶部图例的 1 个星号；非 required 字段不带。
+    expect(within(dialog).getAllByText('*')).toHaveLength(2);
+    expect(within(dialog).getByRole('textbox', { name: /终端 ID/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole('textbox', { name: /名称/ })).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole('button', { name: '保存' }));
     expect(await within(dialog).findByText('终端 ID必填')).toBeInTheDocument();
@@ -268,7 +270,7 @@ describe('实体列表页（服务端驱动）', () => {
     ).not.toBeInTheDocument();
     expect(writeCalls).toHaveLength(0);
 
-    await user.type(within(dialog).getByLabelText('终端 ID（必填）'), 't-req');
+    await user.type(within(dialog).getByRole('textbox', { name: /终端 ID/ }), 't-req');
     await user.click(within(dialog).getByRole('button', { name: '保存' }));
     await waitFor(() => expect(writeCalls).toHaveLength(1));
     expect(writeCalls[0]?.body).toMatchObject({ id: 't-req', name: null });

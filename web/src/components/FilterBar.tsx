@@ -337,9 +337,9 @@ export function FilterBar({ entity, query, relationOptions, onChange }: Props) {
 
       <Dialog.Root open={dialogOpen} onOpenChange={setDialogOpen}>
         <Dialog.Portal>
-          <Dialog.Overlay className="fixed inset-0 bg-overlay" />
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-overlay" />
           <Dialog.Content
-            className="confirm-panel fixed left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-md bg-surface p-5"
+            className="confirm-panel fixed left-1/2 top-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-md bg-surface p-5"
             aria-describedby={undefined}
           >
             <Dialog.Title className="m-0 text-lg">更多筛选</Dialog.Title>

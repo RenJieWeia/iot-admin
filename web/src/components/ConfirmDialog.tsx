@@ -19,8 +19,8 @@ export function ConfirmDialog({ open, objectName, busy = false, onCancel, onConf
       }}
     >
       <AlertDialog.Portal>
-        <AlertDialog.Overlay className="fixed inset-0 bg-overlay" />
-        <AlertDialog.Content className="confirm-panel fixed left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-md bg-surface p-5">
+        <AlertDialog.Overlay className="fixed inset-0 z-40 bg-overlay" />
+        <AlertDialog.Content className="confirm-panel fixed left-1/2 top-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-md bg-surface p-5">
           <AlertDialog.Title className="m-0 text-lg">确认删除</AlertDialog.Title>
           <AlertDialog.Description className="m-0 text-muted">
             删除后不可恢复：{objectName}。请确认这不是误操作。
