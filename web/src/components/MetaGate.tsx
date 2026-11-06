@@ -2,6 +2,26 @@ import type { ReactNode } from 'react';
 import { useMeta } from '../api/meta';
 import { AppShell } from './AppShell';
 import { ErrorState } from './ErrorState';
+import { SkeletonCell } from './Skeleton';
+
+/**
+ * 页面级占位：还不知道对象中文名时（`_meta` 未就绪、地址无效）用它。
+ * §16.4：页面级加载态用骨架、不写「加载中…」；状态只给屏幕阅读器。
+ */
+export function PagePlaceholder({ status }: { status: string }) {
+  return (
+    <>
+      <p className="visually-hidden" role="status">
+        {status}
+      </p>
+      <div className="flex flex-col gap-3" aria-hidden="true">
+        <SkeletonCell />
+        <SkeletonCell short />
+        <SkeletonCell short />
+      </div>
+    </>
+  );
+}
 
 interface Props {
   children: ReactNode;
@@ -17,8 +37,8 @@ export function MetaGate({ children }: Props) {
 
   if (meta.isPending) {
     return (
-      <AppShell title="加载中…">
-        <p className="muted">正在加载字段元数据…</p>
+      <AppShell title="IoT 管理后台">
+        <PagePlaceholder status="正在加载字段元数据…" />
       </AppShell>
     );
   }

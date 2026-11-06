@@ -48,15 +48,15 @@ const timeFormatter = new Intl.DateTimeFormat('zh-CN', {
   hour12: false,
 });
 
-/** 表格里的短时间：`MM-DD HH:mm:ss`；完整值与 +08:00 放在 title 与页面说明里（D1）。 */
+/** 表格里的时间：`YYYY-MM-DD HH:mm`（§16.5）；秒与 +08:00 只放进 title 的完整值。 */
 export function formatTimeShort(raw: unknown): { text: string; full: string } {
   if (raw === null || raw === undefined || raw === '') return { text: EMPTY, full: '' };
   const full = formatTime(raw);
   if (full === EMPTY) return { text: EMPTY, full: '' };
-  // full 形如 `2026-11-05 20:00:12 +08:00`，取 MM-DD 与时分秒。
-  const match = /^(\d{4})-(\d{2})-(\d{2}) (\d{2}:\d{2}:\d{2})/.exec(full);
+  // full 形如 `2026-11-05 20:00:12 +08:00`：表格只到分钟，完整值留在 title。
+  const match = /^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2}):\d{2}/.exec(full);
   if (!match) return { text: full, full };
-  return { text: `${match[2]}-${match[3]} ${match[4]}`, full };
+  return { text: `${match[1]} ${match[2]}`, full };
 }
 
 /** 时间一律显示绝对时间并带时区（§16 语义规范），不用相对时间。 */

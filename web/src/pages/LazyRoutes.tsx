@@ -4,8 +4,7 @@ import { useMeta } from '../api/meta';
 import type { SlotSource } from '../api/exceptions';
 import { AppShell } from '../components/AppShell';
 import { DataTable } from '../components/DataTable';
-import { MetaGate } from '../components/MetaGate';
-import { StatePanel } from '../components/StatePanel';
+import { MetaGate, PagePlaceholder } from '../components/MetaGate';
 import { visibleFields } from '../lib/fieldMeta';
 import { parseQueryState } from '../lib/queryState';
 
@@ -70,8 +69,8 @@ export function LazyEntityPage() {
               skeletonRows={pageSize}
             />
           ) : (
-            <AppShell title="加载中…">
-              <StatePanel title="正在准备页面" text="页面组件加载中，完成后自动显示。" />
+            <AppShell title="IoT 管理后台">
+              <PagePlaceholder status="正在加载页面组件…" />
             </AppShell>
           )
         }
@@ -107,8 +106,8 @@ function LazySlotPage({ source }: { source: SlotSource }) {
               skeletonRows={pageSize}
             />
           ) : (
-            <AppShell title="加载中…">
-              <StatePanel title="正在准备页面" text="页面组件加载中，完成后自动显示。" />
+            <AppShell title="IoT 管理后台">
+              <PagePlaceholder status="正在加载页面组件…" />
             </AppShell>
           )
         }

@@ -33,11 +33,12 @@ describe('最新值只读页（task-009 Part B）', () => {
     // 质量原因单行截断 + title 全文。
     const reason = within(table).getAllByTitle(/原因-/)[0];
     expect(reason).toBeInTheDocument();
-    // D1：单元格显示 MM-DD HH:mm:ss，完整时间（含 +08:00）在 title 里，页面只出现一次时区说明。
-    expect(within(table).getAllByText(/^\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/).length).toBeGreaterThan(0);
+    // §16.5：单元格显示 YYYY-MM-DD HH:mm，秒与 +08:00 只在 title 的完整值里。
+    expect(within(table).getAllByText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).length).toBeGreaterThan(0);
     expect(
       within(table).getAllByTitle(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \+08:00$/).length,
     ).toBeGreaterThan(0);
+    expect(within(table).queryByText(/^\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)).not.toBeInTheDocument();
   });
 
   it('只读：无新建/编辑/删除入口、不渲染抽屉、零写请求', async () => {
@@ -141,5 +142,59 @@ describe('最新值只读页（task-009 Part B）', () => {
     renderApp('/readonly/unknown-slot');
     expect(await screen.findByText('未知只读页')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '返回上一页' })).toBeInTheDocument();
+  });
+
+  it('已有数据时刷新失败：保留表格，只在顶部提示上次数据（§13.4）', async () => {
+    const view = renderApp('/readonly/latest-values');
+    await waitForReady();
+
+    server.use(
+      http.get('/admin/v1/readonly/:slot', () =>
+        HttpResponse.json({ code: 500, message: 'db_unavailable' }, { status: 500 }),
+      ),
+    );
+    await view.queryClient.invalidateQueries({ queryKey: ['readonly'] });
+
+    expect(await screen.findByText('刷新失败，显示的是上次数据')).toBeInTheDocument();
+    // 整页错误态不得替换掉已渲染的数据。
+    expect(screen.queryByText('列表加载失败')).not.toBeInTheDocument();
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(bodyRows()).toHaveLength(10);
+    expect(screen.getByRole('button', { name: '重试' })).toBeInTheDocument();
+  });
+
+  it('无数据空态给出「刷新」入口，不只写一句「稍后刷新」（§11.3）', async () => {
+    server.use(
+      http.get('/admin/v1/readonly/:slot', () =>
+        HttpResponse.json({
+          code: 0,
+          message: 'ok',
+          data: [],
+          meta: { total: 0, page: 1, pageSize: 10, sort: 'value_time', order: 'desc' },
+        }),
+      ),
+    );
+    renderApp('/readonly/latest-values');
+
+    expect(await screen.findByText('暂无最新值')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '刷新' })).toBeInTheDocument();
+  });
+
+  it('总数 > 0 但没有筛选：按「数据在变化」提示，不判「无匹配」（§11.3）', async () => {
+    server.use(
+      http.get('/admin/v1/readonly/:slot', () =>
+        HttpResponse.json({
+          code: 0,
+          message: 'ok',
+          data: [],
+          meta: { total: 5, page: 1, pageSize: 10, sort: 'value_time', order: 'desc' },
+        }),
+      ),
+    );
+    renderApp('/readonly/latest-values');
+
+    expect(await screen.findByText('当前页暂时没有数据')).toBeInTheDocument();
+    expect(screen.queryByText('没有匹配的记录')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '刷新' })).toBeInTheDocument();
   });
 });

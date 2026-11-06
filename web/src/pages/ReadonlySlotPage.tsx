@@ -116,15 +116,22 @@ export function ReadonlySlotPage({ source }: Props) {
   const fallbackSort = holder.defaultSort || defaultSort(holder);
   const activeFilters = hasActiveConditions(query);
   const outOfRange = !isCursor && listMeta.total > 0 && rows.length === 0;
-  const listState = activeList.isError
-    ? 'error'
-    : activeList.isPending && rows.length === 0
-      ? 'loading'
-      : rows.length === 0
-        ? activeFilters
-          ? 'nomatch'
-          : 'empty'
-        : 'ready';
+  /** 已有数据时的刷新失败：TanStack 保留了 rows，不能把整表换成整页错误态（§13.4）。 */
+  const staleRefreshError = activeList.isError && Boolean(activeList.data);
+  const listState =
+    activeList.isError && !activeList.data
+      ? 'error'
+      : activeList.isPending && rows.length === 0
+        ? 'loading'
+        : rows.length === 0
+          ? // 只有确实设了条件才算「无匹配」；total > 0 但没有条件，说明这一页暂时取不到数据。
+            // 游标分页没有 total（列表 meta 兜底 0），所以 stale 只在 offset 源可达。
+            activeFilters
+            ? 'nomatch'
+            : !isCursor && listMeta.total > 0
+              ? 'stale'
+              : 'empty'
+          : 'ready';
 
   const presets = presetsFor(holder.fields);
 
@@ -152,6 +159,19 @@ export function ReadonlySlotPage({ source }: Props) {
 
       <FilterBar entity={holder} query={query} relationOptions={{}} onChange={setQuery} />
 
+      {staleRefreshError && (
+        <div
+          role="alert"
+          className="mb-4 flex flex-wrap items-center gap-3 rounded-control border border-warning bg-warning-weak px-3 py-2 text-warning"
+        >
+          <span>刷新失败，显示的是上次数据</span>
+          <span className="text-muted">{errorDetail(activeList.error) ?? '未知错误'}</span>
+          <button type="button" className="btn h-8" onClick={() => void activeList.refetch()}>
+            重试
+          </button>
+        </div>
+      )}
+
       {listState === 'error' ? (
         <ErrorState
           title="列表加载失败"
@@ -169,6 +189,11 @@ export function ReadonlySlotPage({ source }: Props) {
         <EmptyState
           title={`暂无${holder.title}`}
           text="这个数据源当前没有任何记录。数据写入后会自动出现在这里，可稍后刷新再看。"
+          action={
+            <button type="button" className="btn" onClick={() => void activeList.refetch()}>
+              刷新
+            </button>
+          }
         />
       ) : listState === 'nomatch' ? (
         <EmptyState
@@ -177,6 +202,17 @@ export function ReadonlySlotPage({ source }: Props) {
           action={
             <button type="button" className="btn" onClick={() => setQuery(clearFilters(query))}>
               清除筛选
+            </button>
+          }
+        />
+      ) : listState === 'stale' ? (
+        // 没设条件却取不到行，但总数仍 > 0：多半是数据刚被改/删，不能说「筛选排除了全部结果」。
+        <EmptyState
+          title="当前页暂时没有数据"
+          text={`总数显示仍有 ${listMeta.total} 条，但这一页取不到数据：可能刚被删除，或数据在变化，请刷新或重试。`}
+          action={
+            <button type="button" className="btn" onClick={() => void activeList.refetch()}>
+              刷新
             </button>
           }
         />

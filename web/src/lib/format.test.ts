@@ -47,4 +47,18 @@ describe('状态 tone 的展示层收敛（C4）', () => {
     const field: FieldMeta = { ...errorTypeField(), key: 'rule_type' };
     expect(optionTone(field, 'protocol_error')).toBe('negative');
   });
+
+  it('表格时间统一 YYYY-MM-DD HH:mm，秒与 +08:00 只留在 title（§16.5）', () => {
+    const field: FieldMeta = {
+      ...errorTypeField(),
+      key: 'value_time',
+      label: '取值时间',
+      type: 'datetime',
+      options: [],
+    };
+    const cell = formatCell(field, '2026-11-05T20:00:12Z');
+    // UTC 20:00:12 → Asia/Shanghai 次日 04:00:12。
+    expect(cell.text).toBe('2026-11-06 04:00');
+    expect(cell.full).toBe('2026-11-06 04:00:12 +08:00');
+  });
 });
