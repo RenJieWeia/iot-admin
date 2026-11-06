@@ -193,16 +193,35 @@ func ParseTerminal(tw TerminalWire) (TerminalPayload, *TerminalError) {
 	return tp, nil
 }
 
-// ParseCollectedAt 解析采集时间（R4）：
+// epoch 数值时间戳的可解释区间（R-029）。两端都是闭区间：
+//
+//	秒：EpochSecondsMin(2020-01-01T00:00:00Z) … EpochSecondsMax(2100-01-01T00:00:00Z)
+//	毫秒：同区间的毫秒形态
+//
+// 用**范围**判定而不是位数：秒区间 10 位、毫秒区间 13 位，天然不重叠；同时挡住 0/1 这类
+// 垃圾值（本部署不存在早于 2020 的采集时间，收进来只会变成 late_data 噪声）与 1e15 这类越界值。
+const (
+	// EpochSecondsMin 是秒级时间戳下界（2020-01-01T00:00:00Z）。
+	EpochSecondsMin int64 = 1_577_836_800
+	// EpochSecondsMax 是秒级时间戳上界（2100-01-01T00:00:00Z）。
+	EpochSecondsMax int64 = 4_102_444_800
+	// EpochMillisMin 是毫秒级时间戳下界（同 EpochSecondsMin 的时刻）。
+	EpochMillisMin int64 = EpochSecondsMin * 1000
+	// EpochMillisMax 是毫秒级时间戳上界（同 EpochSecondsMax 的时刻）。
+	EpochMillisMax int64 = EpochSecondsMax * 1000
+)
+
+// ParseCollectedAt 解析采集时间（R4 + R-029）：
 //   - 接受 +08:00 偏移、Z（换算到 UTC+8）、省略偏移（按 UTC+8 解释）、毫秒精度；
-//   - 不接受 epoch 数字、仅日期、空格分隔、空串；
+//   - 纯数字按范围判定秒/毫秒（见 EpochSecondsMin…EpochMillisMax），区间外的数值拒收；
+//   - 不接受仅日期、空格分隔、空串；
 //   - 返回值统一转 Asia/Shanghai。
 func ParseCollectedAt(s string) (time.Time, error) {
 	if strings.TrimSpace(s) == "" {
 		return time.Time{}, errors.New("collectedAt 为空")
 	}
 	if isDigits(s) {
-		return time.Time{}, errors.New("collectedAt 不接受 epoch 数字")
+		return parseEpochDigits(s)
 	}
 	if parsed, perr := time.Parse(time.RFC3339Nano, s); perr == nil {
 		return parsed.In(staging.Zone), nil
@@ -214,7 +233,40 @@ func ParseCollectedAt(s string) (time.Time, error) {
 	return time.Time{}, fmt.Errorf("collectedAt 不可解析: %q", s)
 }
 
+// parseEpochDigits 把纯数字时间戳解释成 UTC 时刻并转到 Asia/Shanghai。
+// epoch 数值天然是 UTC，按秒/毫秒的**范围**判定；区间外分别给出"早于/超出"两类错误，
+// 非法输入（非数字）不走这里，仍由调用方的"不可解析"分支处理。
+func parseEpochDigits(s string) (time.Time, error) {
+	v, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		// 纯数字但超出 int64：必然高于毫秒上界。
+		return time.Time{}, errors.New("collectedAt 数值超出可解释范围")
+	}
+	if v < EpochSecondsMin {
+		return time.Time{}, errors.New("collectedAt 数值早于可解释范围")
+	}
+	if v > EpochMillisMax {
+		return time.Time{}, errors.New("collectedAt 数值超出可解释范围")
+	}
+	if v <= EpochSecondsMax {
+		return time.Unix(v, 0).In(staging.Zone), nil
+	}
+	if v >= EpochMillisMin {
+		return time.UnixMilli(v).In(staging.Zone), nil
+	}
+	// 秒上界与毫秒下界之间的空档（约 2100-01-01 ~ 2020-01-01 的毫秒表示），无解释。
+	return time.Time{}, errors.New("collectedAt 数值超出可解释范围")
+}
+
+// isDigits 判断是否纯十进制数字串（不做范围判断）。
 func isDigits(s string) bool {
-	_, err := strconv.ParseInt(s, 10, 64)
-	return err == nil
+	if s == "" {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
 }

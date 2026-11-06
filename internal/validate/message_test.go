@@ -2,6 +2,7 @@ package validate_test
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -204,17 +205,26 @@ func TestParseTerminalSpanBoundary(t *testing.T) {
 	}
 }
 
-// 11) ParseCollectedAt 接受四种格式且 Instant 正确（统一到 Asia/Shanghai）。
+// 11) ParseCollectedAt 接受四种字符串格式与 R-029 的秒/毫秒时间戳（Instant 正确且统一到 Asia/Shanghai）。
 func TestParseCollectedAtAccepts(t *testing.T) {
 	base := time.Date(2026, 11, 5, 2, 0, 0, 0, time.UTC) // == 10:00+08:00
 	cases := []struct {
-		in   string
-		want time.Time
+		in        string
+		want      time.Time
+		wantHour  int
+		wantLocal bool // true 表示额外断言"小时等于 wantHour"（字符串格式专用）
 	}{
-		{"2026-11-05T10:00:00+08:00", base},
-		{"2026-11-05T02:00:00Z", base},
-		{"2026-11-05T10:00:00", base},
-		{"2026-11-05T10:00:00.500+08:00", base.Add(500 * time.Millisecond)},
+		{in: "2026-11-05T10:00:00+08:00", want: base, wantLocal: true, wantHour: 10},
+		{in: "2026-11-05T02:00:00Z", want: base, wantLocal: true, wantHour: 10},
+		{in: "2026-11-05T10:00:00", want: base, wantLocal: true, wantHour: 10},
+		{in: "2026-11-05T10:00:00.500+08:00", want: base.Add(500 * time.Millisecond), wantLocal: true, wantHour: 10},
+		// R-029：纯数字按范围判定秒/毫秒，均按 UTC 解释后转 Asia/Shanghai。
+		{in: "1700000000", want: time.Unix(1700000000, 0).In(staging.Zone)},
+		{in: "1700000000123", want: time.UnixMilli(1700000000123).In(staging.Zone)},
+		{in: "1577836800", want: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)},    // 下界
+		{in: "4102444800", want: time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)},    // 上界
+		{in: "1577836800000", want: time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)}, // 毫秒下界
+		{in: "4102444800000", want: time.Date(2100, 1, 1, 0, 0, 0, 0, time.UTC)}, // 毫秒上界
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
@@ -225,19 +235,40 @@ func TestParseCollectedAtAccepts(t *testing.T) {
 			if !got.Equal(c.want) {
 				t.Fatalf("Instant: 期望 %s，实际 %s", c.want, got.UTC())
 			}
-			if got.Location().String() != staging.Zone.String() || got.Hour() != 10 {
-				t.Fatalf("期望统一到 %s 且小时为 10，实际 %s/%d", staging.Zone, got.Location(), got.Hour())
+			if got.Location().String() != staging.Zone.String() {
+				t.Fatalf("期望统一到 %s，实际 %s", staging.Zone, got.Location())
+			}
+			if c.wantLocal && got.Hour() != c.wantHour {
+				t.Fatalf("期望小时 %d，实际 %d", c.wantHour, got.Hour())
 			}
 		})
 	}
 }
 
-// 12) ParseCollectedAt 拒绝 epoch 数字 / 仅日期 / 空格分隔 / 空串。
+// 12) ParseCollectedAt 拒绝：数值越界（早于/超出）、非数字形态、仅日期、空格分隔、空串。
+// R-029 后 epoch 数字按范围判定，越界值分别给出"早于"与"超出"两类错误。
 func TestParseCollectedAtRejects(t *testing.T) {
-	for _, in := range []string{"1700000000", "2026-11-05", "2026-11-05 10:00:00", ""} {
-		t.Run(in, func(t *testing.T) {
-			if got, err := validate.ParseCollectedAt(in); err == nil {
-				t.Fatalf("%q 期望失败，实际成功: %s", in, got)
+	cases := []struct {
+		in      string
+		wantSub string
+	}{
+		{"1", "早于"},                     // 纯数字但远早于 2020 下界
+		{"1577836799", "早于"},            // 下界前 1 秒
+		{"4102444801", "超出"},            // 秒上界后 1 秒
+		{"5000000000", "超出"},            // 落在秒上界与毫秒下界之间的空档
+		{"9e12", "不可解析"},                // 指数写法：不是纯数字
+		{"2026-11-05", "不可解析"},          // 仅日期
+		{"2026-11-05 10:00:00", "不可解析"}, // 空格分隔
+		{"", "为空"},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			got, err := validate.ParseCollectedAt(c.in)
+			if err == nil {
+				t.Fatalf("%q 期望失败，实际成功: %s", c.in, got)
+			}
+			if !strings.Contains(err.Error(), c.wantSub) {
+				t.Fatalf("%q 的错误应含 %q，实际 %v", c.in, c.wantSub, err)
 			}
 		})
 	}

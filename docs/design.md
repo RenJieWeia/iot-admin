@@ -36,7 +36,7 @@
 
 1. **一种格式**：`{ver, messageId, gatewayId, terminals:[{terminalId, items:[{code,value,unit,collectedAt}]}]}`，顶层不再有 `terminalId`/`items`。
 2. **整包 vs 逐终端**：`ver != 1`、`terminals` 非数组/为空、缺 `gatewayId`、JSON 非法、body > 1MB 都是整包 400；其余问题只拒收该终端，`results` 里带 `reason` 与 `missingCodes`（最多 10 个）。
-3. **时间**：`collectedAt` 必填，接受 `+08:00`、`Z`（换算 UTC+8）、省略偏移（按 UTC+8）、毫秒；拒收 epoch 数字、仅日期、空格分隔、空串。解析统一在 `validate.ParseCollectedAt`，`hasOffset` 只用于统计。
+3. **时间**：`collectedAt` 必填，接受 `+08:00`、`Z`（换算 UTC+8）、省略偏移（按 UTC+8）、毫秒，以及**纯数字时间戳**（R-029）。数字按**范围**判定而不是位数：`1_577_836_800 ≤ v ≤ 4_102_444_800` 视为秒、`1_577_836_800_000 ≤ v ≤ 4_102_444_800_000` 视为毫秒（即 2020-01-01T00:00:00Z ~ 2100-01-01T00:00:00Z 的闭区间）；低于下界报「数值早于可解释范围」，高于上界或落在两区间空档报「数值超出可解释范围」。仍拒收仅日期、空格分隔、空串。epoch 数值按 UTC 解释后统一 `In(staging.Zone)`；解析统一在 `validate.ParseCollectedAt`，`hasOffset` 只用于统计。
 4. **单终端约束**：`code` 重复 → `msg_incomplete`；`items` 内 `collectedAt` 跨度 > 1 小时 → `protocol_error`；required 未全覆盖 → `msg_incomplete` + `missingCodes`。
 5. **网关三方一致**：接入网关（header/topic）== 报文 `gatewayId` == 注册表 `terminal.gateway_id`，任一不一致该终端拒收，异常摘要同时记录接入网关与注册网关。
 6. **终端未注册/停用** → `terminal_unknown`（事件型，本轮新增）；`auth_failed` 只留给真正的凭证/认证失败，本期无业务写入路径。
