@@ -153,7 +153,7 @@ function FilterControl({
                 : 'input option-group-field date-input h-8'
             }
             type={isNumber ? 'number' : 'text'}
-            placeholder={isNumber ? '最小值' : 'YYYY-MM-DD'}
+            placeholder={isNumber ? '最大值' : 'YYYY-MM-DD'}
             aria-label={`${field.label} 上限`}
             defaultValue={lte}
             onKeyDown={(event) => {

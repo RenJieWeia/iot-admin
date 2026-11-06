@@ -31,7 +31,7 @@
 | C1 | 原生日期控件痕迹 | 3 | 改文本输入（占位 YYYY-MM-DD），无 mm/dd/yyy、无双日历图标 |
 | C2 | number spin button | 3 | `number-input` 隐藏 spinner |
 | C3 | 编辑/删除重量倒挂 | 3 | 编辑=描边 32px；删除=文字按钮，hover 才变危险色 |
-| C4 | 状态色语义重叠 | 3 | 五档 tone：写入失败=danger、协议错误/迟到数据=warning、启用=success、停用=neutral |
+| C4 | 状态色语义重叠 | 3 + 修订 | 五档 tone：写入失败=danger、协议错误/迟到数据=warning、启用=success、停用=neutral。后端 `eventTypeOptions` 把 `protocol_error` 标成 negative，任务书不许改 `_meta`，因此在 `lib/format.ts` 增加**展示层** key+value 映射（`protocol_error→warning`、`cache_write_failed→negative`、`late_data→warning`），其余沿用后端 tone |
 | C5 | 遮罩太浅、关闭按钮孤悬 | 4 | 遮罩 rgba(16,24,40,.45)；关闭按钮与标题同组 |
 | C6 | 必填靠文字、布尔裸复选框 | 4 | 红星 + 图例；布尔 switch |
 | D1 | 时间列重复 +08:00 | 3 | 单元格 `MM-DD HH:mm:ss`，完整值进 title，时区说明只在副标题出现一次 |
@@ -64,6 +64,7 @@ $ npm run build && git diff --exit-code internal/ui/dist → 0
 | Deviation | 迁移期别名保留在 `tokens.css` 末尾（v1 名 → v2），后续清理只删这一段 |
 | Deviation | 时间/必填两处 RTL 断言因显示格式变化而更新（见 §3 表），行为断言强度未降 |
 | 未做 | B4 只做「白卡 + 主区撑满」，未把表格拉满视口高度（会与分页固定位冲突），如需再议 |
+| 修订 | 复核发现两处与书不符，已补提交：① C4 只落了一半（协议错误仍是 danger）→ 前端展示层映射；② 数值范围右侧输入框 placeholder 误写成「最小值」→ 改为「最大值」 |
 
 ## 5. 风险
 

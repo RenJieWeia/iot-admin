@@ -12,6 +12,23 @@ export interface CellView {
 }
 
 const TIME_ZONE = 'Asia/Shanghai';
+/**
+ * 展示层 tone 收敛（C4 / task-014 §2 步 3）：
+ * 后端 `_meta.eventTypeOptions` 把 protocol_error 标成 negative，但审计要求
+ * 「协议错误→warning、写入失败→danger、迟到数据→warning」。本任务书不允许改 `_meta`，
+ * 因此只在前端展示层做一张最小的 key+value 映射，其余取值沿用后端 tone。
+ * 仅影响渲染，不参与筛选/排序，也不改接口。
+ */
+// 注意：这里用的是 v1 tone 词表（neutral/positive/negative/warning），
+// StatusTag 再把它映射成五档语义（negative → danger、positive → success）。
+const TONE_OVERRIDES: Record<string, Record<string, Tone>> = {
+  error_type: {
+    protocol_error: 'warning',
+    cache_write_failed: 'negative',
+    late_data: 'warning',
+  },
+};
+
 /** 编码类文本列：用等宽字体展示（D2）。 */
 const MONO_TEXT_KEYS = new Set(['terminal_id', 'item_code', 'gateway_id', 'code']);
 
@@ -77,7 +94,7 @@ export function optionLabel(field: FieldMeta, value: string): string {
 }
 
 export function optionTone(field: FieldMeta, value: string): Tone {
-  return toneOf(field, value);
+  return TONE_OVERRIDES[field.key]?.[value] ?? toneOf(field, value);
 }
 
 /**
