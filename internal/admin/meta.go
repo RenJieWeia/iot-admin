@@ -24,11 +24,8 @@ var entityLabels = map[string]string{
 	"thing-model-properties": "终端属性",
 	"terminals":              "终端",
 	"quality-rules":          "质量规则",
-	"settle-configs":         "结算窗口",
 	"exception-events":       "异常事件",
 	"latest-values":          "最新值",
-	"hourly-staging":         "小时暂存",
-	"hourly-snapshot":        "小时快照",
 }
 
 // EntityLabel 返回实体或只读页的中文名；未知名字原样返回，不吞掉新实体。
@@ -169,17 +166,13 @@ func BuildMeta() MetaPayload {
 		payload.Entities = append(payload.Entities, metaEntityOf(e))
 	}
 	for _, page := range readonlyPages {
-		sort := defaultSortOf(page.Entity.Name)
-		if page.DefaultSort != "" {
-			sort = page.DefaultSort
-		}
 		payload.Readonly = append(payload.Readonly, MetaReadonly{
 			Slot:         page.Slot,
 			Name:         page.Entity.Name,
 			Title:        EntityLabel(page.Entity.Name),
 			Route:        "/admin/v1/readonly/" + page.Slot,
 			ReadOnly:     true,
-			DefaultSort:  sort,
+			DefaultSort:  defaultSortOf(page.Entity.Name),
 			DefaultOrder: "desc",
 			Pagination:   page.Pagination,
 			Fields:       metaFields(page.Entity.Name),

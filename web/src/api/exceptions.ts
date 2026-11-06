@@ -1,6 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchCursorPage, fetchList, type ListQuery, type ListResponse, toSearchParams } from './client';
-import type { CursorMeta, RowData } from './types';
+import { fetchList, type ListQuery, type ListResponse } from './client';
 
 /**
  * 只读数据源（task-009 §2）：`exceptions` 与 `readonly` 走同一套 QueryState / meta 结构，
@@ -26,29 +25,6 @@ export function useSlotList(
   return useQuery({
     queryKey: [source, slot, JSON.stringify(query)],
     queryFn: ({ signal }) => fetchSlotList(source, slot, query, signal),
-    enabled,
-    placeholderData: (prev) => prev,
-  });
-}
-
-/** 游标分页的只读源（快照页）：URL 里保留 cursor，刷新可复原同一页。 */
-export function useSlotCursorList(
-  source: SlotSource,
-  slot: string,
-  query: { q: string; filters: ListQuery['filters']; cursor: string; limit?: number },
-  enabled = true,
-) {
-  return useQuery({
-    queryKey: [source, slot, 'cursor', JSON.stringify(query)],
-    queryFn: async ({ signal }): Promise<{ rows: RowData[]; meta: CursorMeta }> => {
-      const params = toSearchParams({
-        q: query.q || undefined,
-        filters: query.filters,
-      });
-      if (query.cursor) params.set('cursor', query.cursor);
-      if (query.limit) params.set('limit', String(query.limit));
-      return fetchCursorPage(`${source}/${slot}`, params, signal);
-    },
     enabled,
     placeholderData: (prev) => prev,
   });

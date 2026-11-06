@@ -19,7 +19,6 @@ import (
 	"github.com/RenJieWeia/iot-admin/internal/ingest"
 	"github.com/RenJieWeia/iot-admin/internal/meta"
 	"github.com/RenJieWeia/iot-admin/internal/publish"
-	"github.com/RenJieWeia/iot-admin/internal/settle"
 	"github.com/RenJieWeia/iot-admin/internal/store"
 	"github.com/RenJieWeia/iot-admin/internal/ui"
 	"github.com/RenJieWeia/iot-admin/migrations"
@@ -52,9 +51,6 @@ func run(log *slog.Logger) error {
 
 	now := time.Now
 	rec := exception.New(pool, now, log)
-	if err := settle.EnsurePartitions(ctx, pool, now()); err != nil {
-		return err
-	}
 
 	client, err := connectMQTT(log)
 	if err != nil {
@@ -74,9 +70,6 @@ func run(log *slog.Logger) error {
 	if err := ingest.Subscribe(client, proc, log); err != nil {
 		return err
 	}
-
-	settler := settle.New(pool, rec, now, log)
-	go settler.Loop(ctx, time.Minute)
 
 	adminAPI := admin.New(pool)
 	// 元数据写入成功后失效进程内缓存，下一条消息立即使用新定义。

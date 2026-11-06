@@ -10,7 +10,6 @@ import (
 
 	"github.com/RenJieWeia/iot-admin/internal/clean"
 	"github.com/RenJieWeia/iot-admin/internal/meta"
-	"github.com/RenJieWeia/iot-admin/internal/settle"
 	"github.com/RenJieWeia/iot-admin/internal/validate"
 )
 
@@ -19,7 +18,6 @@ type fakeLoader struct {
 	terminalCalls atomic.Int64
 	propertyCalls atomic.Int64
 	ruleCalls     atomic.Int64
-	windowCalls   atomic.Int64
 
 	terminalErr error
 }
@@ -40,11 +38,6 @@ func (f *fakeLoader) LoadProperties(context.Context, int64) ([]validate.Property
 func (f *fakeLoader) LoadRules(context.Context, string) (map[string][]clean.Rule, error) {
 	f.ruleCalls.Add(1)
 	return map[string][]clean.Rule{"p1": {{ItemCode: "p1", Type: clean.RuleNotNull}}}, nil
-}
-
-func (f *fakeLoader) LoadWindowConfig(context.Context) (settle.WindowConfig, error) {
-	f.windowCalls.Add(1)
-	return settle.WindowConfig{}, nil
 }
 
 type fakeClock struct {
@@ -186,7 +179,7 @@ func TestTTLExpires(t *testing.T) {
 	}
 }
 
-// 物模型 / 规则 / 窗口配置同样按 key 缓存，Flush 一并清空。
+// 物模型 / 规则同样按 key 缓存，Flush 一并清空。
 func TestOtherPayloadsCachedAndFlushed(t *testing.T) {
 	ctx := context.Background()
 	l := &fakeLoader{}
@@ -199,18 +192,12 @@ func TestOtherPayloadsCachedAndFlushed(t *testing.T) {
 		if _, err := s.LoadRules(ctx, "T1"); err != nil {
 			t.Fatalf("读取质量规则失败: %v", err)
 		}
-		if _, err := s.LoadWindowConfig(ctx); err != nil {
-			t.Fatalf("读取窗口配置失败: %v", err)
-		}
 	}
 	if n := l.propertyCalls.Load(); n != 1 {
 		t.Fatalf("物模型 loader 调用次数 = %d，期望 1", n)
 	}
 	if n := l.ruleCalls.Load(); n != 1 {
 		t.Fatalf("规则 loader 调用次数 = %d，期望 1", n)
-	}
-	if n := l.windowCalls.Load(); n != 1 {
-		t.Fatalf("窗口配置 loader 调用次数 = %d，期望 1", n)
 	}
 
 	// 不同 typeID 是不同 key。
@@ -228,17 +215,11 @@ func TestOtherPayloadsCachedAndFlushed(t *testing.T) {
 	if _, err := s.LoadRules(ctx, "T1"); err != nil {
 		t.Fatalf("Flush 后读取质量规则失败: %v", err)
 	}
-	if _, err := s.LoadWindowConfig(ctx); err != nil {
-		t.Fatalf("Flush 后读取窗口配置失败: %v", err)
-	}
 	if n := l.propertyCalls.Load(); n != 3 {
 		t.Fatalf("Flush 后物模型 loader 调用次数 = %d，期望 3", n)
 	}
 	if n := l.ruleCalls.Load(); n != 2 {
 		t.Fatalf("Flush 后规则 loader 调用次数 = %d，期望 2", n)
-	}
-	if n := l.windowCalls.Load(); n != 2 {
-		t.Fatalf("Flush 后窗口配置 loader 调用次数 = %d，期望 2", n)
 	}
 }
 

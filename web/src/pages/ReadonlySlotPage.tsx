@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { ApiError } from '../api/client';
-import { useSlotCursorList, useSlotList, type SlotSource } from '../api/exceptions';
+import { useSlotList, type SlotSource } from '../api/exceptions';
 import { useMeta } from '../api/meta';
-import type { CursorMeta, ListMeta, ReadonlyMeta } from '../api/types';
+import type { ListMeta, ReadonlyMeta } from '../api/types';
 import { AppShell } from '../components/AppShell';
-import { CursorPager } from '../components/CursorPager';
 import { DataTable } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
@@ -43,13 +42,9 @@ interface Props {
 }
 
 /**
- * 通用只读页（异常两页 / 最新值 / 小时暂存 / 小时快照）：列、中文、枚举色调全部来自 `_meta`。
+ * 通用只读页（异常两页 / 最新值）：列、中文、枚举色调全部来自 `_meta`。
  *
- * 分页形态由 `_meta.readonly[].pagination` 决定：
- * - `offset`：页码 + 总数；
- * - `cursor`：「加载更多」，只认 `hasMore`，不显示总数（分区表 count(*) 会随月退化），
- *   游标写进 URL，刷新/后退可以复原同一页。
- *
+ * 小时级历史下线后（0009）只剩 offset 分页：页码 + 总数。
  * 刻意不提供任何写入口：没有新建/编辑/删除、不解析 drawer、不发写请求。
  */
 export function ReadonlySlotPage({ source }: Props) {
@@ -63,16 +58,7 @@ export function ReadonlySlotPage({ source }: Props) {
       : metaQuery.data?.readonly?.find((item) => item.slot === slot);
   const query = useMemo(() => parseQueryState(searchParams), [searchParams]);
 
-  const isCursor = (holder?.pagination ?? 'offset') === 'cursor';
-
-  const offsetList = useSlotList(source, slot, toListQuery(query), Boolean(holder) && !isCursor);
-  const cursorList = useSlotCursorList(
-    source,
-    slot,
-    { q: query.q, filters: toListQuery(query).filters, cursor: query.cursor },
-    Boolean(holder) && isCursor,
-  );
-  const activeList = isCursor ? cursorList : offsetList;
+  const activeList = useSlotList(source, slot, toListQuery(query), Boolean(holder));
 
   const setQuery = useCallback(
     (next: QueryState, replace = false) => {
@@ -100,13 +86,8 @@ export function ReadonlySlotPage({ source }: Props) {
   }
 
   const fields = visibleFields(holder);
-  const rows = (isCursor ? cursorList.data?.rows : offsetList.data?.rows) ?? [];
-  const cursorMeta: CursorMeta = cursorList.data?.meta ?? {
-    hasMore: false,
-    nextCursor: null,
-    limit: 0,
-  };
-  const listMeta: ListMeta = offsetList.data?.meta ?? {
+  const rows = activeList.data?.rows ?? [];
+  const listMeta: ListMeta = activeList.data?.meta ?? {
     total: 0,
     page: query.page,
     pageSize: query.pageSize,
@@ -115,7 +96,7 @@ export function ReadonlySlotPage({ source }: Props) {
   };
   const fallbackSort = holder.defaultSort || defaultSort(holder);
   const activeFilters = hasActiveConditions(query);
-  const outOfRange = !isCursor && listMeta.total > 0 && rows.length === 0;
+  const outOfRange = listMeta.total > 0 && rows.length === 0;
   /** 已有数据时的刷新失败：TanStack 保留了 rows，不能把整表换成整页错误态（§13.4）。 */
   const staleRefreshError = activeList.isError && Boolean(activeList.data);
   const listState =
@@ -125,10 +106,9 @@ export function ReadonlySlotPage({ source }: Props) {
         ? 'loading'
         : rows.length === 0
           ? // 只有确实设了条件才算「无匹配」；total > 0 但没有条件，说明这一页暂时取不到数据。
-            // 游标分页没有 total（列表 meta 兜底 0），所以 stale 只在 offset 源可达。
             activeFilters
             ? 'nomatch'
-            : !isCursor && listMeta.total > 0
+            : listMeta.total > 0
               ? 'stale'
               : 'empty'
           : 'ready';
@@ -227,31 +207,18 @@ export function ReadonlySlotPage({ source }: Props) {
             onSort={(field) => setQuery(setSort(query, field))}
             relationOptions={{}}
             writable={isWritable(holder)}
-            sortable={!isCursor}
-            skeletonRows={isCursor ? 10 : query.pageSize}
-            // §16.1 同一信息只出现一处：表格说明不报数，条数只在分页区报一次
-            //（offset 用「第 a–b 条，共 N 条」，cursor 用「已加载 N 条」）。
-            // total=0 时也不在 caption 写「共 0 条」——那会与分页区重复。
+            skeletonRows={query.pageSize}
+            // §16.1 同一信息只出现一处：表格说明不报数，条数只在分页区报一次。
             caption="当前筛选结果"
           />
-          {isCursor ? (
-            <CursorPager
-              hasMore={cursorMeta.hasMore}
-              loading={cursorList.isFetching}
-              limit={cursorMeta.limit}
-              loaded={rows.length}
-              onMore={() => setQuery(patchQuery(query, { cursor: cursorMeta.nextCursor ?? '' }))}
-            />
-          ) : (
-            <Pagination
-              meta={listMeta}
-              rangeText={rangeText(listMeta, rows.length)}
-              outOfRange={outOfRange}
-              pageSizeOptions={metaQuery.data?.pagination?.options ?? [10, 20, 50]}
-              onPage={(page) => setQuery(patchQuery(query, { page }))}
-              onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
-            />
-          )}
+          <Pagination
+            meta={listMeta}
+            rangeText={rangeText(listMeta, rows.length)}
+            outOfRange={outOfRange}
+            pageSizeOptions={metaQuery.data?.pagination?.options ?? [10, 20, 50]}
+            onPage={(page) => setQuery(patchQuery(query, { page }))}
+            onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
+          />
         </>
       )}
     </AppShell>

@@ -17,7 +17,7 @@ import (
 
 // 用例 31：非目标项检查 —— 零外部依赖（不调用 newEnv，admin handler 用 nil pool 构造）。
 func TestNoOutOfScopeArtifacts(t *testing.T) {
-	// 迁移允许建的表：历史上的合法表集合（含后已下线的两张）。
+	// 迁移允许建的表：历史上的合法表集合（含后来下线的两张）。
 	allowedTables := map[string]bool{
 		"data_domain": true, "device_type": true, "thing_model_property": true, "terminal": true,
 		"quality_rule": true, "settle_config": true,
@@ -26,11 +26,15 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		// R-034（task-013）曾新增，收敛后由 0008 删除：补录留痕的版本记录表
 		"snapshot_cell_history": true,
 	}
-	// 收敛（0008）后必须已经不存在的表：建过、但迁移里必须有一条 drop。
-	// 只把它们从"允许建"里删掉是不够的——0003/0007 仍然建它们，否则这条守卫会误报。
+	// 收敛后必须已经不存在的表：建过、但迁移里必须有一条 drop。
+	// 只把它们从"允许建"里删掉是不够的——0001/0002/0003/0007 仍然建它们，否则这条守卫会误报。
+	// 0008 删掉异常区间与补录留痕；0009 删掉小时级历史与结算窗口。
 	retiredTables := map[string]bool{
 		"exception_interval":    true,
 		"snapshot_cell_history": true,
+		"hourly_snapshot":       true,
+		"hourly_staging":        true,
+		"settle_config":         true,
 	}
 	forbiddenWords := []string{
 		"consumer", "whitelist", "quota", "audit", "command",
@@ -74,10 +78,10 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		}
 	}
 
-	// 管理 API 只暴露 6 个数据源实体；nil pool 即可验证 404 路径不碰数据库。
+	// 管理 API 只暴露 5 个数据源实体（结算窗口随 0009 下线）；nil pool 即可验证 404 路径不碰数据库。
 	wantEntities := []string{
 		"data-domains", "device-types", "thing-model-properties",
-		"terminals", "quality-rules", "settle-configs",
+		"terminals", "quality-rules",
 	}
 	if len(admin.Entities) != len(wantEntities) {
 		t.Fatalf("管理 API 实体数 = %d，期望 %d", len(admin.Entities), len(wantEntities))
@@ -92,10 +96,10 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		}
 	}
 
-	// 双口径：可 CRUD = 6（上面已断言）；可导航 = 5，且导航集合不含 thing-model-properties。
+	// 双口径：可 CRUD = 5（上面已断言）；可导航 = 4，且导航集合不含 thing-model-properties。
 	meta := admin.BuildMeta()
-	if len(meta.Entities) != 5 {
-		t.Fatalf("可导航实体 = %d，期望 5（可 CRUD 仍是 %d）", len(meta.Entities), len(admin.Entities))
+	if len(meta.Entities) != 4 {
+		t.Fatalf("可导航实体 = %d，期望 4（可 CRUD 仍是 %d）", len(meta.Entities), len(admin.Entities))
 	}
 	for _, ent := range meta.Entities {
 		if ent.Name == "thing-model-properties" {
@@ -124,9 +128,9 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		}
 	}
 
-	// 异常枚举：收敛后只剩事件型 10 种（状态型区间已下线），无重复。
-	if len(exception.EventTypes) != 10 {
-		t.Fatalf("事件型异常类型数 = %d，期望 10", len(exception.EventTypes))
+	// 异常枚举：再次收敛后只剩 7 种（状态型区间、上报超时/快照失败/迟到数据已下线），无重复。
+	if len(exception.EventTypes) != 7 {
+		t.Fatalf("事件型异常类型数 = %d，期望 7", len(exception.EventTypes))
 	}
 	seen := map[exception.ErrorType]bool{}
 	for _, kind := range exception.EventTypes {

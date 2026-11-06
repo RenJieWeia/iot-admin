@@ -26,7 +26,6 @@ func TestHTTPAndMQTTPathsProduceIdenticalResults(t *testing.T) {
 	}
 	e := newEnv(t)
 	ctx := context.Background()
-	hour := hourOf(baseTime)
 
 	opts := mqtt.NewClientOptions().AddBroker(brokerURL).
 		SetClientID(fmt.Sprintf("iot-test-%d", time.Now().UnixNano())).
@@ -115,23 +114,6 @@ func TestHTTPAndMQTTPathsProduceIdenticalResults(t *testing.T) {
 			t.Fatalf("实时报文与落库不一致 %s: publish=%v@%s db=%v@%s",
 				item.Code, item.Value, item.CollectedAt, *num, vt)
 		}
-	}
-
-	e.clock.Set(closeOf(hour).Add(time.Second))
-	if _, err := e.settler.Run(ctx); err != nil {
-		t.Fatalf("结算失败: %v", err)
-	}
-	var snapM, snapH float64
-	if err := e.pool.QueryRow(ctx, `select value_num from hourly_snapshot where terminal_id = $1 and item_code = 'temp' and hour_start = $2`,
-		testTerminalAlt, hour).Scan(&snapM); err != nil {
-		t.Fatalf("MQTT 侧快照缺失: %v", err)
-	}
-	if err := e.pool.QueryRow(ctx, `select value_num from hourly_snapshot where terminal_id = $1 and item_code = 'temp' and hour_start = $2`,
-		testTerminalID, hour).Scan(&snapH); err != nil {
-		t.Fatalf("HTTP 侧快照缺失: %v", err)
-	}
-	if snapM != snapH {
-		t.Fatalf("两路快照不一致: mqtt=%v http=%v", snapM, snapH)
 	}
 }
 

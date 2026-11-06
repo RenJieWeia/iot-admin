@@ -3,13 +3,10 @@ import {
   AlertTriangle,
   Boxes,
   Circle,
-  Clock,
   Cpu,
   Database,
-  History,
   LayoutList,
   Menu,
-  Settings2,
   ShieldCheck,
   type LucideIcon,
 } from 'lucide-react';
@@ -57,10 +54,7 @@ const ICONS: Record<string, LucideIcon> = {
   'thing-model-properties': LayoutList,
   terminals: Cpu,
   'quality-rules': ShieldCheck,
-  'settle-configs': Settings2,
   'latest-values': Activity,
-  'hourly-staging': History,
-  'hourly-snapshot': Clock,
   'exception-events': AlertTriangle,
 };
 

@@ -14,7 +14,7 @@ describe('异常只读页（events）', () => {
     );
     // enums 字典由前端归一后渲染为中文标签（筛选下拉里也有同名选项，只看表格）。
     const table = screen.getByRole('table');
-    expect(within(table).getByText('上报超时')).toBeInTheDocument();
+    expect(within(table).getByText('报文不完整')).toBeInTheDocument();
     expect(within(table).getByText('协议错误')).toBeInTheDocument();
 
     expect(screen.queryByRole('button', { name: '新建' })).not.toBeInTheDocument();

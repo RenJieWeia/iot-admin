@@ -1,7 +1,6 @@
 package ingest_test
 
 import (
-	"context"
 	"encoding/json"
 	"testing"
 	"time"
@@ -26,9 +25,6 @@ func TestCollectedAtWithoutOffsetDefaultsToShanghai(t *testing.T) {
 	if vt := e.requireLatestNum(testTerminalID, "temp", 25.0); !vt.Equal(want) {
 		t.Fatalf("value_time = %s，期望 %s", vt, want)
 	}
-	if n := e.count(`select count(*) from hourly_staging where hour_start = $1`, want); n != 2 {
-		t.Fatalf("小时归属应为 10:00，实际匹配 %d 行", n)
-	}
 }
 
 // 用例 12："2026-11-05T02:00:00Z" → 换算后归属 10 点（不是 2 点）。
@@ -44,9 +40,6 @@ func TestCollectedAtWithZConvertsToShanghaiHour(t *testing.T) {
 	}
 	if vt := e.requireLatestNum(testTerminalID, "temp", 25.0); !vt.Equal(want) {
 		t.Fatalf("value_time = %s，期望 %s", vt, want)
-	}
-	if n := e.count(`select count(*) from hourly_staging where hour_start = $1`, want); n != 2 {
-		t.Fatalf("小时归属应为 10:00，实际匹配 %d 行", n)
 	}
 }
 
@@ -127,10 +120,9 @@ func TestCollectedAtRegressionDoesNotOverwrite(t *testing.T) {
 	}
 }
 
-// 用例 16：同小时三条消息乱序到达 → 缓存与快照均取 collectedAt 最大者。
+// 用例 16：同小时三条消息乱序到达 → 最新值取 collectedAt 最大者，实时报文与之同源。
 func TestOutOfOrderMessagesKeepMaxCollectedAt(t *testing.T) {
 	e := newEnv(t)
-	hour := hourOf(baseTime)
 	cases := []struct {
 		at time.Time
 		v  float64
@@ -160,25 +152,6 @@ func TestOutOfOrderMessagesKeepMaxCollectedAt(t *testing.T) {
 			t.Fatalf("实时报文 temp = %v@%s，期望 41.5@%s", item.Value, item.CollectedAt, want)
 		}
 	}
-	e.clock.Set(closeOf(hour))
-	n, err := e.settler.Run(context.Background())
-	if err != nil {
-		t.Fatalf("结算失败: %v", err)
-	}
-	if n != 2 {
-		t.Fatalf("结算行数 = %d，期望 2", n)
-	}
-	var num float64
-	var vt time.Time
-	if err := e.pool.QueryRow(context.Background(), `
-		select value_num, value_time from hourly_snapshot
-		where terminal_id = $1 and item_code = 'temp' and hour_start = $2`,
-		testTerminalID, hour).Scan(&num, &vt); err != nil {
-		t.Fatalf("快照缺少 temp: %v", err)
-	}
-	if num != 41.5 || !vt.Equal(want) {
-		t.Fatalf("快照 temp = %v@%s，期望 41.5@%s", num, vt, want)
-	}
 }
 
 // 用例 17：单条消息内数据项跨小时 → 各自归属不同小时。
@@ -194,14 +167,11 @@ func TestItemsInSameMessageBelongToDifferentHours(t *testing.T) {
 	if !r.Accepted || r.Written != 2 {
 		t.Fatalf("跨小时数据项应分别入库: %+v", r)
 	}
-	hours := e.count(`select count(distinct hour_start) from hourly_staging where terminal_id = $1`, testTerminalID)
-	if hours != 2 {
-		t.Fatalf("暂存覆盖小时数 = %d，期望 2", hours)
+	// 暂存表已下线：小时归属改为断言「每项各自保留自己的采集时间」。
+	if vt := e.requireLatestNum(testTerminalID, "temp", 20.0); !vt.Equal(first) {
+		t.Fatalf("temp 的 value_time = %s，期望 %s", vt, first)
 	}
-	if n := e.count(`select count(*) from hourly_staging where hour_start = $1 and item_code = 'temp'`, hourOf(first)); n != 1 {
-		t.Fatalf("temp 应归属 10 点小时，实际 %d 行", n)
-	}
-	if n := e.count(`select count(*) from hourly_staging where hour_start = $1 and item_code = 'power'`, hourOf(second)); n != 1 {
-		t.Fatalf("power 应归属 11 点小时，实际 %d 行", n)
+	if vt := e.requireLatestNum(testTerminalID, "power", 2.0); !vt.Equal(second) {
+		t.Fatalf("power 的 value_time = %s，期望 %s", vt, second)
 	}
 }

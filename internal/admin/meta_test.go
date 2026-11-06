@@ -64,8 +64,8 @@ func TestMetaSections(t *testing.T) {
 			navigable = append(navigable, e)
 		}
 	}
-	if len(entities) != len(navigable) || len(entities) != 5 {
-		t.Fatalf("entities = %d 段，期望 5（可导航实体；可 CRUD 仍是 %d）", len(entities), len(Entities))
+	if len(entities) != len(navigable) || len(entities) != 4 {
+		t.Fatalf("entities = %d 段，期望 4（可导航实体；可 CRUD 仍是 %d）", len(entities), len(Entities))
 	}
 	for i, e := range entities {
 		if e.Name != navigable[i].Name {
@@ -241,8 +241,8 @@ func TestMetaFieldShape(t *testing.T) {
 			sections = append(sections, item)
 		}
 	}
-	if len(sections) != 10 {
-		t.Fatalf("元数据段数 = %d，期望 5 导航实体 + 1 子资源 + 1 异常页 + 3 只读源", len(sections))
+	if len(sections) != 7 {
+		t.Fatalf("元数据段数 = %d，期望 4 导航实体 + 1 子资源 + 1 异常页 + 1 只读源", len(sections))
 	}
 }
 
@@ -323,7 +323,8 @@ func TestMetaRoutePrecedence(t *testing.T) {
 	}
 }
 
-// 实体中文标签集中在此，前端零硬编码；标签集合必须覆盖 6 实体 + 1 异常页。
+// 实体中文标签集中在此，前端零硬编码；标签集合必须覆盖可 CRUD 的 5 实体 + 1 异常页
+// （小时暂存 / 小时快照 / 结算窗口已随 0009 下线，标签同步删除）。
 func TestEntityLabelsCoverAllSections(t *testing.T) {
 	want := map[string]string{
 		"data-domains":           "数据域",
@@ -331,7 +332,6 @@ func TestEntityLabelsCoverAllSections(t *testing.T) {
 		"thing-model-properties": "终端属性",
 		"terminals":              "终端",
 		"quality-rules":          "质量规则",
-		"settle-configs":         "结算窗口",
 		"exception-events":       "异常事件",
 	}
 	for name, label := range want {

@@ -77,11 +77,6 @@ func TestAdminAPICRUD(t *testing.T) {
 		t.Fatalf("非闭集 rule_type 应返回 400，实际 %d", status)
 	}
 
-	status, resp = do("POST", "/admin/v1/settle-configs", `{"type_id":`+jsonNum(typeID)+`,"window_seconds":600}`)
-	if status != 200 {
-		t.Fatalf("建结算窗口失败: %d %v", status, resp)
-	}
-
 	status, resp = do("GET", "/admin/v1/quality-rules", "")
 	if status != 200 {
 		t.Fatalf("列表失败: %d %v", status, resp)
@@ -105,15 +100,6 @@ func TestAdminAPICRUD(t *testing.T) {
 	status, _ = do("GET", "/admin/v1/quality-rules/1", "")
 	if status != http.StatusNotFound {
 		t.Fatalf("删除后 GET 应 404，实际 %d", status)
-	}
-
-	// 结算窗口按类型精确匹配优先于全局默认
-	window, err := windowForType(e, int64(typeID))
-	if err != nil {
-		t.Fatalf("解析结算窗口失败: %v", err)
-	}
-	if window != 600 {
-		t.Fatalf("type_id 精确匹配的窗口 = %d，期望 600", window)
 	}
 }
 

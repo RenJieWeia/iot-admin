@@ -29,7 +29,6 @@ func TestCapacityBaseline10kMessages(t *testing.T) {
 	)
 	e := newEnv(t)
 	ctx := context.Background()
-	hour := hourOf(baseTime)
 
 	// 补齐到 15 个数据项（temp/power/hum/status/online 已由夹具建好）。
 	for i := 6; i <= itemsPer; i++ {
@@ -114,31 +113,13 @@ func TestCapacityBaseline10kMessages(t *testing.T) {
 		t.Fatalf("拒收消息数 = %d，期望 0（受理 %d）", rejected, accepted)
 	}
 	latestRows := e.count(`select count(*) from latest_value where terminal_id like 'CAP-%'`)
-	stagingRows := e.count(`select count(*) from hourly_staging where terminal_id like 'CAP-%'`)
 
-	e.clock.Set(closeOf(hour).Add(time.Second))
-	settleStart := time.Now()
-	settled, err := e.settler.Run(ctx)
-	settleElapsed := time.Since(settleStart)
-	if err != nil {
-		t.Fatalf("结算失败: %v", err)
+	var latestBytes int64
+	if err := e.pool.QueryRow(ctx, `select pg_total_relation_size('latest_value')`).Scan(&latestBytes); err != nil {
+		t.Fatalf("统计磁盘占用: %v", err)
 	}
 
-	var snapBytes, latestBytes, stagingBytes int64
-	must := func(err error) {
-		t.Helper()
-		if err != nil {
-			t.Fatalf("统计磁盘占用: %v", err)
-		}
-	}
-	must(e.pool.QueryRow(ctx, `
-		select coalesce(sum(pg_total_relation_size(c.oid)), 0) from pg_inherits i
-		join pg_class c on c.oid = i.inhrelid
-		where i.inhparent = 'hourly_snapshot'::regclass`).Scan(&snapBytes))
-	must(e.pool.QueryRow(ctx, `select pg_total_relation_size('latest_value')`).Scan(&latestBytes))
-	must(e.pool.QueryRow(ctx, `select pg_total_relation_size('hourly_staging')`).Scan(&stagingBytes))
-
-	perRow := float64(snapBytes) / float64(settled)
+	perRow := float64(latestBytes) / float64(writes)
 	hours := 24 * 30 * 24.0 // 720 天口径
 	extrapolatedRows := 20000.0 * itemsPer * hours
 	extrapolatedBytes := extrapolatedRows * perRow
@@ -147,13 +128,11 @@ func TestCapacityBaseline10kMessages(t *testing.T) {
 	t.Logf("受理消息: %d，数据项写入: %d", accepted, writes)
 	t.Logf("写入耗时: %s，吞吐: %.1f 消息/秒，%.0f 行/秒", writeElapsed,
 		float64(messages)/writeElapsed.Seconds(), float64(writes)/writeElapsed.Seconds())
-	t.Logf("latest_value 行数: %d，hourly_staging 行数: %d", latestRows, stagingRows)
-	t.Logf("结算: %d 行，耗时 %s", settled, settleElapsed)
-	t.Logf("磁盘占用: snapshot=%d B latest=%d B staging=%d B", snapBytes, latestBytes, stagingBytes)
-	t.Logf("快照每行占用: %.1f B（含索引）", perRow)
+	t.Logf("latest_value 行数: %d（期望 %d）", latestRows, terminals*itemsPer)
+	t.Logf("磁盘占用: latest=%d B，每行 %.1f B（含索引）", latestBytes, perRow)
 	t.Logf("外推 20000 台 x 15 项 x 24 个月: %.2f 亿行，约 %.0f GB", extrapolatedRows/1e8, extrapolatedBytes/1e9)
 
-	if settled != int64(terminals*itemsPer) {
-		t.Fatalf("快照行数 = %d，期望 %d", settled, terminals*itemsPer)
+	if latestRows != terminals*itemsPer {
+		t.Fatalf("latest_value 行数 = %d，期望 %d", latestRows, terminals*itemsPer)
 	}
 }

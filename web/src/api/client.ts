@@ -1,4 +1,4 @@
-import type { CursorMeta, Envelope, FilterOp, ListMeta, OptionItem, RowData } from './types';
+import type { Envelope, FilterOp, ListMeta, OptionItem, RowData } from './types';
 
 /** API 前缀固定，SPA 与 Go 进程同源部署（dev 期由 vite proxy 转发）。 */
 const BASE = '/admin/v1';
@@ -124,27 +124,6 @@ export async function fetchOptions(entity: string, signal?: AbortSignal): Promis
   return Array.isArray(payload.data) ? payload.data : [];
 }
 
-/**
- * 游标分页列表（task-010 §3.3）：请求带 `cursor`/`limit`，响应 meta 只有
- * `hasMore`/`nextCursor`/`limit`，**没有 total**（分区表上 count(*) 会随月退化）。
- */
-export async function fetchCursorPage(
-  path: string,
-  params: URLSearchParams,
-  signal?: AbortSignal,
-): Promise<{ rows: RowData[]; meta: CursorMeta }> {
-  const suffix = params.toString();
-  const payload = await request<RowData[]>(`/${path}${suffix ? `?${suffix}` : ''}`, { signal });
-  const meta = (payload.meta ?? {}) as unknown as CursorMeta;
-  return {
-    rows: Array.isArray(payload.data) ? payload.data : [],
-    meta: {
-      hasMore: Boolean(meta.hasMore),
-      nextCursor: meta.nextCursor ?? null,
-      limit: Number(meta.limit ?? params.get('limit') ?? 0) || 0,
-    },
-  };
-}
 
 export async function fetchOne(entity: string, id: string, signal?: AbortSignal): Promise<RowData> {
   const payload = await request<RowData>(`/${entity}/${encodeURIComponent(id)}`, { signal });

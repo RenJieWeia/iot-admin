@@ -22,7 +22,6 @@ describe('QueryState ↔ URL 双向同步', () => {
       order: 'asc',
       page: 2,
       pageSize: 20,
-      cursor: '',
       filters: [
         { field: 'enabled', op: 'eq', values: ['true'] },
         { field: 'type_id', op: 'in', values: ['1', '2'] },
@@ -43,7 +42,6 @@ describe('QueryState ↔ URL 双向同步', () => {
       order: 'asc' as const,
       page: 3,
       pageSize: 50 as const,
-      cursor: '',
       filters: [
         { field: 'type_id', op: 'in' as FilterOp, values: ['1', '2'] },
         { field: 'gateway_id', op: 'contains' as FilterOp, values: ['gw'] },
@@ -66,7 +64,6 @@ describe('QueryState ↔ URL 双向同步', () => {
       order: 'desc',
       page: 1,
       pageSize: 10,
-      cursor: '',
       filters: [{ field: 'type_id', op: 'in', values: ['1', '2'] }],
     });
     expect(query.filters).toEqual([{ field: 'type_id', op: 'in', values: ['1', '2'] }]);

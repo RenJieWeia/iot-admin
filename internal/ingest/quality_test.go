@@ -3,7 +3,6 @@ package ingest_test
 import (
 	"bytes"
 	"context"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -11,7 +10,7 @@ import (
 	"github.com/RenJieWeia/iot-admin/internal/exception"
 )
 
-// 用例 28：质量规则命中 → 照常入库，快照存真实值，quality_violation +1。
+// 用例 28：质量规则命中 → 照常入库，最新值存真实值，quality_violation +1。
 func TestQualityRuleViolationStillPersisted(t *testing.T) {
 	e := newEnv(t)
 	e.addRule(testTerminalID, "temp", "range", `{"min": 0, "max": 100}`)
@@ -29,19 +28,6 @@ func TestQualityRuleViolationStillPersisted(t *testing.T) {
 	// T6：来源标记必须写进摘要
 	if digest := e.digestOf(testTerminalID, exception.QualityViolation); !bytes.Contains([]byte(digest), []byte("source=rule")) {
 		t.Fatalf("质量规则命中的摘要应带 source=rule，实际 %q", digest)
-	}
-	e.clock.Set(closeOf(hour))
-	if _, err := e.settler.Run(context.Background()); err != nil {
-		t.Fatalf("结算失败: %v", err)
-	}
-	var num float64
-	if err := e.pool.QueryRow(context.Background(), `
-		select value_num from hourly_snapshot where terminal_id = $1 and item_code = 'temp' and hour_start = $2`,
-		testTerminalID, hour).Scan(&num); err != nil {
-		t.Fatalf("快照缺少 temp: %v", err)
-	}
-	if num != 150.0 {
-		t.Fatalf("快照应存真实值 150，实际 %v", num)
 	}
 }
 
@@ -118,7 +104,6 @@ func TestQualityFlags(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t)
 	at := baseTime.Add(5 * time.Minute)
-	hour := hourOf(at)
 
 	qualityOf := func(terminal, code, table string) (int16, string) {
 		t.Helper()
@@ -189,130 +174,36 @@ func TestQualityFlags(t *testing.T) {
 		!strings.Contains(reason, "单位不在换算闭集内") {
 		t.Fatalf("单位闭集外 quality=%d reason=%q，期望 4", q, reason)
 	}
-
-	// 5) 结算：snapshot 的质量标记与 staging 一致（非 0 样本至少 1 例）。
-	type row struct {
-		q      int16
-		reason string
-	}
-	staging := map[string]row{}
-	rows, err := e.pool.Query(ctx, `
-		select terminal_id || '/' || item_code, quality, coalesce(quality_reason, '')
-		from hourly_staging where hour_start = $1`, hour)
-	if err != nil {
-		t.Fatalf("读取 staging: %v", err)
-	}
-	for rows.Next() {
-		var k string
-		var r row
-		if err := rows.Scan(&k, &r.q, &r.reason); err != nil {
-			t.Fatalf("扫描 staging: %v", err)
-		}
-		staging[k] = r
-	}
-	rows.Close()
-	if len(staging) == 0 {
-		t.Fatal("staging 为空，无法比较结算传播")
-	}
-
-	e.clock.Set(closeOf(hour))
-	if _, err := e.settler.Run(ctx); err != nil {
-		t.Fatalf("结算失败: %v", err)
-	}
-	nonZero := 0
-	rows, err = e.pool.Query(ctx, `
-		select terminal_id || '/' || item_code, quality, coalesce(quality_reason, '')
-		from hourly_snapshot where hour_start = $1`, hour)
-	if err != nil {
-		t.Fatalf("读取 snapshot: %v", err)
-	}
-	defer rows.Close()
-	seen := 0
-	for rows.Next() {
-		var k string
-		var r row
-		if err := rows.Scan(&k, &r.q, &r.reason); err != nil {
-			t.Fatalf("扫描 snapshot: %v", err)
-		}
-		want, ok := staging[k]
-		if !ok {
-			t.Fatalf("snapshot 出现 staging 没有的键 %q", k)
-		}
-		if r.q != want.q || r.reason != want.reason {
-			t.Fatalf("%s 结算后 quality=%d/%q，staging 为 %d/%q", k, r.q, r.reason, want.q, want.reason)
-		}
-		if r.q != 0 {
-			nonZero++
-		}
-		seen++
-	}
-	if seen != len(staging) {
-		t.Fatalf("snapshot 行数 = %d，staging 行数 = %d", seen, len(staging))
-	}
-	if nonZero == 0 {
-		t.Fatal("结算样本里没有非 0 quality，无法验证传播")
-	}
 }
 
-// 补录回填到已结算小时：仍进 hourly_snapshot、仍走 UPSERT 且 revision 按 value_time 自增。
-// 留痕表已下线（R-034 撤销），本用例只锁业务行为：进快照、revision 自增、旧值幂等跳过。
-func TestBackfillWritesSnapshotAndRevision(t *testing.T) {
-	ctx := context.Background()
+// 最新值守卫：同 value_time 重发属幂等跳过（不写、不发布）；更早的 value_time 不覆盖已有值，
+// 并按「collectedAt 回拨」记 protocol_error。快照/结算已下线，这里只锁最新值语义。
+func TestLatestValueGuardAndIdempotentResend(t *testing.T) {
 	e := newEnv(t)
-	// 两个都已关闭的小时：H1 用于实时对照，H2 用于补录序列（互不影响）。
-	h1 := hourOf(baseTime)
-	h2 := h1.Add(-3 * time.Hour)
-	e.clock.Set(h1.Add(2 * time.Hour)) // 两个小时都在窗口外
-	at1 := h1.Add(30 * time.Minute)
-	at2 := h2.Add(30 * time.Minute)
+	at := baseTime.Add(5 * time.Minute)
 
-	// 行不存在时 QueryRow 会报 no rows，因此这条断言同时证明「已进快照」。
-	revisionOf := func(code string, hour time.Time) int {
-		var rev int
-		if err := e.pool.QueryRow(ctx, `
-			select revision from hourly_snapshot where terminal_id = $1 and item_code = $2 and hour_start = $3`,
-			testTerminalID, code, hour).Scan(&rev); err != nil {
-			t.Fatalf("读 revision(%s): %v", code, err)
-		}
-		return rev
-	}
-	send := func(msgType int, items ...item) {
-		t.Helper()
-		payload := batchWithMsgType(strconv.Itoa(msgType), testGatewayID, termOf(testTerminalID, items...))
-		if _, err := e.proc.HandleSource(ctx, "mqtt", testGatewayID, payload); err != nil {
-			t.Fatalf("处理失败: %v", err)
-		}
+	first := resultOf(t, e.handle(single(testTerminalID, it("temp", 20.0, "C", at))), testTerminalID)
+	if !first.Accepted || first.Written != 1 || !first.Published {
+		t.Fatalf("首写应落库并发布: %+v", first)
 	}
 
-	// 1) 实时（msgType=1）→ 窗口外直写快照，首写 revision=0。
-	send(1, it("temp", 1.0, "C", at1), it("power", 1.0, "kW", at1))
-	if rev := revisionOf("temp", h1); rev != 0 {
-		t.Fatalf("实时首写 revision = %d，期望 0", rev)
-	} else {
-		t.Logf("步骤1 实时首写：hourly_snapshot 行存在，revision=%d", rev)
+	// 同 value_time 重发：守卫跳过 → 不写、不发布（幂等重发不重复发布）。
+	same := resultOf(t, e.handle(single(testTerminalID, it("temp", 20.0, "C", at))), testTerminalID)
+	if same.Written != 0 || same.Published {
+		t.Fatalf("幂等重发不应重复写入/发布: written=%d published=%v", same.Written, same.Published)
 	}
+	e.requireLatestNum(testTerminalID, "temp", 20.0)
 
-	// 2) 补录（msgType=2）另一个已关闭小时 → 同样进快照，首写 revision=0。
-	send(2, it("temp", 2.0, "C", at2), it("power", 2.0, "kW", at2))
-	if rev := revisionOf("temp", h2); rev != 0 {
-		t.Fatalf("补录首写 revision = %d，期望 0", rev)
-	} else {
-		t.Logf("步骤2 补录首写：进了已结算小时的快照，revision=%d", rev)
+	// 更早的 value_time：不覆盖，同样记 protocol_error。
+	e.clock.Add(time.Minute)
+	older := resultOf(t, e.handle(single(testTerminalID, it("temp", 99.0, "C", at.Add(-5*time.Minute)))), testTerminalID)
+	if older.Written != 0 {
+		t.Fatalf("回拨项不应写入，实际 written=%d", older.Written)
 	}
-
-	// 3) 更晚的 value_time → UPSERT 覆盖，revision++。
-	send(2, it("temp", 3.0, "C", at2.Add(time.Minute)), it("power", 3.0, "kW", at2.Add(time.Minute)))
-	if rev := revisionOf("temp", h2); rev != 1 {
-		t.Fatalf("修正后 revision = %d，期望 1", rev)
-	} else {
-		t.Logf("步骤3 更晚 value_time：UPSERT 覆盖，revision 自增到 %d", rev)
-	}
-
-	// 4) 更早的 value_time → 幂等跳过：revision 不变。
-	send(2, it("temp", 0.5, "C", at2), it("power", 0.5, "kW", at2))
-	if rev := revisionOf("temp", h2); rev != 1 {
-		t.Fatalf("幂等跳过后 revision = %d，期望仍为 1", rev)
-	} else {
-		t.Logf("步骤4 更早 value_time：幂等跳过，revision 保持 %d", rev)
+	e.requireLatestNum(testTerminalID, "temp", 20.0)
+	// 守卫跳过的两种情形（同值幂等重发、更早的回拨）都会记一条 protocol_error，
+	// 与改造前「窗口内未写入即记」的计数口径一致：这里共 2 条。
+	if n := e.eventCount(testTerminalID, exception.ProtocolError, hourOf(at)); n != 2 {
+		t.Fatalf("守卫跳过的项应各记 1 条 protocol_error，实际 %d", n)
 	}
 }

@@ -1,4 +1,4 @@
-// Package meta 提供接入管道所需元数据（终端、物模型、质量规则、结算窗口）的进程内缓存。
+// Package meta 提供接入管道所需元数据（终端、物模型、质量规则）的进程内缓存。
 //
 // 缓存只保存成功结果：终端不存在 / 已停用 / 数据库错误一律不写入，下次读取继续穿透 loader。
 // 失效为全量 Flush（元数据写入是低频人工操作），另以 TTL 兜底绕过管理 API 的直接改库。
@@ -13,7 +13,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/RenJieWeia/iot-admin/internal/clean"
-	"github.com/RenJieWeia/iot-admin/internal/settle"
 	"github.com/RenJieWeia/iot-admin/internal/validate"
 )
 
@@ -25,16 +24,14 @@ type Loader interface {
 	LoadTerminal(ctx context.Context, terminalID string) (validate.Terminal, error)
 	LoadProperties(ctx context.Context, typeID int64) ([]validate.Property, error)
 	LoadRules(ctx context.Context, terminalID string) (map[string][]clean.Rule, error)
-	LoadWindowConfig(ctx context.Context) (settle.WindowConfig, error)
 }
 
-// Store 是四类元数据的进程内缓存。零值不可用，必须经 NewStore 构造。
+// Store 是三类元数据的进程内缓存。零值不可用，必须经 NewStore 构造。
 type Store struct {
 	loader     Loader
 	terminals  cache[validate.Terminal]
 	properties cache[[]validate.Property]
 	rules      cache[map[string][]clean.Rule]
-	windows    cache[settle.WindowConfig]
 }
 
 // NewStore 构造缓存。ttl <= 0 时取 DefaultTTL，now 为 nil 时取 time.Now。
@@ -50,7 +47,6 @@ func NewStore(l Loader, ttl time.Duration, now func() time.Time) *Store {
 		terminals:  newCache[validate.Terminal](ttl, now),
 		properties: newCache[[]validate.Property](ttl, now),
 		rules:      newCache[map[string][]clean.Rule](ttl, now),
-		windows:    newCache[settle.WindowConfig](ttl, now),
 	}
 }
 
@@ -75,22 +71,12 @@ func (s *Store) LoadRules(ctx context.Context, id string) (map[string][]clean.Ru
 	})
 }
 
-// LoadWindowConfig 读结算窗口配置（全局唯一一份）。
-func (s *Store) LoadWindowConfig(ctx context.Context) (settle.WindowConfig, error) {
-	return s.windows.get(windowKey, func() (settle.WindowConfig, error) {
-		return s.loader.LoadWindowConfig(ctx)
-	})
-}
-
 // Flush 清空全部缓存，供管理 API 写成功后调用。
 func (s *Store) Flush() {
 	s.terminals.flush()
 	s.properties.flush()
 	s.rules.flush()
-	s.windows.flush()
 }
-
-const windowKey = "all"
 
 type cacheItem[T any] struct {
 	val T
@@ -142,7 +128,7 @@ func (c *cache[T]) flush() {
 	c.mu.Unlock()
 }
 
-// PGLoader 是基于 PG 的默认 Loader：终端与物模型走 validate.Registry，规则与窗口配置走库函数。
+// PGLoader 是基于 PG 的默认 Loader：终端与物模型走 validate.Registry，规则走 clean.LoadRules。
 type PGLoader struct {
 	Pool *pgxpool.Pool
 	Reg  *validate.Registry
@@ -162,8 +148,4 @@ func (l *PGLoader) LoadProperties(ctx context.Context, typeID int64) ([]validate
 
 func (l *PGLoader) LoadRules(ctx context.Context, terminalID string) (map[string][]clean.Rule, error) {
 	return clean.LoadRules(ctx, l.Pool, terminalID)
-}
-
-func (l *PGLoader) LoadWindowConfig(ctx context.Context) (settle.WindowConfig, error) {
-	return settle.LoadWindowConfig(ctx, l.Pool)
 }

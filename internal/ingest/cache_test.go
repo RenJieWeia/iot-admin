@@ -13,17 +13,15 @@ import (
 	"github.com/RenJieWeia/iot-admin/internal/admin"
 	"github.com/RenJieWeia/iot-admin/internal/clean"
 	"github.com/RenJieWeia/iot-admin/internal/meta"
-	"github.com/RenJieWeia/iot-admin/internal/settle"
 	"github.com/RenJieWeia/iot-admin/internal/validate"
 )
 
-// countingLoader 统计缓存背后真正穿透到 PG 的次数（四类载荷分别计数）。
+// countingLoader 统计缓存背后真正穿透到 PG 的次数（三类载荷分别计数）。
 type countingLoader struct {
 	inner    *meta.PGLoader
 	terminal atomic.Int64
 	props    atomic.Int64
 	rules    atomic.Int64
-	window   atomic.Int64
 }
 
 func (c *countingLoader) LoadTerminal(ctx context.Context, id string) (validate.Terminal, error) {
@@ -41,13 +39,8 @@ func (c *countingLoader) LoadRules(ctx context.Context, id string) (map[string][
 	return c.inner.LoadRules(ctx, id)
 }
 
-func (c *countingLoader) LoadWindowConfig(ctx context.Context) (settle.WindowConfig, error) {
-	c.window.Add(1)
-	return c.inner.LoadWindowConfig(ctx)
-}
-
 func (c *countingLoader) total() int64 {
-	return c.terminal.Load() + c.props.Load() + c.rules.Load() + c.window.Load()
+	return c.terminal.Load() + c.props.Load() + c.rules.Load()
 }
 
 // adminPost 走管理 API 的 POST，成功返回。
@@ -70,7 +63,7 @@ func adminPut(t *testing.T, handler http.Handler, path, body string) {
 	}
 }
 
-// 验收 §8：同一终端两条消息，第二条不新增元数据查询（首条 4 次、第二条 0 次）。
+// 验收 §8：同一终端两条消息，第二条不新增元数据查询（首条 3 次、第二条 0 次）。
 func TestCacheSkipsMetadataQueriesOnSecondMessage(t *testing.T) {
 	e := newEnv(t)
 	cl := &countingLoader{inner: meta.NewPGLoader(e.pool)}
@@ -83,8 +76,8 @@ func TestCacheSkipsMetadataQueriesOnSecondMessage(t *testing.T) {
 		t.Fatalf("首条消息应被接收: %+v", r)
 	}
 	first := cl.total()
-	if first != 4 {
-		t.Fatalf("首条消息元数据查询 = %d 次（终端/物模型/规则/窗口各 1），期望 4: %+v", first, cl)
+	if first != 3 {
+		t.Fatalf("首条消息元数据查询 = %d 次（终端/物模型/规则各 1），期望 3: %+v", first, cl)
 	}
 
 	e.clock.Add(10 * time.Second) // 仍在 30s TTL 内
@@ -92,8 +85,8 @@ func TestCacheSkipsMetadataQueriesOnSecondMessage(t *testing.T) {
 		t.Fatalf("第二条消息应被接收: %+v", r)
 	}
 	if got := cl.total(); got != first {
-		t.Fatalf("第二条消息新增元数据查询 %d 次，期望 0（终端=%d 物模型=%d 规则=%d 窗口=%d）",
-			got-first, cl.terminal.Load(), cl.props.Load(), cl.rules.Load(), cl.window.Load())
+		t.Fatalf("第二条消息新增元数据查询 %d 次，期望 0（终端=%d 物模型=%d 规则=%d）",
+			got-first, cl.terminal.Load(), cl.props.Load(), cl.rules.Load())
 	}
 }
 

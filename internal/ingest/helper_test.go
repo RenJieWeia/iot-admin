@@ -19,7 +19,6 @@ import (
 	"github.com/RenJieWeia/iot-admin/internal/exception"
 	"github.com/RenJieWeia/iot-admin/internal/ingest"
 	"github.com/RenJieWeia/iot-admin/internal/meta"
-	"github.com/RenJieWeia/iot-admin/internal/settle"
 	"github.com/RenJieWeia/iot-admin/internal/staging"
 	"github.com/RenJieWeia/iot-admin/internal/store"
 	"github.com/RenJieWeia/iot-admin/migrations"
@@ -28,15 +27,14 @@ import (
 var quietLog = slog.New(slog.NewTextHandler(io.Discard, nil))
 
 const (
-	testDomainCode   = "energy"
-	testTypeCode     = "meter"
-	testGatewayID    = "GW1"
-	testGatewayAlt   = "GW2"
-	testTerminalID   = "T1" // GW1
-	testTerminalB    = "T2" // GW1
-	testTerminalC    = "T4" // GW1
-	testTerminalAlt  = "T3" // GW2
-	defaultWindowSec = 900
+	testDomainCode  = "energy"
+	testTypeCode    = "meter"
+	testGatewayID   = "GW1"
+	testGatewayAlt  = "GW2"
+	testTerminalID  = "T1" // GW1
+	testTerminalB   = "T2" // GW1
+	testTerminalC   = "T4" // GW1
+	testTerminalAlt = "T3" // GW2
 )
 
 // baseTime 固定在一个月中段，避免月末分区边界干扰。
@@ -90,7 +88,6 @@ type testEnv struct {
 	clock    *testClock
 	domainID int64
 	typeID   int64
-	settler  *settle.Settler
 }
 
 // newEnv 连接测试库、迁移、清库并种入一套最小数据源。
@@ -107,14 +104,13 @@ func newEnv(t *testing.T) *testEnv {
 		t.Fatalf("执行迁移: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		truncate exception_count, latest_value, hourly_staging;
-		truncate hourly_snapshot;
-		truncate quality_rule, settle_config, terminal, thing_model_property, device_type, data_domain
+		truncate exception_count, latest_value;
+		truncate quality_rule, terminal, thing_model_property, device_type, data_domain
 			restart identity cascade`); err != nil {
 		t.Fatalf("清库: %v", err)
 	}
 
-	// 默认平台时刻放在该小时第 55 分钟：窗口内，且 10:00~10:55 的采集时间都不过超前限。
+	// 默认平台时刻放在该小时第 55 分钟：10:00~10:55 的采集时间都不会触发「超前 5 分钟」拒收。
 	e := &testEnv{t: t, pool: pool, clock: &testClock{t: baseTime.Add(55 * time.Minute)}, pub: &fakePublisher{}}
 	e.seed()
 	e.rec = exception.New(pool, e.clock.Now, quietLog)
@@ -126,10 +122,6 @@ func newEnv(t *testing.T) *testEnv {
 		Locks: store.NewShardedLock(16),
 		Now:   e.clock.Now,
 		Log:   quietLog,
-	}
-	e.settler = settle.New(pool, e.rec, e.clock.Now, quietLog)
-	if err := settle.EnsurePartitions(ctx, pool, e.clock.Now()); err != nil {
-		t.Fatalf("建分区: %v", err)
 	}
 	return e
 }
@@ -171,8 +163,6 @@ func (e *testEnv) seed() {
 	must(e.insertTerminal(testTerminalB, testGatewayID, true))
 	must(e.insertTerminal(testTerminalC, testGatewayID, true))
 	must(e.insertTerminal(testTerminalAlt, testGatewayAlt, true))
-	_, err := e.pool.Exec(ctx, `insert into settle_config (domain_id, type_id, window_seconds) values (null, null, 900)`)
-	must(err)
 }
 
 func (e *testEnv) insertTerminal(id, gateway string, enabled bool) error {
@@ -426,9 +416,6 @@ func (e *testEnv) count2(query string, args ...any) int {
 	return n
 }
 
-func (e *testEnv) stagingCount() int  { return e.count(`select count(*) from hourly_staging`) }
-func (e *testEnv) snapshotCount() int { return e.count(`select count(*) from hourly_snapshot`) }
-
 func (e *testEnv) eventCount(terminalID string, kind exception.ErrorType, hour time.Time) int {
 	var total int
 	err := e.pool.QueryRow(context.Background(), `
@@ -459,14 +446,4 @@ func (e *testEnv) digestOf(terminalID string, kind exception.ErrorType) string {
 	return digest
 }
 
-func hourOf(t time.Time) time.Time     { return staging.HourStart(t) }
-func closeOf(hour time.Time) time.Time { return staging.CloseAt(hour, defaultWindowSec) }
-
-// windowForType 走一次结算窗口解析（type_id 精确匹配 > domain_id > 全局默认）。
-func windowForType(e *testEnv, typeID int64) (int, error) {
-	cfg, err := settle.LoadWindowConfig(context.Background(), e.pool)
-	if err != nil {
-		return 0, err
-	}
-	return cfg.Resolve(typeID, e.domainID), nil
-}
+func hourOf(t time.Time) time.Time { return staging.HourStart(t) }

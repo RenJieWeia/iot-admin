@@ -40,7 +40,6 @@ var Entities = []Entity{
 	{Name: "terminals", Table: "terminal", Cols: []string{"id", "type_id", "gateway_id", "name", "enabled"}},
 	{Name: "quality-rules", Table: "quality_rule", Cols: []string{
 		"terminal_id", "item_code", "rule_type", "params", "enabled"}, JSONB: []string{"params"}},
-	{Name: "settle-configs", Table: "settle_config", Cols: []string{"domain_id", "type_id", "window_seconds"}},
 }
 
 // API 是管理接口集合。
@@ -76,8 +75,6 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/v1/exceptions/{slot}", a.exceptionList)
 	mux.HandleFunc("GET /admin/v1/readonly/{slot}", a.readonlyList)
 	mux.HandleFunc("GET /admin/v1/options/{entity}", a.options)
-	// 快照变更查询（R-032）：只读、游标分页，不进 Entities。
-	mux.HandleFunc("GET /admin/v1/snapshot/changes", a.changes)
 	mux.HandleFunc("GET /admin/v1/{entity}", a.list)
 	mux.HandleFunc("POST /admin/v1/{entity}", a.create)
 	mux.HandleFunc("GET /admin/v1/{entity}/{id}", a.get)

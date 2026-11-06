@@ -58,16 +58,17 @@ var ruleTypeOptions = []Option{
 	{Value: "not_null", Label: "非空", Tone: "neutral"},
 }
 
+// eventTypeOptions 必须与 exception.EventTypes 一一对应（7 类事件型异常）。
+// exceptions_test.go 的 TestEventTypeOptionsMatchEnum 会断言两边集合相等——
+// 下线能力时要同时改枚举与这里，别只改一边留下"下拉里有、后台不认"的死选项。
 var eventTypeOptions = []Option{
-	{Value: "upload_timeout", Label: "上报超时", Tone: "warning"},
 	{Value: "protocol_error", Label: "协议错误", Tone: "negative"},
 	{Value: "msg_incomplete", Label: "消息不完整", Tone: "warning"},
 	{Value: "clean_failed", Label: "清洗失败", Tone: "warning"},
 	{Value: "cache_write_failed", Label: "写入失败", Tone: "negative"},
 	{Value: "mqtt_publish_failed", Label: "发布失败", Tone: "negative"},
-	{Value: "snapshot_failed", Label: "快照失败", Tone: "negative"},
-	{Value: "late_data", Label: "迟到数据", Tone: "warning"},
 	{Value: "quality_violation", Label: "质量违规", Tone: "warning"},
+	{Value: "terminal_unknown", Label: "终端未注册", Tone: "negative"},
 }
 
 // qualityOptions 是行级质量位掩码的 8 种组合（R-022 读路径）：0 正常，其余都是"有问题"。
@@ -83,25 +84,7 @@ var qualityOptions = []Option{
 	{Value: "7", Label: "越界+规则+单位闭集外", Tone: "warning"},
 }
 
-// hourStartField 是运行时两页的归属小时列（staging/snapshot 共用）。
-var hourStartField = FieldMeta{
-	Key: "hour_start", Label: "归属小时", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
-	FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min",
-}
-
-// revisionField 是快照页的修正次数（R-030）：> 0 即"被改写过的格子"。
-var revisionField = FieldMeta{
-	Key: "revision", Label: "修正次数", Type: "number", Visible: true, Sortable: true, Filterable: true,
-	FilterType: "numberRange", Operators: []string{"gte", "lte"}, WidthStrategy: "fixed",
-}
-
-// settledAtField 是快照页的落库/修正时刻：游标分页的排序列（快照变更查询端点已下线）。
-var settledAtField = FieldMeta{
-	Key: "settled_at", Label: "落库时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
-	FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min",
-}
-
-// runtimeCommonFields 返回运行时表（最新值/暂存/快照）共有的 8 列。
+// runtimeCommonFields 返回最新值表的 8 个公共列。
 // 每次调用返回独立切片：调用方可以放心 append 自己的列而不污染其它页。
 func runtimeCommonFields() []FieldMeta {
 	return []FieldMeta{
@@ -248,23 +231,8 @@ var fieldSets = map[string]fieldSet{
 	// /admin/v1/readonly/{slot}。只读页没有写路径，Editable/Required 一律 false
 	// （Editable 由 FieldMetas 推导，这些名字不在 Entities 内，因此天然为 false）。
 	//
-	// 三项共用同一组 8 个公共列（runtimeCommonFields），暂存/快照再追加各自的列。
-	"latest-values":  {fields: runtimeCommonFields()},
-	"hourly-staging": {fields: prependFields([]FieldMeta{hourStartField}, runtimeCommonFields())},
-	"hourly-snapshot": {fields: prependFields([]FieldMeta{hourStartField},
-		append(runtimeCommonFields(), revisionField, settledAtField))},
-	"settle-configs": {
-		fields: []FieldMeta{
-			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
-			{Key: "domain_id", Label: "数据域", Type: "relation", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
-			{Key: "type_id", Label: "终端类型", Type: "relation", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
-			{Key: "window_seconds", Label: "窗口秒数", Type: "number", Visible: true, Sortable: true, Filterable: true, Required: true,
-				FilterType: "numberRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
-		},
-		relations: map[string]string{"domain_id": "data-domains", "type_id": "device-types"},
-	},
+	// 只读源只剩「最新值」：公共 8 列由 runtimeCommonFields 提供。
+	"latest-values": {fields: runtimeCommonFields()},
 }
 
 // FieldMetas 返回实体的字段元数据；未知实体返回 false。

@@ -48,35 +48,3 @@ func TestHourStart(t *testing.T) {
 		t.Fatalf("HourStart 10:59:59+08: 期望 2026-11-05 10:00+08，实际 %s", h)
 	}
 }
-
-// 22) CloseAt(window=900) = hourStart + 1h15m。
-func TestCloseAt(t *testing.T) {
-	hour := staging.HourStart(mustParse(t, "2026-11-05T10:00:00+08:00"))
-	got := staging.CloseAt(hour, 900)
-	want := time.Date(2026, 11, 5, 11, 15, 0, 0, staging.Zone)
-	if !got.Equal(want) {
-		t.Fatalf("CloseAt: 期望 %s，实际 %s", want, got)
-	}
-	if got.Sub(hour) != time.Hour+15*time.Minute {
-		t.Fatalf("CloseAt 偏移: 期望 1h15m，实际 %s", got.Sub(hour))
-	}
-	if want.Sub(hour) != time.Hour+time.Duration(staging.DefaultWindowSeconds)*time.Second {
-		t.Fatalf("DefaultWindowSeconds: 期望 900，实际 %d", staging.DefaultWindowSeconds)
-	}
-}
-
-// 23) InWindow 边界：now=close 为 false，close±1s 分别为 true/false。
-func TestInWindow(t *testing.T) {
-	hour := staging.HourStart(mustParse(t, "2026-11-05T10:00:00+08:00"))
-	close := staging.CloseAt(hour, staging.DefaultWindowSeconds)
-
-	if staging.InWindow(hour, staging.DefaultWindowSeconds, close) {
-		t.Fatalf("now=close: 期望 false，实际 true")
-	}
-	if !staging.InWindow(hour, staging.DefaultWindowSeconds, close.Add(-time.Second)) {
-		t.Fatalf("now=close-1s: 期望 true，实际 false")
-	}
-	if staging.InWindow(hour, staging.DefaultWindowSeconds, close.Add(time.Second)) {
-		t.Fatalf("now=close+1s: 期望 false，实际 true")
-	}
-}
