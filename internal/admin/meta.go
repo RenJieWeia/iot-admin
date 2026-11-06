@@ -21,7 +21,7 @@ import "net/http"
 var entityLabels = map[string]string{
 	"data-domains":           "数据域",
 	"device-types":           "终端类型",
-	"thing-model-properties": "物模型属性",
+	"thing-model-properties": "终端属性",
 	"terminals":              "终端",
 	"quality-rules":          "质量规则",
 	"settle-configs":         "结算窗口",
@@ -120,12 +120,15 @@ type MetaPagination struct {
 // MetaPayload 是 GET /admin/v1/_meta 的 data。
 // enums / booleans 是静态字典（枚举值 → 中文），前端筛选与状态文案直接取用。
 type MetaPayload struct {
-	Entities   []MetaEntity                 `json:"entities"`
-	Exceptions []MetaException              `json:"exceptions"`
-	Readonly   []MetaReadonly               `json:"readonly"`
-	Enums      map[string]map[string]string `json:"enums"`
-	Booleans   map[string]string            `json:"booleans"`
-	Pagination MetaPagination               `json:"pagination"`
+	Entities []MetaEntity `json:"entities"`
+	// Subresources 是「可 CRUD 但不可导航」实体的字段元数据，形状与 entities[] 完全一致。
+	// **它不是导航来源**：只是为了在实体不进导航后，详情页仍能拿到列定义/筛选能力/必填。
+	Subresources []MetaEntity                 `json:"subresources"`
+	Exceptions   []MetaException              `json:"exceptions"`
+	Readonly     []MetaReadonly               `json:"readonly"`
+	Enums        map[string]map[string]string `json:"enums"`
+	Booleans     map[string]string            `json:"booleans"`
+	Pagination   MetaPagination               `json:"pagination"`
 }
 
 // meta 返回全部实体与异常页的字段元数据；不访问数据库，nil pool 也可用。
@@ -133,26 +136,37 @@ func (a *API) meta(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: BuildMeta()})
 }
 
+// metaEntityOf 把 Entity 投影成 _meta 的实体元数据（entities[] 与 subresources[] 共用）。
+func metaEntityOf(e Entity) MetaEntity {
+	return MetaEntity{
+		Name:         e.Name,
+		Title:        EntityLabel(e.Name),
+		Route:        "/admin/v1/" + e.Name,
+		ReadOnly:     false,
+		DefaultSort:  defaultSortOf(e.Name),
+		DefaultOrder: "desc",
+		Fields:       metaFields(e.Name),
+	}
+}
+
 // BuildMeta 组装字段元数据全集（导出以便用例与上层复用）。
 func BuildMeta() MetaPayload {
 	payload := MetaPayload{
-		Entities:   make([]MetaEntity, 0, len(Entities)),
-		Exceptions: make([]MetaException, 0, len(exceptionPages)),
-		Readonly:   make([]MetaReadonly, 0, len(readonlyPages)),
-		Enums:      enumDictionaries(),
-		Booleans:   optionLabels(boolOptions),
-		Pagination: MetaPagination{Default: DefaultPageSize, Max: MaxPageSize, Options: PageSizeOptions},
+		Entities:     make([]MetaEntity, 0, len(Entities)),
+		Subresources: make([]MetaEntity, 0, 1),
+		Exceptions:   make([]MetaException, 0, len(exceptionPages)),
+		Readonly:     make([]MetaReadonly, 0, len(readonlyPages)),
+		Enums:        enumDictionaries(),
+		Booleans:     optionLabels(boolOptions),
+		Pagination:   MetaPagination{Default: DefaultPageSize, Max: MaxPageSize, Options: PageSizeOptions},
 	}
 	for _, e := range Entities {
-		payload.Entities = append(payload.Entities, MetaEntity{
-			Name:         e.Name,
-			Title:        EntityLabel(e.Name),
-			Route:        "/admin/v1/" + e.Name,
-			ReadOnly:     false,
-			DefaultSort:  defaultSortOf(e.Name),
-			DefaultOrder: "desc",
-			Fields:       metaFields(e.Name),
-		})
+		// 导航实体进 entities；Hidden 的进 subresources（同一份字段元数据，两个出口）。
+		if e.Hidden {
+			payload.Subresources = append(payload.Subresources, metaEntityOf(e))
+			continue
+		}
+		payload.Entities = append(payload.Entities, metaEntityOf(e))
 	}
 	for _, page := range readonlyPages {
 		sort := defaultSortOf(page.Entity.Name)

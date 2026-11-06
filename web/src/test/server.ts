@@ -1,6 +1,8 @@
 import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import {
+  allDeviceTypes,
+  allProperties,
   allTerminals,
   deviceTypeOptions,
   exceptionEvents,
@@ -22,9 +24,13 @@ export const writeCalls: WriteCall[] = [];
 /** options 端点收到的查询串（用于断言防抖/搜索参数）。 */
 export const optionQueries: string[] = [];
 
+/** 终端属性列表收到的查询串（用于断言详情页固定注入 type_id）。 */
+export const propertyQueries: string[] = [];
+
 export function resetWriteCalls() {
   writeCalls.length = 0;
   optionQueries.length = 0;
+  propertyQueries.length = 0;
 }
 
 const ok = <T>(data: T, extra: Record<string, unknown> = {}) =>
@@ -169,6 +175,44 @@ export const server = setupServer(
 
   http.get('/admin/v1/terminals/:id', ({ params }) => {
     const row = allTerminals.find((item) => item.id === params.id);
+    if (!row) return HttpResponse.json({ code: 404, message: 'not_found' }, { status: 404 });
+    return ok(row);
+  }),
+
+  // 终端类型 / 终端属性（task-016 详情页）：属性列表按固定 type_id 过滤。
+  http.get('/admin/v1/device-types', ({ request }) => {
+    const url = new URL(request.url);
+    const { slice, page, pageSize } = paginate(allDeviceTypes as RowData[], url);
+    return HttpResponse.json({
+      code: 0,
+      message: 'ok',
+      data: slice,
+      ...envelopeMeta(allDeviceTypes.length, page, pageSize, 'id', 'desc'),
+    });
+  }),
+
+  http.get('/admin/v1/device-types/:id', ({ params }) => {
+    const row = allDeviceTypes.find((item) => item.id === params.id);
+    if (!row) return HttpResponse.json({ code: 404, message: 'not_found' }, { status: 404 });
+    return ok(row);
+  }),
+
+  http.get('/admin/v1/thing-model-properties', ({ request }) => {
+    const url = new URL(request.url);
+    propertyQueries.push(url.search);
+    const typeID = url.searchParams.getAll('filter.type_id.eq')[0] ?? '';
+    const rows = (typeID ? allProperties.filter((row) => row.type_id === typeID) : [...allProperties]) as RowData[];
+    const { slice, page, pageSize } = paginate(rows, url);
+    return HttpResponse.json({
+      code: 0,
+      message: 'ok',
+      data: slice,
+      ...envelopeMeta(rows.length, page, pageSize, 'item_code', 'asc'),
+    });
+  }),
+
+  http.get('/admin/v1/thing-model-properties/:id', ({ params }) => {
+    const row = allProperties.find((item) => item.id === params.id);
     if (!row) return HttpResponse.json({ code: 404, message: 'not_found' }, { status: 404 });
     return ok(row);
   }),

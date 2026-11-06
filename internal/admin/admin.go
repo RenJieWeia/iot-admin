@@ -24,13 +24,18 @@ type Entity struct {
 	Table string   // 表名
 	Cols  []string // 可写列白名单
 	JSONB []string // 需要 ::jsonb 转换的列
+	// Hidden 表示「可 CRUD 但不可导航」：实体仍留在 Entities 里（路由与写白名单一字不变），
+	// 只是 _meta.entities 不再下发它，改由 _meta.subresources 下发同一份字段元数据，
+	// 供详情页取列定义/筛选能力/必填（§1.1）。
+	// 零值 false = 可导航，保证现有实体的对外行为不变（若反过来用 Navigable 字段，零值会把现有实体全变成不可导航）。
+	Hidden bool
 }
 
 // Entities 是本 API 对外暴露的全部实体，与"非目标"清单保持一致（无消费方/权限/命令/报表）。
 var Entities = []Entity{
 	{Name: "data-domains", Table: "data_domain", Cols: []string{"code", "name"}},
 	{Name: "device-types", Table: "device_type", Cols: []string{"code", "name", "domain_id"}},
-	{Name: "thing-model-properties", Table: "thing_model_property", Cols: []string{
+	{Name: "thing-model-properties", Hidden: true, Table: "thing_model_property", Cols: []string{
 		"type_id", "item_code", "name", "value_type", "unit", "precision", "required", "min_value", "max_value"}},
 	{Name: "terminals", Table: "terminal", Cols: []string{"id", "type_id", "gateway_id", "name", "enabled"}},
 	{Name: "quality-rules", Table: "quality_rule", Cols: []string{

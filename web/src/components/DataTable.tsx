@@ -40,6 +40,9 @@ interface Props {
   /** 第二个参数是触发按钮：抽屉关闭后焦点要回到它。 */
   onEdit?: (row: RowData, trigger: HTMLButtonElement) => void;
   onDelete?: (row: RowData, trigger: HTMLButtonElement) => void;
+  /** 可选的「进入详情」入口（如终端类型 → 终端属性详情页）；不传则不出按钮。 */
+  onOpen?: (row: RowData, trigger: HTMLButtonElement) => void;
+  openLabel?: string;
   skeletonRows?: number;
   /** 表格说明：只讲使用信息（总数与页号），不出现实现细节。 */
   caption: string;
@@ -61,6 +64,8 @@ export function DataTable({
   sortable = true,
   onEdit,
   onDelete,
+  onOpen,
+  openLabel = '查看',
   skeletonRows = 10,
   caption,
 }: Props) {
@@ -96,6 +101,17 @@ export function DataTable({
         enableSorting: false,
         cell: ({ row }) => (
           <span className="inline-flex items-center justify-end gap-2">
+            {onOpen && (
+              <button
+                type="button"
+                className="touch-hit inline-flex h-8 items-center rounded-control border border-border bg-surface px-3 text-body text-text hover:border-border-strong"
+                data-action="open"
+                data-row-id={String(row.original.id ?? '')}
+                onClick={(event) => onOpen(row.original, event.currentTarget)}
+              >
+                {openLabel}
+              </button>
+            )}
             <button
               type="button"
               className="touch-hit inline-flex h-8 items-center rounded-control border border-border bg-surface px-3 text-body text-text hover:border-border-strong"
@@ -118,7 +134,7 @@ export function DataTable({
         ),
       },
     ];
-  }, [fields, relationOptions, writable, onEdit, onDelete]);
+  }, [fields, relationOptions, writable, onEdit, onDelete, onOpen, openLabel]);
 
   const table = useReactTable({
     data: rows,

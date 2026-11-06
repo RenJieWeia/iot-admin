@@ -49,7 +49,7 @@ func decodeMeta(t *testing.T) map[string]json.RawMessage {
 	return data
 }
 
-// 验收：_meta 返回 6 实体 + 2 异常只读页，顺序与 admin.Entities / 异常页定义一致。
+// 验收：_meta 返回 5 个导航实体 + 1 个 subresource（thing-model-properties）+ 1 个异常只读页。
 func TestMetaSections(t *testing.T) {
 	data := decodeMeta(t)
 
@@ -57,12 +57,19 @@ func TestMetaSections(t *testing.T) {
 	if err := json.Unmarshal(data["entities"], &entities); err != nil {
 		t.Fatalf("entities 解析失败: %v", err)
 	}
-	if len(entities) != len(Entities) || len(entities) != 6 {
-		t.Fatalf("entities = %d 段，期望 6（与 admin.Entities 同数）", len(entities))
+	// 导航实体 = Entities 里没有 Hidden 的那些（顺序保持一致）。
+	navigable := make([]Entity, 0, len(Entities))
+	for _, e := range Entities {
+		if !e.Hidden {
+			navigable = append(navigable, e)
+		}
+	}
+	if len(entities) != len(navigable) || len(entities) != 5 {
+		t.Fatalf("entities = %d 段，期望 5（可导航实体；可 CRUD 仍是 %d）", len(entities), len(Entities))
 	}
 	for i, e := range entities {
-		if e.Name != Entities[i].Name {
-			t.Fatalf("entities[%d] = %q，期望 %q（顺序即导航顺序）", i, e.Name, Entities[i].Name)
+		if e.Name != navigable[i].Name {
+			t.Fatalf("entities[%d] = %q，期望 %q（顺序即导航顺序）", i, e.Name, navigable[i].Name)
 		}
 		if e.Title == "" || e.Title == e.Name {
 			t.Fatalf("实体 %q 缺少中文标题（键名 title）", e.Name)
@@ -79,6 +86,24 @@ func TestMetaSections(t *testing.T) {
 		if len(e.Fields) == 0 {
 			t.Fatalf("实体 %q 没有字段元数据", e.Name)
 		}
+	}
+
+	// 不可导航实体不下发导航，但字段元数据必须还在 subresources 里（详情页要用）。
+	var subresources []MetaEntity
+	if err := json.Unmarshal(data["subresources"], &subresources); err != nil {
+		t.Fatalf("subresources 解析失败: %v", err)
+	}
+	if len(subresources) != 1 || subresources[0].Name != "thing-model-properties" {
+		t.Fatalf("subresources = %+v，期望只有 thing-model-properties", subresources)
+	}
+	if subresources[0].Title != "终端属性" {
+		t.Fatalf("subresources 标题 = %q，期望 终端属性", subresources[0].Title)
+	}
+	if len(subresources[0].Fields) == 0 {
+		t.Fatal("subresources 里的 thing-model-properties 没有字段元数据")
+	}
+	if subresources[0].Route != "/admin/v1/thing-model-properties" {
+		t.Fatalf("subresources 的 route = %q", subresources[0].Route)
 	}
 
 	var exceptions []MetaException
@@ -112,7 +137,7 @@ func TestMetaSections(t *testing.T) {
 		gotDataKeys = append(gotDataKeys, k)
 	}
 	sort.Strings(gotDataKeys)
-	wantDataKeys := []string{"booleans", "entities", "enums", "exceptions", "pagination", "readonly"}
+	wantDataKeys := []string{"booleans", "entities", "enums", "exceptions", "pagination", "readonly", "subresources"}
 	if strings.Join(gotDataKeys, ",") != strings.Join(wantDataKeys, ",") {
 		t.Fatalf("data 顶层键 = %v，期望 %v", gotDataKeys, wantDataKeys)
 	}
@@ -166,7 +191,8 @@ func TestMetaFieldShape(t *testing.T) {
 	}
 
 	var sections []json.RawMessage
-	for _, name := range []string{"entities", "exceptions", "readonly"} {
+	// subresources 与 entities 同形，一并按同一套契约检查。
+	for _, name := range []string{"entities", "subresources", "exceptions", "readonly"} {
 		var list []json.RawMessage
 		if err := json.Unmarshal(data[name], &list); err != nil {
 			t.Fatalf("%s 解析失败: %v", name, err)
@@ -185,7 +211,7 @@ func TestMetaFieldShape(t *testing.T) {
 			}
 			// 每个段的键集合也是契约：实体与异常页各自的字段名固定。
 			var wantKeys []string
-			if name == "entities" {
+			if name == "entities" || name == "subresources" {
 				wantKeys = []string{"name", "title", "route", "readOnly", "defaultSort", "defaultOrder", "fields"}
 			} else {
 				// exceptions 与 readonly 同形（exceptions 是 readonly 的特例）；
@@ -216,7 +242,7 @@ func TestMetaFieldShape(t *testing.T) {
 		}
 	}
 	if len(sections) != 10 {
-		t.Fatalf("元数据段数 = %d，期望 6 实体 + 1 异常页 + 3 只读源", len(sections))
+		t.Fatalf("元数据段数 = %d，期望 5 导航实体 + 1 子资源 + 1 异常页 + 3 只读源", len(sections))
 	}
 }
 
@@ -302,7 +328,7 @@ func TestEntityLabelsCoverAllSections(t *testing.T) {
 	want := map[string]string{
 		"data-domains":           "数据域",
 		"device-types":           "终端类型",
-		"thing-model-properties": "物模型属性",
+		"thing-model-properties": "终端属性",
 		"terminals":              "终端",
 		"quality-rules":          "质量规则",
 		"settle-configs":         "结算窗口",
@@ -357,11 +383,22 @@ func TestMetaDictionaries(t *testing.T) {
 // editable 与 Entity.Cols（唯一可写白名单）逐实体对齐：不在 fields.go 里另存一份。
 func TestEditableMatchesEntityCols(t *testing.T) {
 	payload := BuildMeta()
-	if len(payload.Entities) != len(Entities) {
-		t.Fatalf("entities = %d，期望 %d", len(payload.Entities), len(Entities))
+	// 可编辑性按实体名对齐：导航实体在 entities、不可导航的在 subresources，两段合起来覆盖全部 6 个。
+	all := make(map[string]MetaEntity, len(payload.Entities)+len(payload.Subresources))
+	for _, meta := range payload.Entities {
+		all[meta.Name] = meta
 	}
-	for i, meta := range payload.Entities {
-		e := Entities[i]
+	for _, meta := range payload.Subresources {
+		all[meta.Name] = meta
+	}
+	if len(all) != len(Entities) {
+		t.Fatalf("_meta 覆盖实体 = %d，期望 %d（entities+subresources）", len(all), len(Entities))
+	}
+	for _, e := range Entities {
+		meta, ok := all[e.Name]
+		if !ok {
+			t.Fatalf("%s 在 _meta 的 entities/subresources 里都不存在", e.Name)
+		}
 		want := make(map[string]bool, len(e.Cols))
 		for _, c := range e.Cols {
 			want[c] = true
@@ -425,20 +462,32 @@ func TestRequiredMatchesDDL(t *testing.T) {
 	table := ddlColumns(t, ddl)
 
 	payload := BuildMeta()
+	// 按实体名对齐：导航实体在 entities、不可导航的在 subresources，两段合起来覆盖全部实体。
+	all := make(map[string]MetaEntity, len(payload.Entities)+len(payload.Subresources))
+	for _, meta := range payload.Entities {
+		all[meta.Name] = meta
+	}
+	for _, meta := range payload.Subresources {
+		all[meta.Name] = meta
+	}
 	checked := 0
-	for i, meta := range payload.Entities {
-		cols, ok := table[Entities[i].Table]
+	for _, e := range Entities {
+		meta, ok := all[e.Name]
 		if !ok {
-			t.Fatalf("DDL 里找不到表 %q", Entities[i].Table)
+			t.Fatalf("%s 在 _meta 的 entities/subresources 里都不存在", e.Name)
+		}
+		cols, ok := table[e.Table]
+		if !ok {
+			t.Fatalf("DDL 里找不到表 %q", e.Table)
 		}
 		for _, f := range meta.Fields {
 			info, ok := cols[f.Key]
 			if !ok {
-				t.Fatalf("DDL 里找不到列 %s.%s", Entities[i].Table, f.Key)
+				t.Fatalf("DDL 里找不到列 %s.%s", e.Table, f.Key)
 			}
 			if f.Required != info.notNull {
 				t.Fatalf("%s.%s required = %v，DDL 为 not null=%v default=%v",
-					Entities[i].Name, f.Key, f.Required, info.notNull, info.hasDefault)
+					e.Name, f.Key, f.Required, info.notNull, info.hasDefault)
 			}
 			checked++
 		}

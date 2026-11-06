@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useParams, useSearchParams } from 'react-router';
+import { useNavigate, useParams, useSearchParams } from 'react-router';
 import { ApiError, createRow, deleteRow, fetchList, fetchOne, updateRow } from '../api/client';
 import { toLabelMap, useFieldOptions } from '../api/entities';
 import { useMeta } from '../api/meta';
@@ -48,6 +48,7 @@ function errorDetail(error: unknown): string | null {
  */
 export function EntityListPage() {
   const params = useParams();
+  const navigate = useNavigate();
   const entityName = params.entity ?? '';
   const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
@@ -416,6 +417,13 @@ export function EntityListPage() {
               deleteMutation.reset();
               setPendingDelete(row);
             }}
+            // 终端类型：进入「终端类型详情页」（属性子列表）。其它实体不出这个入口。
+            onOpen={
+              entity.name === 'device-types'
+                ? (row) => navigate(`/device-types/${encodeURIComponent(String(row.id ?? ''))}`)
+                : undefined
+            }
+            openLabel="查看属性"
             skeletonRows={query.pageSize}
             // §16.1：总数只在分页区报一次（「第 1–10 条，共 N 条」），这里用不含数字的表意文案。
             caption="当前筛选结果"

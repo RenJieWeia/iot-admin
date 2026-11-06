@@ -91,6 +91,24 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 			t.Fatalf("缺少管理实体 %q", name)
 		}
 	}
+
+	// 双口径：可 CRUD = 6（上面已断言）；可导航 = 5，且导航集合不含 thing-model-properties。
+	meta := admin.BuildMeta()
+	if len(meta.Entities) != 5 {
+		t.Fatalf("可导航实体 = %d，期望 5（可 CRUD 仍是 %d）", len(meta.Entities), len(admin.Entities))
+	}
+	for _, ent := range meta.Entities {
+		if ent.Name == "thing-model-properties" {
+			t.Fatal("thing-model-properties 可 CRUD 但不可导航，不应出现在 _meta.entities")
+		}
+	}
+	// 不可导航不等于不可见：字段元数据必须仍从 subresources 下发，否则属性详情页拿不到列定义/必填。
+	if len(meta.Subresources) != 1 || meta.Subresources[0].Name != "thing-model-properties" {
+		t.Fatalf("subresources = %+v，期望只含 thing-model-properties", meta.Subresources)
+	}
+	if len(meta.Subresources[0].Fields) == 0 {
+		t.Fatal("subresources 里的 thing-model-properties 没有字段元数据")
+	}
 	handler := admin.New(nil).Handler()
 	for _, bad := range []string{"consumers", "permissions", "commands", "reports",
 		"snapshot-versions", "backfills", "aggregations", "audits"} {

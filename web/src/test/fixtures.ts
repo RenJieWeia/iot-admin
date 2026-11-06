@@ -400,7 +400,97 @@ export const metaFixture: MetaPayload = {
           operators: [],
           widthStrategy: 'fixed',
         }),
-        field({ key: 'name', label: '名称', type: 'text', widthStrategy: 'flex' }),
+        field({ key: 'code', label: '编码', type: 'text', editable: true, widthStrategy: 'min' }),
+        field({ key: 'name', label: '名称', type: 'text', editable: true, widthStrategy: 'flex' }),
+        field({
+          key: 'domain_id',
+          label: '归属数据域',
+          type: 'relation',
+          filterType: 'relation',
+          operators: ['in'],
+          optionsSource: 'remote',
+          widthStrategy: 'min',
+          ref: { entity: 'data-domains', valueKey: 'id', labelKey: 'name' },
+        }),
+      ],
+    },
+  ],
+  /**
+   * 子资源（task-016）：与 entities 同形，但不进导航。终端属性从独立页收进
+   * 「终端类型详情页」后，字段元数据由这里下发。
+   */
+  subresources: [
+    {
+      name: 'thing-model-properties',
+      title: '终端属性',
+      route: '/admin/v1/thing-model-properties',
+      readOnly: false,
+      defaultSort: 'item_code',
+      defaultOrder: 'asc',
+      fields: [
+        field({
+          key: 'id',
+          label: '属性 ID',
+          type: 'id',
+          filterable: false,
+          filterType: 'none',
+          operators: [],
+          widthStrategy: 'fixed',
+        }),
+        field({
+          key: 'type_id',
+          label: '终端类型',
+          type: 'relation',
+          filterType: 'relation',
+          operators: ['in'],
+          optionsSource: 'remote',
+          editable: true,
+          required: true,
+          widthStrategy: 'fixed',
+          ref: { entity: 'device-types', valueKey: 'id', labelKey: 'name' },
+        }),
+        field({
+          key: 'item_code',
+          label: '点位编码',
+          type: 'text',
+          filterType: 'text',
+          operators: ['contains', 'eq', 'prefix'],
+          editable: true,
+          required: true,
+          widthStrategy: 'min',
+        }),
+        field({
+          key: 'name',
+          label: '属性名称',
+          type: 'text',
+          editable: true,
+          required: true,
+          widthStrategy: 'flex',
+        }),
+        field({
+          key: 'value_type',
+          label: '值类型',
+          type: 'enum',
+          filterType: 'multiSelect',
+          operators: ['in'],
+          editable: true,
+          required: true,
+          optionsSource: 'static',
+          options: [
+            { value: 'number', label: '数字' },
+            { value: 'string', label: '文本' },
+            { value: 'bool', label: '布尔' },
+          ],
+          widthStrategy: 'fixed',
+        }),
+        field({
+          key: 'unit',
+          label: '单位',
+          type: 'text',
+          editable: true,
+          required: false,
+          widthStrategy: 'fixed',
+        }),
       ],
     },
   ],
@@ -513,4 +603,21 @@ export const snapshotValues = Array.from({ length: 45 }).map((_, index) => ({
 export const exceptionEvents = [
   { terminal_id: 't-001', error_type: 'upload_timeout', count: 3 },
   { terminal_id: 't-002', error_type: 'protocol_error', count: 1 },
+];
+
+/** 终端类型行（详情页摘要与列表入口用）。 */
+export const allDeviceTypes = [
+  { id: '1', code: 'pump', name: '泵站', domain_id: '1' },
+  { id: '2', code: 'valve', name: '阀门', domain_id: '1' },
+  { id: '3', code: 'meter', name: '电表', domain_id: '2' },
+];
+
+/** 终端属性行：type_id 用于验证详情页的固定过滤。 */
+export const allProperties = [
+  { id: 'p-1', type_id: '1', item_code: 'temp', name: '温度', value_type: 'number', unit: 'C' },
+  { id: 'p-2', type_id: '1', item_code: 'power', name: '功率', value_type: 'number', unit: 'kW' },
+  { id: 'p-3', type_id: '1', item_code: 'status', name: '状态', value_type: 'string', unit: '' },
+  { id: 'p-4', type_id: '1', item_code: 'online', name: '在线', value_type: 'bool', unit: '' },
+  { id: 'p-5', type_id: '2', item_code: 'temp', name: '温度', value_type: 'number', unit: 'C' },
+  { id: 'p-6', type_id: '2', item_code: 'flow', name: '流量', value_type: 'number', unit: 'm3/h' },
 ];

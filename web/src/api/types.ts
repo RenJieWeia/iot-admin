@@ -124,6 +124,11 @@ export interface MetaPayload {
   exceptions: ExceptionMeta[];
   /** 通用只读页；后端未下发时按空数组处理（fail-closed：不出现多余导航）。 */
   readonly?: ReadonlyMeta[];
+  /**
+   * 子资源：形状与 entities 相同，装「可 CRUD 但不出现在导航」的实体
+   * （当前只有终端属性 thing-model-properties），供详情页做字段元数据。
+   */
+  subresources?: EntityMeta[];
   /** 枚举字典：字段名 → { 取值: 中文 }。 */
   enums: Record<string, Record<string, string>>;
   /** 布尔字典：{ "true": "是", "false": "否" }。 */

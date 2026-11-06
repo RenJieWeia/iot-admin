@@ -20,6 +20,11 @@ interface Props {
   onSave: (body: RowData) => void;
   /** 删除入口只发意图，二次确认由页面统一渲染（确认按钮带对象名）。 */
   onDelete: () => void;
+  /**
+   * 锁定字段：渲染成只读输入框（灰显、不可编辑），提交时仍带上它的值。
+   * 供「终端类型详情页 → 新建属性」把 type_id 钉死；不传时行为与之前完全一致。
+   */
+  lockedFields?: string[];
 }
 
 function initialValues(fields: FieldMeta[], row: RowData | null): Record<string, string> {
@@ -82,6 +87,7 @@ export function RecordDrawer({
   onClose,
   onSave,
   onDelete,
+  lockedFields,
 }: Props) {
   const fields = useMemo(() => formFields(entity), [entity]);
   const [values, setValues] = useState(() => initialValues(fields, row));
@@ -112,8 +118,23 @@ export function RecordDrawer({
     setValues((prev) => ({ ...prev, [key]: value }));
   };
 
+  const isLocked = (field: FieldMeta) => lockedFields?.includes(field.key) ?? false;
+
   const renderControl = (field: FieldMeta) => {
     const id = `field-${field.key}`;
+    if (isLocked(field)) {
+      // 锁定值来自调用方传入的 row（新建属性时 type_id 由详情页固定注入）。
+      return (
+        <input
+          id={id}
+          className="input"
+          value={values[field.key] ?? ''}
+          readOnly
+          disabled
+          aria-readonly="true"
+        />
+      );
+    }
     if (field.ref) {
       return (
         <RelationSelect
@@ -251,6 +272,9 @@ export function RecordDrawer({
               )}
             </label>
             {renderControl(field)}
+            {isLocked(field) && (
+              <p className="m-0 text-meta text-muted">由终端类型固定，不可编辑</p>
+            )}
             {errors[field.key] && (
               <p
                 id={`${id}-error`}

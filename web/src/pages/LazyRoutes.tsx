@@ -15,6 +15,9 @@ const EntityListPage = lazy(() =>
 const ReadonlySlotPage = lazy(() =>
   import('./ReadonlySlotPage').then((module) => ({ default: module.ReadonlySlotPage })),
 );
+const DeviceTypeDetailPage = lazy(() =>
+  import('./DeviceTypeDetailPage').then((module) => ({ default: module.DeviceTypeDetailPage })),
+);
 
 interface FallbackProps {
   title: string;
@@ -124,4 +127,37 @@ export function LazyExceptionPage() {
 
 export function LazyReadonlyPage() {
   return <LazySlotPage source="readonly" />;
+}
+
+/** 终端类型详情页（task-016）：懒加载 + 与真实表格同形的骨架。 */
+export function LazyDeviceTypeDetailPage() {
+  const [searchParams] = useSearchParams();
+  const meta = useMeta();
+  const property = meta.data?.subresources?.find((item) => item.name === 'thing-model-properties');
+  const pageSize = parseQueryState(searchParams).pageSize;
+
+  return (
+    <MetaGate>
+      <Suspense
+        fallback={
+          property ? (
+            <TableFallback
+              title="终端类型"
+              fields={visibleFields(property)}
+              writable={!property.readOnly}
+              sort={property.defaultSort}
+              order={property.defaultOrder}
+              skeletonRows={pageSize}
+            />
+          ) : (
+            <AppShell title="IoT 管理后台">
+              <PagePlaceholder status="正在加载页面组件…" />
+            </AppShell>
+          )
+        }
+      >
+        <DeviceTypeDetailPage />
+      </Suspense>
+    </MetaGate>
+  );
 }
