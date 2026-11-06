@@ -60,26 +60,6 @@ export function ExceptionListPage() {
     document.title = exception ? `${exception.title} · IoT 管理后台` : 'IoT 管理后台';
   }, [exception]);
 
-  if (metaQuery.isPending) {
-    return (
-      <AppShell title="加载中…">
-        <p className="muted">正在加载字段元数据…</p>
-      </AppShell>
-    );
-  }
-
-  if (metaQuery.isError) {
-    return (
-      <AppShell title="管理后台">
-        <ErrorState
-          title="字段元数据加载失败"
-          text="页面无法确定列与筛选能力，请重试或检查 /admin/v1/_meta 是否可用。"
-          onRetry={() => void metaQuery.refetch()}
-        />
-      </AppShell>
-    );
-  }
-
   // 元数据未就绪/失败由 MetaGate 在外层处理，这里只会拿到已就绪的 meta。
   if (!exception) {
     return (
