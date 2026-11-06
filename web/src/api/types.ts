@@ -55,6 +55,10 @@ export interface FieldMeta {
   /** 永远是数组（后端把 nil 归一成 []），空数组表示无枚举。 */
   options: Option[];
   advancedOnly?: boolean;
+  /** 是否可写进抽屉表单（后端按 admin.Entity.Cols 下发）；缺省 false，前端不做推断。 */
+  editable: boolean;
+  /** 是否必填（后端下发）；缺省 false，缺省时前端不阻止空提交。 */
+  required: boolean;
   widthStrategy: WidthStrategy;
   ref?: FieldRef;
   /** ref.entity 的兼容别名（R-019 首版键名）；新代码只用 ref。 */

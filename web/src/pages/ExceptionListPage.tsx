@@ -10,7 +10,7 @@ import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { FilterBar } from '../components/FilterBar';
 import { Pagination } from '../components/Pagination';
-import { defaultSort } from '../lib/fieldMeta';
+import { defaultSort, isWritable } from '../lib/fieldMeta';
 import {
   clearFilters,
   hasActiveConditions,
@@ -80,6 +80,7 @@ export function ExceptionListPage() {
     );
   }
 
+  // 元数据未就绪/失败由 MetaGate 在外层处理，这里只会拿到已就绪的 meta。
   if (!exception) {
     return (
       <AppShell title="页面不存在">
@@ -166,7 +167,7 @@ export function ExceptionListPage() {
             order={query.order}
             onSort={(field) => setQuery(setSort(query, field))}
             relationOptions={{}}
-            writable={false}
+            writable={isWritable(exception)}
             skeletonRows={query.pageSize}
           />
           <Pagination

@@ -14,7 +14,7 @@ import { FilterBar } from '../components/FilterBar';
 import { Pagination } from '../components/Pagination';
 import { RecordDrawer, objectLabel } from '../components/RecordDrawer';
 import { Toast, type ToastMessage } from '../components/Toast';
-import { defaultSort, relationTarget } from '../lib/fieldMeta';
+import { defaultSort, isWritable, relationTarget } from '../lib/fieldMeta';
 import {
   clearFilters,
   hasActiveConditions,
@@ -236,6 +236,7 @@ export function EntityListPage() {
     );
   }
 
+  // 元数据未就绪/失败由 MetaGate 在外层处理，这里只会拿到已就绪的 meta。
   if (!entity) {
     return (
       <AppShell title="页面不存在">
@@ -265,24 +266,29 @@ export function EntityListPage() {
   const saveError = errorDetail(saveMutation.error);
   const deleteError = errorDetail(deleteMutation.error);
 
-  const writable = !entity.readOnly;
+  // 可写性完全由 _meta 派生（readOnly + 是否存在 editable 字段），不看路由。
+  const writable = isWritable(entity);
   const pageSizeOptions = metaQuery.data?.pagination?.options ?? [10, 20, 50];
 
   return (
     <AppShell
       title={entity.title}
       actions={
-        <button
-          type="button"
-          className="btn btn-primary"
-          data-action="new"
-          onClick={(event) => {
-            saveMutation.reset();
-            openDrawer('new', { trigger: event.currentTarget });
-          }}
-        >
-          新建
-        </button>
+        writable ? (
+          <button
+            type="button"
+            className="btn btn-primary"
+            data-action="new"
+            onClick={(event) => {
+              saveMutation.reset();
+              openDrawer('new', { trigger: event.currentTarget });
+            }}
+          >
+            新建
+          </button>
+        ) : (
+          <span className="muted">只读页面：不提供新建、编辑或删除入口。</span>
+        )
       }
     >
       <FilterBar
@@ -310,14 +316,16 @@ export function EntityListPage() {
           title={`还没有${entity.title}`}
           text="该实体下暂无记录。可用右上角「新建」录入第一条，或通过管理接口写入后再刷新。"
           action={
-            <button
-              type="button"
-              className="btn btn-primary"
-              data-action="new"
-              onClick={(event) => openDrawer('new', { trigger: event.currentTarget })}
-            >
-              新建
-            </button>
+            writable ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                data-action="new"
+                onClick={(event) => openDrawer('new', { trigger: event.currentTarget })}
+              >
+                新建
+              </button>
+            ) : undefined
           }
         />
       ) : listState === 'nomatch' ? (

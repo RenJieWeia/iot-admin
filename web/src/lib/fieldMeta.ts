@@ -11,12 +11,11 @@ export function visibleFields(holder: FieldHolder): FieldMeta[] {
 }
 
 /**
- * 抽屉可编辑字段：排除自增主键。判定依据是字段元数据本身——
- * 用户自填主键（如 terminals.id）声明为 filterable 的 id 字段，自增主键不是（见 fields.go）。
- * 该推断属于契约缺口，已在 Open-Q 里要求后端补显式 `editable` 标记。
+ * 抽屉可编辑字段：只看后端下发的 `editable`（admin.Entity.Cols 的可写列白名单）。
+ * 前端不做任何推断；缺省 false 即不可编辑（fail-closed）。
  */
 export function formFields(holder: FieldHolder): FieldMeta[] {
-  return holder.fields.filter((field) => field.type !== 'id' || field.filterable);
+  return holder.fields.filter((field) => field.editable);
 }
 
 /** 常驻高频筛选 ≤5，其余进「更多筛选」（table-query §5）。 */
@@ -60,4 +59,13 @@ export function labelOf(field: FieldMeta, value: string): string {
 /** 关联字段的目标实体（field.ref.entity），用于取 options 与回填名称。 */
 export function relationTarget(field: FieldMeta): string | undefined {
   return field.ref?.entity;
+}
+
+/**
+ * 页面是否提供写入口：只读实体不写；此外**没有任何 editable 字段**的实体同样不可写
+ * （异常两页全部 editable=false）。判定只看 `_meta`，不看「这是哪条路由」。
+ */
+export function isWritable(holder: FieldHolder & { readOnly?: boolean }): boolean {
+  if (holder.readOnly) return false;
+  return formFields(holder).length > 0;
 }

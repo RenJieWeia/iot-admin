@@ -1,6 +1,9 @@
 import type { FieldMeta, MetaPayload } from '../api/types';
 
-/** 假元数据严格按 task-004 §4 最终契约（rv-06 `03ca27e`）的键名构造。 */
+/**
+ * 假元数据严格按 task-004 §4 契约 + 本轮新增的 editable/required 构造。
+ * editable/required 的默认值为 false（与前端 fail-closed 口径一致），逐字段显式覆盖。
+ */
 function field(partial: Partial<FieldMeta> & Pick<FieldMeta, 'key' | 'label' | 'type'>): FieldMeta {
   return {
     visible: true,
@@ -11,9 +14,11 @@ function field(partial: Partial<FieldMeta> & Pick<FieldMeta, 'key' | 'label' | '
     operatorLabels: { contains: '包含', eq: '等于', prefix: '前缀', in: '属于', gte: '≥', lte: '≤' },
     options: [],
     advancedOnly: false,
+    editable: false,
+    required: false,
     widthStrategy: 'flex',
     ...partial,
-  } as FieldMeta;
+  };
 }
 
 export const metaFixture: MetaPayload = {
@@ -26,12 +31,15 @@ export const metaFixture: MetaPayload = {
       defaultSort: 'id',
       defaultOrder: 'desc',
       fields: [
+        // 用户自填主键：可编辑 + 必填（后端按 admin.Entity.Cols 判定的结果）。
         field({
           key: 'id',
           label: '终端 ID',
           type: 'id',
           filterType: 'text',
           operators: ['eq', 'prefix'],
+          editable: true,
+          required: true,
           widthStrategy: 'min',
         }),
         field({
@@ -41,6 +49,7 @@ export const metaFixture: MetaPayload = {
           filterType: 'relation',
           operators: ['in'],
           optionsSource: 'remote',
+          editable: true,
           widthStrategy: 'min',
           ref: { entity: 'device-types', valueKey: 'id', labelKey: 'name' },
         }),
@@ -50,9 +59,17 @@ export const metaFixture: MetaPayload = {
           type: 'text',
           filterType: 'text',
           operators: ['contains', 'eq'],
+          editable: true,
           widthStrategy: 'min',
         }),
-        field({ key: 'name', label: '名称', type: 'text', widthStrategy: 'flex' }),
+        field({
+          key: 'name',
+          label: '名称',
+          type: 'text',
+          editable: true,
+          required: false,
+          widthStrategy: 'flex',
+        }),
         field({
           key: 'enabled',
           label: '状态',
@@ -60,6 +77,7 @@ export const metaFixture: MetaPayload = {
           filterType: 'boolean',
           operators: ['eq'],
           optionsSource: 'static',
+          editable: true,
           widthStrategy: 'fixed',
         }),
         field({
@@ -71,6 +89,116 @@ export const metaFixture: MetaPayload = {
           operators: ['gte', 'lte'],
           advancedOnly: true,
           widthStrategy: 'fixed',
+        }),
+      ],
+    },
+    {
+      // 自增主键不可编辑；code/name 可编辑但非必填。
+      name: 'data-domains',
+      title: '数据域',
+      route: '/admin/v1/data-domains',
+      readOnly: false,
+      defaultSort: 'id',
+      defaultOrder: 'desc',
+      fields: [
+        field({
+          key: 'id',
+          label: 'ID',
+          type: 'id',
+          filterable: false,
+          filterType: 'none',
+          operators: [],
+          editable: false,
+          required: false,
+          widthStrategy: 'fixed',
+        }),
+        field({
+          key: 'code',
+          label: '编码',
+          type: 'text',
+          editable: true,
+          required: true,
+          widthStrategy: 'min',
+        }),
+        field({
+          key: 'name',
+          label: '名称',
+          type: 'text',
+          editable: true,
+          required: true,
+          widthStrategy: 'flex',
+        }),
+      ],
+    },
+    {
+      // json 参数列：可编辑、非必填（覆盖 required=false 的写路径）。
+      name: 'quality-rules',
+      title: '质量规则',
+      route: '/admin/v1/quality-rules',
+      readOnly: false,
+      defaultSort: 'id',
+      defaultOrder: 'desc',
+      fields: [
+        field({
+          key: 'id',
+          label: 'ID',
+          type: 'id',
+          filterable: false,
+          filterType: 'none',
+          operators: [],
+          editable: false,
+          widthStrategy: 'fixed',
+        }),
+        field({
+          key: 'terminal_id',
+          label: '终端',
+          type: 'relation',
+          filterType: 'text',
+          operators: ['prefix', 'eq'],
+          editable: true,
+          required: true,
+          ref: { entity: 'terminals', valueKey: 'id', labelKey: 'name' },
+          widthStrategy: 'min',
+        }),
+        field({
+          key: 'item_code',
+          label: '数据项编码',
+          type: 'text',
+          editable: true,
+          required: true,
+          widthStrategy: 'min',
+        }),
+        field({
+          key: 'rule_type',
+          label: '规则类型',
+          type: 'enum',
+          filterType: 'multiSelect',
+          operators: ['in'],
+          editable: true,
+          required: true,
+          widthStrategy: 'min',
+        }),
+        field({
+          key: 'enabled',
+          label: '状态',
+          type: 'boolean',
+          filterType: 'boolean',
+          operators: ['eq'],
+          editable: true,
+          required: false,
+          widthStrategy: 'fixed',
+        }),
+        field({
+          key: 'params',
+          label: '参数',
+          type: 'json',
+          visible: false,
+          filterable: false,
+          filterType: 'none',
+          operators: [],
+          editable: true,
+          required: false,
+          widthStrategy: 'flex',
         }),
       ],
     },
@@ -110,6 +238,8 @@ export const metaFixture: MetaPayload = {
           label: '终端',
           type: 'text',
           operators: ['contains', 'eq'],
+          editable: false,
+          required: false,
           widthStrategy: 'min',
         }),
         field({

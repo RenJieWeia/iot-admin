@@ -32,19 +32,27 @@ function initialValues(fields: FieldMeta[], row: RowData | null): Record<string,
   return values;
 }
 
-/** 校验只为提示，服务端仍以 admin.columns() 白名单与列类型为准。 */
+/**
+ * 校验只为提示，服务端仍以 admin.columns() 白名单与列类型为准。
+ * 必填完全由 `field.required` 驱动（后端下发），前端不按字段类型猜。
+ */
 function buildSchema(fields: FieldMeta[]) {
   const shape: Record<string, z.ZodTypeAny> = {};
   for (const field of fields) {
+    const base = z.string().trim();
     if (field.type === 'number') {
-      shape[field.key] = z
-        .string()
-        .trim()
-        .refine((v) => v === '' || !Number.isNaN(Number(v)), `${field.label}必须是数字`);
-    } else if (field.type === 'id') {
-      shape[field.key] = z.string().trim().min(1, `${field.label}必填`);
+      const numeric = base.refine(
+        (v) => v === '' || !Number.isNaN(Number(v)),
+        `${field.label}必须是数字`,
+      );
+      shape[field.key] = field.required
+        ? base.min(1, `${field.label}必填`).refine(
+            (v) => !Number.isNaN(Number(v)),
+            `${field.label}必须是数字`,
+          )
+        : numeric;
     } else {
-      shape[field.key] = z.string();
+      shape[field.key] = field.required ? base.min(1, `${field.label}必填`) : base;
     }
   }
   return z.object(shape);
@@ -202,7 +210,7 @@ export function RecordDrawer({
           <div key={field.key} className={errors[field.key] ? 'field field-error' : 'field'}>
             <label htmlFor={id}>
               {field.label}
-              {field.type === 'id' && mode === 'new' ? '（必填）' : ''}
+              {field.required ? '（必填）' : ''}
             </label>
             {renderControl(field)}
             {errors[field.key] && (

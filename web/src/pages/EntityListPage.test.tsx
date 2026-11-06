@@ -149,7 +149,7 @@ describe('实体列表页（服务端驱动）', () => {
     await user.click(screen.getByRole('button', { name: '新建' }));
     const dialog = await screen.findByRole('dialog');
     await user.type(within(dialog).getByLabelText(/终端 ID/), 't-new');
-    await user.type(within(dialog).getByLabelText('名称'), '新终端');
+    await user.type(within(dialog).getByLabelText(/^名称/), '新终端');
     await user.click(within(dialog).getByRole('button', { name: '保存' }));
 
     await waitFor(() => expect(writeCalls).toHaveLength(1));
@@ -182,6 +182,32 @@ describe('实体列表页（服务端驱动）', () => {
     expect(writeCalls[0]?.path).toBe('terminals/t-001');
   });
 
+  it('required:true 的字段阻止空提交并显示（必填）', async () => {
+    const user = userEvent.setup();
+    renderApp('/terminals');
+    await waitForReady();
+
+    await user.click(screen.getByRole('button', { name: '新建' }));
+    const dialog = await screen.findByRole('dialog');
+    // 必填提示由 _meta.required 驱动（不是按字段类型猜）：terminals 只有 id 是 required。
+    expect(within(dialog).getByLabelText('终端 ID（必填）')).toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('名称（必填）')).not.toBeInTheDocument();
+    expect(within(dialog).queryByLabelText('网关 ID（必填）')).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: '保存' }));
+    expect(await within(dialog).findByText('终端 ID必填')).toBeInTheDocument();
+    expect(
+      within(dialog).queryByText('名称必填'),
+      '非 required 字段不应被前端拦下',
+    ).not.toBeInTheDocument();
+    expect(writeCalls).toHaveLength(0);
+
+    await user.type(within(dialog).getByLabelText('终端 ID（必填）'), 't-req');
+    await user.click(within(dialog).getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(writeCalls).toHaveLength(1));
+    expect(writeCalls[0]?.body).toMatchObject({ id: 't-req', name: null });
+  });
+
   it('写失败就地提示原因，抽屉不关闭', async () => {
     const user = userEvent.setup();
     server.use(
@@ -195,6 +221,7 @@ describe('实体列表页（服务端驱动）', () => {
     await user.click(screen.getByRole('button', { name: '新建' }));
     const dialog = await screen.findByRole('dialog');
     await user.type(within(dialog).getByLabelText(/终端 ID/), 't-x');
+    await user.type(within(dialog).getByLabelText(/^名称/), '写失败终端');
     await user.click(within(dialog).getByRole('button', { name: '保存' }));
 
     expect(await screen.findByText(/保存失败：column "name" too long/)).toBeInTheDocument();
