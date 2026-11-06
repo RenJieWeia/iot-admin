@@ -140,27 +140,31 @@ export function EntityListPage() {
     [searchParams, setSearchParams],
   );
 
-  const restoreFocus = useCallback(() => {
-    // Radix 只负责自身 Trigger 的焦点归还；这里抽屉由 URL 驱动，需要手动兜底。
-    // 列表重渲染会换掉旧节点，因此按 data-action/data-row-id 重新取当前节点，
-    // 取不到时退回记录下来的触发元素。
-    window.requestAnimationFrame(() => {
-      const rowId = focusRowRef.current;
-      const candidates = Array.from(
-        document.querySelectorAll<HTMLElement>('[data-action="edit"]'),
-      );
-      const target =
-        rowId === null
-          ? document.querySelector<HTMLElement>('[data-action="new"]')
-          : candidates.find((node) => node.dataset.rowId === rowId);
-      (target ?? triggerRef.current)?.focus();
-    });
-  }, []);
+  /**
+   * 焦点归还：必须等抽屉真正从 DOM 卸下、且列表重渲染完成之后再聚焦。
+   * 用 rAF 会落在 React 的 transition 提交之前（该次导航是 transition），焦点会被
+   * Radix FocusScope 的卸载清理覆盖回 body；改为「drawer 参数由非空变为空的提交后」执行。
+   * 列表重渲染会换掉旧节点，所以按 data-action/data-row-id 重新取当前节点。
+   */
+  const prevDrawerRef = useRef<string | null>(drawerParam);
+  useEffect(() => {
+    const previous = prevDrawerRef.current;
+    prevDrawerRef.current = drawerParam;
+    if (previous === null || drawerParam !== null) return;
+    const rowId = focusRowRef.current;
+    const target =
+      rowId === null
+        ? document.querySelector<HTMLElement>('[data-action="new"]')
+        : Array.from(document.querySelectorAll<HTMLElement>('[data-action="edit"]')).find(
+            (node) => node.dataset.rowId === rowId,
+          );
+    (target ?? triggerRef.current)?.focus();
+  }, [drawerParam]);
 
   const closeDrawer = useCallback(() => {
+    // 焦点归还在 drawer 参数落为 null 的提交后统一处理（见上方 effect）。
     setSearchParams(withDrawer(searchParams, null), { replace: false });
-    restoreFocus();
-  }, [searchParams, setSearchParams, restoreFocus]);
+  }, [searchParams, setSearchParams]);
 
   const saveMutation = useMutation({
     mutationFn: async (payload: { mode: 'new' | 'edit'; body: RowData; id: string | null }) => {
@@ -171,7 +175,6 @@ export function EntityListPage() {
       void queryClient.invalidateQueries({ queryKey: ['list', entityName] });
       void queryClient.invalidateQueries({ queryKey: ['options'] });
       setSearchParams(withDrawer(searchParams, null), { replace: true });
-      restoreFocus();
       setToast({
         kind: 'ok',
         text: payload.mode === 'new' ? '已创建记录，列表已刷新。' : '已保存修改，列表已刷新。',
@@ -187,7 +190,6 @@ export function EntityListPage() {
       setPendingDelete(null);
       if (searchParams.get('drawer')) {
         setSearchParams(withDrawer(searchParams, null), { replace: true });
-        restoreFocus();
       }
       setToast({ kind: 'ok', text: '已删除记录，列表已刷新。' });
     },

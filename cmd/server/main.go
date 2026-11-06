@@ -105,12 +105,15 @@ func run(log *slog.Logger) error {
 }
 
 // withSecurityHeaders 给所有响应加安全头：管理面同源部署，CSP 不允许任何外源脚本/样式/连接。
-// 前端产物没有内联脚本与内联样式，因此 default-src 'self' 即可生效。
+// 样式必须放开 'unsafe-inline'：Radix 的 Dialog/Popper primitive 会注入内联 style 做定位、
+// 滚动锁与焦点守卫，拦掉会退化成不确定行为（REVIEW-004 F2）。脚本仍收紧到 'self'，
+// 我们的产物没有任何内联脚本，XSS 面没有被这条放开。
 func withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
 		h.Set("Content-Security-Policy",
-			"default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'")
+			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+				"base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'")
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		next.ServeHTTP(w, r)

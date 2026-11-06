@@ -4,9 +4,11 @@
   min-height: 100vh;
 }
 
-.skip-link {
+/* 类名必须与 AppShell.tsx 的 styles.skipLink 逐字一致（CSS Modules 不做驼峰转换）；
+   漏了这条会让这个 <a> 退化成普通 grid item，把 sidebar/main 整体挤到第二行（REVIEW-004 F1）。 */
+.skipLink {
   position: absolute;
-  left: -1000px;
+  left: -9999px;
   top: var(--space-2);
   padding: var(--space-2) var(--space-3);
   background: var(--color-surface);
@@ -14,12 +16,14 @@
   border-radius: var(--radius-sm);
 }
 
-.skip-link:focus {
+.skipLink:focus-visible {
   left: var(--space-2);
   z-index: 20;
 }
 
 .sidebar {
+  /* 防御性列约束：即使将来多出无定位的子元素，侧栏与内容区也不会被挤到别的行列。 */
+  grid-column: 1;
   background: var(--color-surface);
   border-right: 1px solid var(--color-border);
   padding: var(--space-4) var(--space-3);
@@ -67,6 +71,7 @@
 }
 
 .main {
+  grid-column: 2;
   padding: var(--space-6);
   min-width: 0;
 }
@@ -91,11 +96,13 @@
   }
 
   .sidebar {
+    grid-column: 1;
     border-right: none;
     border-bottom: 1px solid var(--color-border);
   }
 
   .main {
+    grid-column: 1;
     padding: var(--space-4);
   }
 }

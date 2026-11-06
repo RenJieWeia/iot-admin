@@ -55,10 +55,23 @@ func TestRoutes(t *testing.T) {
 		t.Fatalf("哈希资源 Cache-Control = %q，期望 immutable", cc)
 	}
 
-	// 管理面同源，CSP 不允许外源。
+	// 管理面同源：默认丢外源，脚本只允许 'self'，样式放开 'unsafe-inline' 供 Radix 注入。
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui/", nil))
-	if csp := rec.Header().Get("Content-Security-Policy"); !strings.Contains(csp, "default-src 'self'") {
-		t.Fatalf("CSP = %q，期望含 default-src 'self'", csp)
+	csp := rec.Header().Get("Content-Security-Policy")
+	for _, want := range []string{"default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'"} {
+		if !strings.Contains(csp, want) {
+			t.Fatalf("CSP = %q，期望包含 %q", csp, want)
+		}
+	}
+	if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
+		t.Fatalf("CSP = %q，脚本不允许放开 unsafe-inline", csp)
+	}
+
+	// favicon 随产物一起提供，避免浏览器反复 404。
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui/favicon.svg", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /ui/favicon.svg → %d，期望 200", rec.Code)
 	}
 }
