@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { FieldMeta } from '../api/types';
 import { metaFixture } from '../test/fixtures';
-import { formFields, isWritable } from './fieldMeta';
+import { advancedFilters, formFields, isWritable, quickFilters } from './fieldMeta';
 
 function entity(name: string) {
   const found = metaFixture.entities.find((item) => item.name === name);
@@ -56,5 +56,23 @@ describe('formFields 由 _meta.editable 驱动', () => {
     const legacy = { ...(entity('terminals').fields[0] as FieldMeta) };
     delete (legacy as Partial<FieldMeta>).editable;
     expect(formFields({ fields: [legacy] })).toEqual([]);
+  });
+});
+
+describe('常驻筛选只保留单行控件（R2）', () => {
+  it('multiSelect / relation 一律不进常驻区，且可在「更多筛选」里找到', () => {
+    for (const name of metaFixture.entities.map((item) => item.name)) {
+      const quick = quickFilters(entity(name));
+      expect(quick.map((f) => f.filterType)).not.toContain('multiSelect');
+      expect(quick.map((f) => f.filterType)).not.toContain('relation');
+    }
+    expect(advancedFilters(entity('terminals')).map((f) => f.key)).toContain('type_id');
+    expect(advancedFilters(entity('terminals')).map((f) => f.key)).toContain('precision');
+  });
+
+  it('常驻区仍然 ≤5，且保留 text / boolean / numberRange', () => {
+    const quick = quickFilters(entity('terminals'));
+    expect(quick.length).toBeLessThanOrEqual(5);
+    expect(quick.map((f) => f.key)).toEqual(['id', 'gateway_id', 'name', 'enabled']);
   });
 });

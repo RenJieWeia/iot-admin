@@ -117,6 +117,23 @@ describe('实体列表页（服务端驱动）', () => {
     await waitFor(() => expect(screen.getByText('第 11–20 条，共 128 条')).toBeInTheDocument());
   });
 
+  it('关联/多选筛选不在常驻区，只在「更多筛选」里（R2）', async () => {
+    const user = userEvent.setup();
+    renderApp('/terminals');
+    await waitForReady();
+
+    // 常驻区：单行控件（terminal.id / gateway_id / name / enabled）。
+    expect(screen.getByLabelText('终端 ID')).toBeInTheDocument();
+    expect(screen.getByLabelText('网关 ID')).toBeInTheDocument();
+    expect(screen.getByLabelText('状态')).toBeInTheDocument();
+    // 关联选择器不进常驻区，避免把筛选条撑高、与单行控件高度参差。
+    expect(screen.queryByLabelText('终端类型')).not.toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '更多筛选' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByLabelText('终端类型')).toBeInTheDocument();
+  });
+
   it('抽屉：role=dialog、Esc 关闭、焦点回到触发按钮', async () => {
     const user = userEvent.setup();
     renderApp('/terminals');

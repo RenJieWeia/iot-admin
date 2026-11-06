@@ -21,9 +21,21 @@ export function formFields(holder: FieldHolder): FieldMeta[] {
 /** 常驻高频筛选 ≤5，其余进「更多筛选」（table-query §5）。 */
 export const QUICK_FILTER_LIMIT = 5;
 
+/**
+ * 常驻筛选只收单行控件：多选与关联选择器（原生 multiple / 长选项列表）会把筛选条撑高、
+ * 与同排输入框高度参差（REVIEW-005 R2）。这些 filterType 一律进「更多筛选」抽屉，
+ * 已生效条件仍以标签外显（单删/全清不变）。advancedOnly 仍由后端字段决定，这里只加类型约束。
+ */
+const SINGLE_LINE_FILTER_TYPES: ReadonlySet<string> = new Set([
+  'text',
+  'boolean',
+  'numberRange',
+  'dateRange',
+]);
+
 export function quickFilters(holder: FieldHolder): FieldMeta[] {
   return holder.fields
-    .filter((f) => f.filterable && !f.advancedOnly)
+    .filter((f) => f.filterable && !f.advancedOnly && SINGLE_LINE_FILTER_TYPES.has(f.filterType))
     .slice(0, QUICK_FILTER_LIMIT);
 }
 
