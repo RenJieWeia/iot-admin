@@ -2,17 +2,22 @@ package admin
 
 import (
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"regexp"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/RenJieWeia/iot-admin/migrations"
 )
 
 // metaFieldKeys 是 MetaField 的 JSON 契约全字段（前端 TS 类型的唯一依据）。
 var metaFieldKeys = []string{
 	"key", "label", "type", "visible", "sortable", "filterable", "filterType",
 	"operators", "operatorLabels", "optionsSource", "options", "advancedOnly", "widthStrategy",
+	"editable", "required",
 }
 
 // toneClosedSet 是状态色语义闭集（颜色不是唯一载体，文字始终显示）。
@@ -363,4 +368,178 @@ func TestMetaDictionaries(t *testing.T) {
 	if len(booleans) != 2 || booleans["true"] != "是" || booleans["false"] != "否" {
 		t.Fatalf("booleans 字典 = %v，期望 true=是 false=否", booleans)
 	}
+}
+
+// editable 与 Entity.Cols（唯一可写白名单）逐实体对齐：不在 fields.go 里另存一份。
+func TestEditableMatchesEntityCols(t *testing.T) {
+	payload := BuildMeta()
+	if len(payload.Entities) != len(Entities) {
+		t.Fatalf("entities = %d，期望 %d", len(payload.Entities), len(Entities))
+	}
+	for i, meta := range payload.Entities {
+		e := Entities[i]
+		want := make(map[string]bool, len(e.Cols))
+		for _, c := range e.Cols {
+			want[c] = true
+		}
+		got := map[string]bool{}
+		for _, f := range meta.Fields {
+			if f.Editable {
+				got[f.Key] = true
+			}
+			if f.Editable != want[f.Key] {
+				t.Fatalf("%s.%s 的 editable = %v，期望 %v（Entity.Cols 白名单）",
+					e.Name, f.Key, f.Editable, want[f.Key])
+			}
+		}
+		if len(got) != len(want) {
+			t.Fatalf("%s 的可编辑列 = %v，期望 %v", e.Name, got, want)
+		}
+	}
+
+	// 异常只读页没有写路径，editable 恒为 false。
+	for _, ex := range payload.Exceptions {
+		for _, f := range ex.Fields {
+			if f.Editable {
+				t.Fatalf("异常只读页 %s.%s 不应可编辑", ex.Slot, f.Key)
+			}
+		}
+	}
+}
+
+// 两条锚点用例（任务书点名）：terminals.id 可编辑且必填；data-domains.id 既不可写也不必填。
+func TestEditableRequiredAnchors(t *testing.T) {
+	payload := BuildMeta()
+	find := func(entity, key string) MetaField {
+		t.Helper()
+		for _, e := range payload.Entities {
+			if e.Name != entity {
+				continue
+			}
+			for _, f := range e.Fields {
+				if f.Key == key {
+					return f
+				}
+			}
+		}
+		t.Fatalf("找不到字段 %s.%s", entity, key)
+		return MetaField{}
+	}
+
+	if f := find("terminals", "id"); !f.Editable || !f.Required {
+		t.Fatalf("terminals.id editable=%v required=%v，期望 true/true", f.Editable, f.Required)
+	}
+	if f := find("data-domains", "id"); f.Editable || f.Required {
+		t.Fatalf("data-domains.id editable=%v required=%v，期望 false/false", f.Editable, f.Required)
+	}
+}
+
+// required 与 DDL 直接对照：解析 migrations/0001 的 not null / primary key / default，
+// 逐列比对，避免手工抄写与迁移漂移。
+func TestRequiredMatchesDDL(t *testing.T) {
+	ddl := string(mustReadMigrations(t, "0001_datasource.sql"))
+	table := ddlColumns(t, ddl)
+
+	payload := BuildMeta()
+	checked := 0
+	for i, meta := range payload.Entities {
+		cols, ok := table[Entities[i].Table]
+		if !ok {
+			t.Fatalf("DDL 里找不到表 %q", Entities[i].Table)
+		}
+		for _, f := range meta.Fields {
+			info, ok := cols[f.Key]
+			if !ok {
+				t.Fatalf("DDL 里找不到列 %s.%s", Entities[i].Table, f.Key)
+			}
+			if f.Required != info.notNull {
+				t.Fatalf("%s.%s required = %v，DDL 为 not null=%v default=%v",
+					Entities[i].Name, f.Key, f.Required, info.notNull, info.hasDefault)
+			}
+			checked++
+		}
+	}
+	if checked == 0 {
+		t.Fatal("没有比对任何列")
+	}
+}
+
+// _meta 不依赖数据库：nil pool 也必须 200。
+func TestMetaWorksWithoutPool(t *testing.T) {
+	rec := httptest.NewRecorder()
+	New(nil).Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/_meta", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("nil pool 下 _meta = %d，期望 200: %s", rec.Code, rec.Body.String())
+	}
+	var resp struct {
+		Data struct {
+			Entities []struct {
+				Fields []struct {
+					Key      string `json:"key"`
+					Editable bool   `json:"editable"`
+					Required bool   `json:"required"`
+				} `json:"fields"`
+			} `json:"entities"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("响应不是合法 JSON: %v", err)
+	}
+	seenEditable, seenRequired := false, false
+	for _, e := range resp.Data.Entities {
+		for _, f := range e.Fields {
+			seenEditable = seenEditable || f.Editable
+			seenRequired = seenRequired || f.Required
+		}
+	}
+	if !seenEditable || !seenRequired {
+		t.Fatalf("响应里没有 editable/required 取值: editable=%v required=%v", seenEditable, seenRequired)
+	}
+}
+
+// ddlColumn 是一列在 DDL 里的写入约束。
+type ddlColumn struct {
+	notNull    bool // not null 或 primary key，且没有 default
+	hasDefault bool
+}
+
+// ddlColumns 解析 create table 块，返回 表名 → 列名 → 约束。
+// 只认 0001 里出现的行内约束（not null / primary key / default），不追求完整 SQL 解析。
+func ddlColumns(t *testing.T, ddl string) map[string]map[string]ddlColumn {
+	t.Helper()
+	out := map[string]map[string]ddlColumn{}
+	tableRe := regexp.MustCompile(`(?ms)create table if not exists (\w+) \((.*?)\n\);`)
+	columnRe := regexp.MustCompile(`(?m)^\s{4}([a-z_]+)\s+(.+?),?$`)
+	skip := map[string]bool{"unique": true, "constraint": true, "primary": true, "check": true, "foreign": true, "exclude": true}
+
+	for _, m := range tableRe.FindAllStringSubmatch(ddl, -1) {
+		name, body := m[1], m[2]
+		cols := map[string]ddlColumn{}
+		for _, c := range columnRe.FindAllStringSubmatch(body, -1) {
+			col, rest := c[1], strings.ToLower(c[2])
+			if skip[col] {
+				continue
+			}
+			hasDefault := strings.Contains(rest, "default")
+			notNull := (strings.Contains(rest, "not null") || strings.Contains(rest, "primary key")) && !hasDefault
+			cols[col] = ddlColumn{notNull: notNull, hasDefault: hasDefault}
+		}
+		if len(cols) == 0 {
+			t.Fatalf("表 %q 没解析出列", name)
+		}
+		out[name] = cols
+	}
+	if len(out) == 0 {
+		t.Fatal("没有解析到任何 create table 块")
+	}
+	return out
+}
+
+func mustReadMigrations(t *testing.T, name string) []byte {
+	t.Helper()
+	body, err := fs.ReadFile(migrations.FS, name)
+	if err != nil {
+		t.Fatalf("读取迁移 %s: %v", name, err)
+	}
+	return body
 }

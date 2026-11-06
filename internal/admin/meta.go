@@ -68,7 +68,10 @@ type MetaField struct {
 	Options        []MetaOption      `json:"options"`
 	AdvancedOnly   bool              `json:"advancedOnly"`
 	WidthStrategy  string            `json:"widthStrategy"`
-	Ref            *MetaRef          `json:"ref,omitempty"`
+	// Editable / Required 是抽屉表单契约：前端不再靠 id && filterable 推断可编辑列。
+	Editable bool     `json:"editable"`
+	Required bool     `json:"required"`
+	Ref      *MetaRef `json:"ref,omitempty"`
 	// Relation 是 ref.entity 的兼容别名（R-019 首版键名），新代码用 ref。
 	Relation string `json:"relation,omitempty"`
 }
@@ -212,6 +215,8 @@ func metaFields(entity string) []MetaField {
 			Options:        make([]MetaOption, 0, len(f.Options)),
 			AdvancedOnly:   f.AdvancedOnly,
 			WidthStrategy:  f.WidthStrategy,
+			Editable:       f.Editable,
+			Required:       f.Required,
 		}
 		for _, op := range f.Operators {
 			mf.Operators = append(mf.Operators, op)

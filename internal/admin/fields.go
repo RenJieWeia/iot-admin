@@ -11,6 +11,12 @@ type Option struct {
 }
 
 // FieldMeta 描述一个可查询字段。Filterable 必须显式声明，不允许"没实现所以不可筛选"。
+//
+// Editable 与 Required 是写路径契约：
+//   - Editable 不在本表里填值，由 FieldMetas 从 Entity.Cols（唯一可写白名单）推导，
+//     避免同一事实存两份；异常只读页没有写路径，恒为 false。
+//   - Required 依据 migrations/0001_datasource.sql：列 not null（或 primary key）且无 default
+//     才为 true；可空或有默认值一律显式 false。例外只读页无写入，恒为 false。
 type FieldMeta struct {
 	Key           string
 	Label         string
@@ -18,6 +24,8 @@ type FieldMeta struct {
 	Visible       bool
 	Sortable      bool
 	Filterable    bool
+	Editable      bool     // 由 Entity.Cols 推导（见 FieldMetas）
+	Required      bool     // not null（含 primary key）且无 default
 	FilterType    string   // text|multiSelect|numberRange|boolean|relation|none
 	Operators     []string // contains|eq|prefix|in|gte|lte
 	OptionsSource string   // dict|remote|static
@@ -78,20 +86,20 @@ var fieldSets = map[string]fieldSet{
 	"data-domains": {
 		fields: []FieldMeta{
 			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
-			{Key: "code", Label: "编码", Type: "text", Visible: true, Sortable: true, Filterable: true,
+			{Key: "code", Label: "编码", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
-			{Key: "name", Label: "名称", Type: "text", Visible: true, Sortable: true, Filterable: true,
+			{Key: "name", Label: "名称", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "flex"},
 		},
 	},
 	"device-types": {
 		fields: []FieldMeta{
 			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
-			{Key: "code", Label: "编码", Type: "text", Visible: true, Sortable: true, Filterable: true,
+			{Key: "code", Label: "编码", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
-			{Key: "name", Label: "名称", Type: "text", Visible: true, Sortable: true, Filterable: true,
+			{Key: "name", Label: "名称", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "flex"},
-			{Key: "domain_id", Label: "数据域", Type: "relation", Visible: true, Sortable: true, Filterable: true,
+			{Key: "domain_id", Label: "数据域", Type: "relation", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
 		},
 		relations: map[string]string{"domain_id": "data-domains"},
@@ -99,13 +107,13 @@ var fieldSets = map[string]fieldSet{
 	"thing-model-properties": {
 		fields: []FieldMeta{
 			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
-			{Key: "type_id", Label: "终端类型", Type: "relation", Visible: true, Sortable: true, Filterable: true,
+			{Key: "type_id", Label: "终端类型", Type: "relation", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
-			{Key: "item_code", Label: "数据项编码", Type: "text", Visible: true, Sortable: true, Filterable: true,
+			{Key: "item_code", Label: "数据项编码", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
-			{Key: "name", Label: "名称", Type: "text", Visible: true, Sortable: true, Filterable: true,
+			{Key: "name", Label: "名称", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "flex"},
-			{Key: "value_type", Label: "值类型", Type: "enum", Visible: true, Sortable: true, Filterable: true,
+			{Key: "value_type", Label: "值类型", Type: "enum", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "multiSelect", Operators: []string{"in"}, OptionsSource: "static",
 				Options: valueTypeOptions, WidthStrategy: "min"},
 			{Key: "unit", Label: "单位", Type: "text", Visible: true, Sortable: false, Filterable: true,
@@ -124,11 +132,11 @@ var fieldSets = map[string]fieldSet{
 	},
 	"terminals": {
 		fields: []FieldMeta{
-			{Key: "id", Label: "终端 ID", Type: "id", Visible: true, Sortable: true, Filterable: true,
+			{Key: "id", Label: "终端 ID", Type: "id", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"eq", "prefix"}, WidthStrategy: "min"},
-			{Key: "type_id", Label: "终端类型", Type: "relation", Visible: true, Sortable: true, Filterable: true,
+			{Key: "type_id", Label: "终端类型", Type: "relation", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
-			{Key: "gateway_id", Label: "网关 ID", Type: "text", Visible: true, Sortable: true, Filterable: true,
+			{Key: "gateway_id", Label: "网关 ID", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
 			{Key: "name", Label: "名称", Type: "text", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "flex"},
@@ -141,11 +149,11 @@ var fieldSets = map[string]fieldSet{
 	"quality-rules": {
 		fields: []FieldMeta{
 			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
-			{Key: "terminal_id", Label: "终端", Type: "relation", Visible: true, Sortable: true, Filterable: true,
+			{Key: "terminal_id", Label: "终端", Type: "relation", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"prefix", "eq"}, OptionsSource: "remote", WidthStrategy: "min"},
-			{Key: "item_code", Label: "数据项编码", Type: "text", Visible: true, Sortable: true, Filterable: true,
+			{Key: "item_code", Label: "数据项编码", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
-			{Key: "rule_type", Label: "规则类型", Type: "enum", Visible: true, Sortable: true, Filterable: true,
+			{Key: "rule_type", Label: "规则类型", Type: "enum", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "multiSelect", Operators: []string{"in"}, OptionsSource: "static",
 				Options: ruleTypeOptions, WidthStrategy: "min"},
 			{Key: "enabled", Label: "状态", Type: "boolean", Visible: true, Sortable: true, Filterable: true,
@@ -206,7 +214,7 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
 			{Key: "type_id", Label: "终端类型", Type: "relation", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
-			{Key: "window_seconds", Label: "窗口秒数", Type: "number", Visible: true, Sortable: true, Filterable: true,
+			{Key: "window_seconds", Label: "窗口秒数", Type: "number", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "numberRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
 		},
 		relations: map[string]string{"domain_id": "data-domains", "type_id": "device-types"},
@@ -221,6 +229,13 @@ func FieldMetas(entity string) ([]FieldMeta, bool) {
 	}
 	out := make([]FieldMeta, len(set.fields))
 	copy(out, set.fields)
+	// Editable 一律由 Entity.Cols 推导（写路径的唯一白名单，见 Entity.columns()）；
+	// 异常只读页不在 Entities 里，没有写路径，保持 false。
+	if e, ok := lookup(entity); ok {
+		for i := range out {
+			out[i].Editable = hasColumn(e, out[i].Key)
+		}
+	}
 	return out, true
 }
 
