@@ -117,7 +117,9 @@ func (s *Store) Invalidate() {
 	s.mu.Unlock()
 }
 
-// reload 全量重载；并发过期时只真正加载一次（双检），读库在锁外进行，不阻塞其它 Lookup。
+// reload 全量重载。双检只挡住「已经加载完」的后来者：TTL 到期的瞬间若有多个 Lookup 并发，
+// 它们可能同时看到 valid=false 而各自加载一次（没有 singleflight 合并"飞行中"的加载）。
+// 计划表很小、TTL 30s，重复加载的代价可接受；读库在锁外进行，不阻塞其它 Lookup。
 func (s *Store) reload(ctx context.Context) error {
 	s.mu.Lock()
 	if s.valid && s.now().Before(s.loadedAt.Add(s.ttl)) {

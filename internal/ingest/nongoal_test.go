@@ -141,8 +141,8 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 	}
 
 	// 异常枚举：8 种（B4 新增 snapshot_write_failed），无重复。
-	if len(exception.EventTypes) != 8 {
-		t.Fatalf("事件型异常类型数 = %d，期望 8", len(exception.EventTypes))
+	if len(exception.EventTypes) != 9 {
+		t.Fatalf("事件型异常类型数 = %d，期望 9", len(exception.EventTypes))
 	}
 	seen := map[exception.ErrorType]bool{}
 	for _, kind := range exception.EventTypes {

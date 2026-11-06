@@ -1,14 +1,15 @@
 import { useCallback, useEffect, useMemo } from 'react';
-import { useParams, useSearchParams } from 'react-router';
+import { Link, useParams, useSearchParams } from 'react-router';
 import { ApiError } from '../api/client';
-import { useSlotList, type SlotSource } from '../api/exceptions';
+import { useSlotCursorList, useSlotList, type SlotSource } from '../api/exceptions';
 import { useMeta } from '../api/meta';
-import type { ListMeta, ReadonlyMeta } from '../api/types';
+import type { CursorMeta, ListMeta, ReadonlyMeta } from '../api/types';
 import { AppShell } from '../components/AppShell';
 import { DataTable } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { FilterBar } from '../components/FilterBar';
+import { CursorPager } from '../components/CursorPager';
 import { Pagination } from '../components/Pagination';
 import { defaultSort, isWritable, visibleFields } from '../lib/fieldMeta';
 import { isPresetActive, presetsFor, togglePreset } from '../lib/presets';
@@ -22,6 +23,18 @@ import {
   toSearchParams,
   type QueryState,
 } from '../lib/queryState';
+
+/**
+ * 快照页 = 一个页面 + 三个存储（粗/分/秒）。存储切换写在 URL 路径里
+ * （/readonly/snapshot-second），刷新/后退/分享都能复原；切换时丢掉 cursor。
+ */
+const SNAPSHOT_PREFIX = 'snapshot-';
+
+const STORAGE_LABELS: Record<string, string> = {
+  'snapshot-coarse': '粗表（时 / 日 / 月 / 年）',
+  'snapshot-minute': '分表（分）',
+  'snapshot-second': '秒表（秒）',
+};
 
 function rangeText(meta: ListMeta, rowCount: number): string {
   if (meta.total === 0) return '共 0 条';
@@ -58,7 +71,18 @@ export function ReadonlySlotPage({ source }: Props) {
       : metaQuery.data?.readonly?.find((item) => item.slot === slot);
   const query = useMemo(() => parseQueryState(searchParams), [searchParams]);
 
-  const activeList = useSlotList(source, slot, toListQuery(query), Boolean(holder));
+  const isCursor = holder?.pagination === 'cursor';
+  const offsetList = useSlotList(source, slot, toListQuery(query), Boolean(holder) && !isCursor);
+  const cursorList = useSlotCursorList(
+    source,
+    slot,
+    { q: query.q, filters: toListQuery(query).filters, cursor: query.cursor },
+    Boolean(holder) && isCursor,
+  );
+  const activeList = isCursor ? cursorList : offsetList;
+  const snapshotSlots = (metaQuery.data?.readonly ?? []).filter((item) =>
+    item.slot.startsWith(SNAPSHOT_PREFIX),
+  );
 
   const setQuery = useCallback(
     (next: QueryState, replace = false) => {
@@ -87,7 +111,8 @@ export function ReadonlySlotPage({ source }: Props) {
 
   const fields = visibleFields(holder);
   const rows = activeList.data?.rows ?? [];
-  const listMeta: ListMeta = activeList.data?.meta ?? {
+  const cursorMeta: CursorMeta = cursorList.data?.meta ?? { hasMore: false, nextCursor: null, limit: 0 };
+  const listMeta: ListMeta = offsetList.data?.meta ?? {
     total: 0,
     page: query.page,
     pageSize: query.pageSize,
@@ -96,7 +121,7 @@ export function ReadonlySlotPage({ source }: Props) {
   };
   const fallbackSort = holder.defaultSort || defaultSort(holder);
   const activeFilters = hasActiveConditions(query);
-  const outOfRange = listMeta.total > 0 && rows.length === 0;
+  const outOfRange = !isCursor && listMeta.total > 0 && rows.length === 0;
   /** 已有数据时的刷新失败：TanStack 保留了 rows，不能把整表换成整页错误态（§13.4）。 */
   const staleRefreshError = activeList.isError && Boolean(activeList.data);
   const listState =
@@ -105,10 +130,10 @@ export function ReadonlySlotPage({ source }: Props) {
       : activeList.isPending && rows.length === 0
         ? 'loading'
         : rows.length === 0
-          ? // 只有确实设了条件才算「无匹配」；total > 0 但没有条件，说明这一页暂时取不到数据。
+          ? // 只有确实设了条件才算「无匹配」；游标页没有 total，空页只能是「暂时没数据」。
             activeFilters
             ? 'nomatch'
-            : listMeta.total > 0
+            : !isCursor && listMeta.total > 0
               ? 'stale'
               : 'empty'
           : 'ready';
@@ -138,6 +163,28 @@ export function ReadonlySlotPage({ source }: Props) {
       )}
 
       <FilterBar entity={holder} query={query} relationOptions={{}} onChange={setQuery} />
+
+      {snapshotSlots.length > 0 && isCursor && (
+        <nav className="mb-3 flex flex-wrap items-center gap-2" aria-label="快照存储">
+          <span className="text-meta text-muted">存储</span>
+          {snapshotSlots.map((item) => {
+            const params = new URLSearchParams(searchParams);
+            params.delete('cursor'); // 换存储 = 换查询，游标作废
+            const search = params.toString();
+            const active = item.slot === slot;
+            return (
+              <Link
+                key={item.slot}
+                to={{ pathname: `/readonly/${item.slot}`, search: search ? `?${search}` : '' }}
+                className={active ? 'btn btn-primary h-8' : 'btn h-8'}
+                aria-current={active ? 'page' : undefined}
+              >
+                {STORAGE_LABELS[item.slot] ?? item.title}
+              </Link>
+            );
+          })}
+        </nav>
+      )}
 
       {staleRefreshError && (
         <div
@@ -211,14 +258,24 @@ export function ReadonlySlotPage({ source }: Props) {
             // §16.1 同一信息只出现一处：表格说明不报数，条数只在分页区报一次。
             caption="当前筛选结果"
           />
-          <Pagination
-            meta={listMeta}
-            rangeText={rangeText(listMeta, rows.length)}
-            outOfRange={outOfRange}
-            pageSizeOptions={metaQuery.data?.pagination?.options ?? [10, 20, 50]}
-            onPage={(page) => setQuery(patchQuery(query, { page }))}
-            onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
-          />
+          {isCursor ? (
+            <CursorPager
+              hasMore={cursorMeta.hasMore}
+              loading={cursorList.isFetching}
+              limit={cursorMeta.limit}
+              loaded={rows.length}
+              onMore={() => setQuery(patchQuery(query, { cursor: cursorMeta.nextCursor ?? '' }))}
+            />
+          ) : (
+            <Pagination
+              meta={listMeta}
+              rangeText={rangeText(listMeta, rows.length)}
+              outOfRange={outOfRange}
+              pageSizeOptions={metaQuery.data?.pagination?.options ?? [10, 20, 50]}
+              onPage={(page) => setQuery(patchQuery(query, { page }))}
+              onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
+            />
+          )}
         </>
       )}
     </AppShell>

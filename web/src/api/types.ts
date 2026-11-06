@@ -94,8 +94,8 @@ export interface ReadonlyMeta {
   readOnly: boolean;
   defaultSort: string;
   defaultOrder: 'asc' | 'desc';
-  /** 分页形态由后端下发：小时级历史下线后只剩 offset（页码 + 总数）。 */
-  pagination?: 'offset';
+  /** 分页形态由后端下发：offset 用页码 + 总数，cursor 用「加载更多」（无 total）。 */
+  pagination?: 'offset' | 'cursor';
   fields: FieldMeta[];
 }
 
@@ -156,6 +156,13 @@ export interface ListPayload {
 
 
 export type RowData = Record<string, unknown>;
+
+/** 游标分页的 meta：不提供 total，只用 hasMore/nextCursor 判断是否还能继续。 */
+export interface CursorMeta {
+  hasMore: boolean;
+  nextCursor: string | null;
+  limit: number;
+}
 
 export interface Envelope<T> {
   code: number;

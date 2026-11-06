@@ -247,8 +247,8 @@ func TestMetaFieldShape(t *testing.T) {
 			sections = append(sections, item)
 		}
 	}
-	if len(sections) != 9 {
-		t.Fatalf("元数据段数 = %d，期望 5 导航实体 + 2 子资源 + 1 异常页 + 1 只读源", len(sections))
+	if len(sections) != 12 {
+		t.Fatalf("元数据段数 = %d，期望 5 导航实体 + 2 子资源 + 1 异常页 + 4 只读源（最新值 + 三张快照）", len(sections))
 	}
 }
 

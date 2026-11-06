@@ -61,7 +61,7 @@ var ruleTypeOptions = []Option{
 	{Value: "not_null", Label: "非空", Tone: "neutral"},
 }
 
-// eventTypeOptions 必须与 exception.EventTypes 一一对应（8 类事件型异常）。
+// eventTypeOptions 必须与 exception.EventTypes 一一对应（9 类事件型异常）。
 // exceptions_test.go 的 TestEventTypeOptionsMatchEnum 会断言两边集合相等——
 // 下线能力时要同时改枚举与这里，别只改一边留下"下拉里有、后台不认"的死选项。
 var eventTypeOptions = []Option{
@@ -75,6 +75,8 @@ var eventTypeOptions = []Option{
 	// 注意：这里的 snapshot_write_failed 是「六档快照写入失败」，
 	// 与已删除的 snapshot_failed（旧「结算任务失败」）不是一回事，别混用。
 	{Value: "snapshot_write_failed", Label: "快照写入失败", Tone: "negative"},
+	// 快照迟到丢弃：某档超过「段结束 + 15 分钟」被跳过时记一次（终端 + 小时聚合，多档合并成一条）。
+	{Value: "snapshot_late_dropped", Label: "快照迟到丢弃", Tone: "warning"},
 }
 
 // qualityOptions 是行级质量位掩码的 8 种组合（R-022 读路径）：0 正常，其余都是"有问题"。
@@ -165,6 +167,53 @@ type fieldSet struct {
 	fields []FieldMeta
 	// relations 记录关联字段的目标实体，供列表页做名称回填。
 	relations map[string]string
+}
+
+// segmentStartField 是快照页的段起点（分区键；游标按它倒序翻页）。
+var segmentStartField = FieldMeta{
+	Key: "segment_start", Label: "段起点", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+	FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min",
+}
+
+// snapshotGranularityOptions 是粗表的四档（与迁移 0010 的 CHECK 闭集一致）。
+var snapshotGranularityOptions = []Option{
+	{Value: "hour", Label: "小时", Tone: "neutral"},
+	{Value: "day", Label: "日", Tone: "neutral"},
+	{Value: "month", Label: "月", Tone: "neutral"},
+	{Value: "year", Label: "年", Tone: "neutral"},
+}
+
+// granularityField 是粗表的档位列（分表/秒表各自只有一档，没有这一列）。
+var granularityField = FieldMeta{
+	Key: "granularity", Label: "档位", Type: "enum", Visible: true, Sortable: true, Filterable: true,
+	FilterType: "multiSelect", Operators: []string{"in"}, OptionsSource: "static",
+	Options: snapshotGranularityOptions, WidthStrategy: "min",
+}
+
+// revisionField 是快照行的覆盖计数（只有「采集时间更新」的覆盖才 +1）。
+var revisionField = FieldMeta{
+	Key: "revision", Label: "修正次数", Type: "number", Visible: true, Sortable: true,
+	Filterable: true, FilterType: "numberRange", Operators: []string{"gte", "lte"}, WidthStrategy: "fixed",
+}
+
+// updatedAtField 是快照行的覆盖时刻（每覆盖一次刷新的 updated_at；只展示，不筛选）。
+var updatedAtField = FieldMeta{
+	Key: "updated_at", Label: "更新时间", Type: "datetime", Visible: false, Sortable: true,
+	Filterable: false, FilterType: "none", WidthStrategy: "min",
+}
+
+// snapshotFields 按「终端、数据项、[档位]、段起点、值…、修正次数、更新时间」组织列，
+// 与三张表真实列顺序一致；粗表多一列 granularity。
+func snapshotFields(withGranularity bool) []FieldMeta {
+	common := runtimeCommonFields()
+	out := []FieldMeta{common[0], common[1]}
+	if withGranularity {
+		out = append(out, granularityField)
+	}
+	out = append(out, segmentStartField)
+	out = append(out, common[2:]...)
+	out = append(out, revisionField, updatedAtField)
+	return out
 }
 
 var fieldSets = map[string]fieldSet{
@@ -277,6 +326,10 @@ var fieldSets = map[string]fieldSet{
 	//
 	// 只读源只剩「最新值」：公共 8 列由 runtimeCommonFields 提供。
 	"latest-values": {fields: runtimeCommonFields()},
+	// 快照三页：游标分页（不报总数），字段与三张表真实列一致；粗表含档位列。
+	"snapshot-coarse": {fields: snapshotFields(true)},
+	"snapshot-minute": {fields: snapshotFields(false)},
+	"snapshot-second": {fields: snapshotFields(false)},
 	// 快照计划：档位是列不是行。enabled_steps 是列表派生列（SQL 计算，不可排序/筛选）。
 	"snapshot-plans": {
 		fields: []FieldMeta{

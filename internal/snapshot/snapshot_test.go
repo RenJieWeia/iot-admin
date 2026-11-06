@@ -119,21 +119,28 @@ func TestPlanRowsLatePerGranularity(t *testing.T) {
 	value := snapshot.Value{TerminalID: "T1", ItemCode: "temp", Time: at}
 
 	// 20 分钟后：秒段(10:00:30+15m=10:15:31)、分段(10:01+15m=10:16)均过期，小时段(11:15)仍可写。
-	rows := plan.Rows(at.Add(20*time.Minute), value)
+	rows, dropped := plan.Rows(at.Add(20*time.Minute), value)
 	if len(rows) != 1 || rows[0].Granularity != snapshot.Hour {
 		t.Fatalf("迟到分档应只剩小时档，实际 %+v", rows)
 	}
-
-	// 10 秒后：三档都可写。
-	rows = plan.Rows(at.Add(10*time.Second), value)
-	if len(rows) != 3 {
-		t.Fatalf("宽限内应写三档，实际 %d 行", len(rows))
+	if len(dropped) != 2 || dropped[0].Granularity != snapshot.Second || dropped[1].Granularity != snapshot.Minute {
+		t.Fatalf("应返回秒/分两档的丢弃明细，实际 %+v", dropped)
+	}
+	if dropped[0].Lateness <= 0 {
+		t.Fatalf("Lateness 应为正（超过截止多久），实际 %s", dropped[0].Lateness)
 	}
 
-	// 白名单外（未配置）：零写入。
+	// 10 秒后：三档都可写。
+	rows, dropped = plan.Rows(at.Add(10*time.Second), value)
+	if len(rows) != 3 || len(dropped) != 0 {
+		t.Fatalf("宽限内应写三档且无丢弃，实际 %d 行 / %d 丢弃", len(rows), len(dropped))
+	}
+
+	// 白名单外（未配置）：零写入、零丢弃。
 	empty := snapshot.Plan{TypeID: 1, ItemCode: "temp", Slots: map[snapshot.Granularity]snapshot.Slot{}}
-	if rows := empty.Rows(at, value); len(rows) != 0 {
-		t.Fatalf("未配置的序列应零写入，实际 %+v", rows)
+	rows, dropped = empty.Rows(at, value)
+	if len(rows) != 0 || len(dropped) != 0 {
+		t.Fatalf("未配置的序列应零写入零丢弃，实际 %+v / %+v", rows, dropped)
 	}
 	if empty.Configured() {
 		t.Fatal("空计划不应被视为已配置")

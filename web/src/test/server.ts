@@ -2,6 +2,9 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import {
   allDeviceTypes,
+  snapshotCoarseRows,
+  snapshotMinuteRows,
+  snapshotSecondRows,
   allSnapshotPlans,
   allSnapshotSettings,
   allProperties,
@@ -91,6 +94,40 @@ export const server = setupServer(
   // 通用只读源：latest-values（offset）。
   http.get('/admin/v1/readonly/:slot', ({ params, request }) => {
     const url = new URL(request.url);
+
+    // 快照三存储：游标分页（无 total），粗表支持档位过滤 filter.granularity.in。
+    const snapshotRows: Record<string, RowData[]> = {
+      'snapshot-coarse': snapshotCoarseRows as RowData[],
+      'snapshot-minute': snapshotMinuteRows as RowData[],
+      'snapshot-second': snapshotSecondRows as RowData[],
+    };
+    const snapshot = snapshotRows[String(params.slot)];
+    if (snapshot) {
+      let rows = [...snapshot];
+      const granularities = url.searchParams.getAll('filter.granularity.in');
+      if (granularities.length > 0) {
+        rows = rows.filter((row) => granularities.includes(String(row.granularity)));
+      }
+      const limit = Math.min(Number(url.searchParams.get('limit') ?? '10') || 10, 100);
+      const cursor = url.searchParams.get('cursor') ?? '';
+      let offset = 0;
+      if (cursor) {
+        const matched = /^off:(\d+)$/.exec(cursor);
+        if (!matched) return HttpResponse.json({ code: 400, message: 'invalid_cursor' }, { status: 400 });
+        offset = Number(matched[1]);
+      }
+      const slice = rows.slice(offset, offset + limit);
+      const nextOffset = offset + slice.length;
+      const hasMore = nextOffset < rows.length;
+      return HttpResponse.json({
+        code: 0,
+        message: 'ok',
+        data: slice,
+        // 游标页没有 total：count(*) 在分区表上会随月退化。
+        meta: { hasMore, nextCursor: hasMore ? `off:${nextOffset}` : null, limit },
+      });
+    }
+
     if (params.slot !== 'latest-values') {
       return HttpResponse.json({ code: 404, message: 'unknown_slot' }, { status: 404 });
     }

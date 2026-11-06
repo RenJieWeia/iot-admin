@@ -65,8 +65,11 @@
 | 值类型 `value_type` | `number`→数值、`string`→文本、`bool`→布尔（均 neutral） |
 | 规则类型 `rule_type` | `range`→范围、`enum`→枚举、`precision`→精度、`unit_whitelist`→单位白名单、`not_null`→非空（均 neutral） |
 | 质量位 `quality` | `0`→正常(neutral)；`1`越界 / `2`规则命中 / `4`单位闭集外 / `3,5,6,7` 为组合（均 warning） |
-| 事件型异常 `error_type` | `protocol_error`→协议错误(danger)、`msg_incomplete`→消息不完整(warning)、`clean_failed`→清洗失败(warning)、`cache_write_failed`→写入失败(danger)、`mqtt_publish_failed`→发布失败(danger)、`quality_violation`→质量违规(warning)、`terminal_unknown`→终端未注册(danger)、`snapshot_write_failed`→快照写入失败(danger) |
+| 事件型异常 `error_type` | `protocol_error`→协议错误(danger)、`msg_incomplete`→消息不完整(warning)、`clean_failed`→清洗失败(warning)、`cache_write_failed`→写入失败(danger)、`mqtt_publish_failed`→发布失败(danger)、`quality_violation`→质量违规(warning)、`terminal_unknown`→终端未注册(danger)、`snapshot_write_failed`→快照写入失败(danger)、`snapshot_late_dropped`→快照迟到丢弃(warning) |
 
+> `snapshot_late_dropped` 的语义：某一档的采集时间超过该档容忍窗口（段结束 + 15 分钟）后被丢弃；
+> 其它档仍照常写，所以看到这条不代表整条消息失败。
+>
 > **`snapshot_write_failed` 与已删除的 `snapshot_failed` 不是一回事**：后者是旧「结算任务失败」（小时结算链路，已随 `0009` 下线删除）；前者是六档快照（秒/分/时/日/月/年）写库失败，由 `internal/snapshot` 上报。看到日志里这两个词的任何一个，先看迁移版本再下结论。
 
 > 注：`terminal_unknown`（终端未注册）在闭集里有定义，但后台筛选下拉当前**未**提供该项
@@ -106,7 +109,7 @@
 
 ## 4. 页面清单
 
-导航由 `GET /admin/v1/_meta` 的 `entities` 驱动，前端不硬编码实体名。当前共 **5 个导航实体页 + 1 个详情页 + 1 个只读页（最新值）+ 1 个异常页**。
+导航由 `GET /admin/v1/_meta` 的 `entities` 驱动，前端不硬编码实体名。当前共 **5 个导航实体页 + 1 个详情页 + 2 个只读页（最新值、快照）+ 1 个异常页**。
 
 > 属性（`thing-model-properties`）不再是导航实体：`_meta.entities` 只有 4 项，属性改为「终端类型详情页」内的子列表。
 > 它的字段元数据改由 `_meta.subresources` 下发（形状与 `entities[]` 相同，只装「可 CRUD 不可导航」的实体），CRUD 接口 `/admin/v1/thing-model-properties*` 全部保留。
@@ -132,9 +135,12 @@
 | 页面 | 路由 | 分页方式 | 说明 |
 |---|---|---|---|
 | 最新值 | `/ui/readonly/latest-values` | offset | 每（终端, 数据项）一行，保留当前状态 |
+| 快照 | `/ui/readonly/snapshot-coarse`（`snapshot-minute` / `snapshot-second` 由页面内切换） | cursor | 六档自然时间快照；**一个页面 + 三个存储**（粗表 / 分表 / 秒表），存储切换写在 URL 路径里，刷新/分享可复原。粗表支持按**档位**（时/日/月/年）筛选。游标分页，不显示总数 |
 | 异常事件 | `/ui/exceptions/events` | offset | 事件型异常计数 |
 
-> 已不存在「小时暂存」「小时快照」页——小时级历史整条链路随迁移 `0009` 下线；
+> 快照页的「加载更多」是**换批**而不是累加（每批由后端 `limit` 决定），且永远不显示总数：
+> 分区表上 `count(*)` 会随分区数变慢，这是设计取舍；空态也不会出现「共 N 条」。
+> 已不存在「小时暂存」「旧小时快照」页——小时级历史整条链路随迁移 `0009` 下线；
 > 也不存在「异常区间」页——状态型异常整套下线（迁移 `0008`）。
 
 ---
@@ -158,6 +164,7 @@
 | 行为 | 触发条件 | 为什么这样是对的 |
 |---|---|---|
 | 首屏骨架行数可能与回包行数不一致，页面会长高一次 | 首次进入某列表页，且「每页条数」> 10，且回包行数 > 10 | 首屏之前没有任何可参考的行数，「猜 10 行」是唯一合理默认。进入过一次后，骨架已改为 `min(每页条数, 上一次实际行数)`，后续翻页不再跳变。**不要把它改成按每页条数画 50 行**——那会把「数据多时一次长高」换成「数据少时一次塌陷」，后者更刺眼（页脚上移、点击落空）。 |
+| 保留期按「整月 / 整日 DROP 分区」执行，实际保留时间可能比设定值更长 | 配置了 `retention_days` 之后 | 分区表只能整块 DROP（粗表/分表按月、秒表按日），所以设定 30 天实际会到下一个整月/整日边界才清理。**不能改成按行删**：秒表写入率高，按行 DELETE 会产生大量死元组、autovacuum 追不上，最终拖垮写入路径。 |
 | 六档快照的增长由「白名单条目数」决定，不由终端总数决定 | 配置了快照计划之后 | 只有 `snapshot_plan` 里登记过的（终端类型, 数据项）序列才会按档位写入；没有登记的数据项不产生任何快照行。容量评估请按白名单条目数 × 档位数算，不要按终端数估算。 |
 | 系统不保留小时级历史，只在最新值上保留当前状态 | 查看「最新值」页与异常事件页时 | 结算链路已下线（迁移 `0009` 删除 `hourly_snapshot` / `hourly_staging` / `settle_config`），历史数据不可追溯是产品决策，不是丢数据 bug；查询历史的需求走外部归档，不在后台恢复。 |
 | 分页区同时出现「第 1–4 条，共 4 条」与「第 1 页」 | 所有 offset 分页页 | 前者是**范围**，后者是**页码控件**，不是同一信息重复。§16.1 要去重的是「表格说明 + 分页区都报总数」，已去掉表格说明里的数字。 |

@@ -2,9 +2,11 @@ package ingest_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/RenJieWeia/iot-admin/internal/exception"
 	"github.com/RenJieWeia/iot-admin/internal/snapshot"
 	"github.com/RenJieWeia/iot-admin/internal/staging"
 )
@@ -212,5 +214,55 @@ func TestSnapshotPartitionMaintenance(t *testing.T) {
 	}
 	if !exists("snapshot_second_" + time.Now().In(staging.Zone).Format("20060102")) {
 		t.Fatal("当天分区不应被清理")
+	}
+}
+
+// 迟到丢弃：同一终端同一小时内多档被跳过 → 只记一条事件（count 累加、detail 列各档）。
+func TestSnapshotLateDroppedEventOnce(t *testing.T) {
+	e := newEnv(t)
+	setupSnapshot(t, e)
+	execPlan(t, e, `
+		insert into snapshot_plan (device_type_id, item_code,
+			second_enabled, second_step, minute_enabled, minute_step, hour_enabled, hour_step)
+		values ($1, 'temp', true, 1, true, 1, true, 1)`, e.typeID)
+	e.proc.Snap.Invalidate()
+
+	at := baseTime.Add(5 * time.Minute)
+	e.clock.Set(at.Add(20 * time.Minute)) // 秒/分档已过期，小时档仍可写
+	eventHour := staging.HourStart(e.clock.Now())
+	e.handle(single(testTerminalID, it("temp", 20.0, "C", at), it("power", 1.0, "kW", at)))
+
+	if n := e.eventRows(testTerminalID, exception.SnapshotLateDropped, eventHour); n != 1 {
+		t.Fatalf("迟到丢弃行数 = %d，期望 1（多档合并成一条）", n)
+	}
+	if n := e.eventCount(testTerminalID, exception.SnapshotLateDropped, eventHour); n != 1 {
+		t.Fatalf("迟到丢弃计数 = %d，期望 1", n)
+	}
+	if digest := e.digestOf(testTerminalID, exception.SnapshotLateDropped); !strings.Contains(digest, "granularity=second") ||
+		!strings.Contains(digest, "late=") {
+		t.Fatalf("detail 应含档位与迟到时长，实际 %q", digest)
+	}
+	// power 没在计划里：它的丢弃不该被算进来（detail 里只有 temp 的秒/分两档）。
+
+	// 同一事件小时内的第二条消息：仍是一行，count 累加。
+	e.clock.Add(time.Minute)
+	e.handle(single(testTerminalID, it("temp", 21.0, "C", at.Add(time.Minute))))
+	if n := e.eventRows(testTerminalID, exception.SnapshotLateDropped, eventHour); n != 1 {
+		t.Fatalf("同一小时第二条消息后行数 = %d，期望仍为 1", n)
+	}
+	if n := e.eventCount(testTerminalID, exception.SnapshotLateDropped, eventHour); n != 2 {
+		t.Fatalf("同一小时第二条消息后计数 = %d，期望 2", n)
+	}
+}
+
+// 未配置计划 / 档位未启用 → 不记迟到丢弃事件。
+func TestSnapshotLateDroppedNotRecordedWithoutPlan(t *testing.T) {
+	e := newEnv(t)
+	setupSnapshot(t, e)
+	at := baseTime.Add(5 * time.Minute)
+	e.clock.Set(at.Add(20 * time.Minute))
+	e.handle(single(testTerminalID, it("temp", 20.0, "C", at)))
+	if n := e.eventRows(testTerminalID, exception.SnapshotLateDropped, staging.HourStart(e.clock.Now())); n != 0 {
+		t.Fatalf("未配置计划不应记迟到丢弃，实际 %d 行", n)
 	}
 }

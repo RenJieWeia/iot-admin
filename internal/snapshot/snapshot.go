@@ -173,10 +173,20 @@ func Writable(now, start time.Time, g Granularity, step int) bool {
 	return now.Before(SegmentEnd(start, g, step).Add(GracePeriod))
 }
 
+// Dropped 描述一个因过期被跳过的档（用于「快照迟到丢弃」事件）。
+// Lateness = now - (段结束 + 15min)，即"超过截止时刻多久"。
+type Dropped struct {
+	Granularity  Granularity
+	SegmentStart time.Time
+	ValueTime    time.Time
+	Lateness     time.Duration
+}
+
 // Rows 按本序列的六档配置，把一条清洗结果展开成可写快照行：
-// 未启用的档不出行，迟到（段结束 + 15 分钟已过）的档单独跳过，其余档照写。
-func (p Plan) Rows(now time.Time, v Value) []Row {
+// 未启用的档不出行；迟到（段结束 + 15 分钟已过）的档跳过并单独返回，其余档照写。
+func (p Plan) Rows(now time.Time, v Value) ([]Row, []Dropped) {
 	var out []Row
+	var dropped []Dropped
 	for _, g := range AllGranularities {
 		slot := p.Slots[g]
 		if !slot.Enabled || slot.Step < 1 {
@@ -184,6 +194,12 @@ func (p Plan) Rows(now time.Time, v Value) []Row {
 		}
 		start := SegmentStart(v.Time, g, slot.Step)
 		if !Writable(now, start, g, slot.Step) {
+			dropped = append(dropped, Dropped{
+				Granularity:  g,
+				SegmentStart: start,
+				ValueTime:    v.Time,
+				Lateness:     now.Sub(SegmentEnd(start, g, slot.Step).Add(GracePeriod)),
+			})
 			continue
 		}
 		out = append(out, Row{
@@ -193,5 +209,5 @@ func (p Plan) Rows(now time.Time, v Value) []Row {
 			Quality: v.Quality, QualityReason: v.QualityReason,
 		})
 	}
-	return out
+	return out, dropped
 }

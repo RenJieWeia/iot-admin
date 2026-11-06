@@ -75,6 +75,10 @@ function GroupTitle({ children }: { children: ReactNode }) {
 function SidebarNav({ id, onNavigate }: { id?: string; onNavigate?: () => void }) {
   const meta = useMeta();
   const entities = meta.data?.entities ?? [];
+  // 「快照」导航项挂在第一个 snapshot-* slot 上；其余两个 slot 只作为存储切换的元数据来源。
+  const firstSnapshotSlot = (meta.data?.readonly ?? []).find((slot) =>
+    slot.slot.startsWith('snapshot-'),
+  )?.slot;
   const exceptions = meta.data?.exceptions ?? [];
   const readonly = meta.data?.readonly ?? [];
 
@@ -100,7 +104,15 @@ function SidebarNav({ id, onNavigate }: { id?: string; onNavigate?: () => void }
         <>
           <GroupTitle>数据</GroupTitle>
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
-            {readonly.map((slot) => renderItem(slot.name, slot.title, `/readonly/${slot.slot}`))}
+            {readonly.map((slot) => {
+              // 快照页是「一个页面 + 三个存储」：后端下发三个 snapshot-* slot，
+              // 导航只保留一项（默认进粗表，存储切换在页面内完成）。
+              if (slot.slot.startsWith('snapshot-') && slot.slot !== firstSnapshotSlot) return null;
+              if (slot.slot === firstSnapshotSlot) {
+                return renderItem('snapshot', '快照', `/readonly/${slot.slot}`);
+              }
+              return renderItem(slot.name, slot.title, `/readonly/${slot.slot}`);
+            })}
           </ul>
         </>
       )}

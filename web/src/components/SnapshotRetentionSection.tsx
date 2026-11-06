@@ -82,6 +82,10 @@ export function SnapshotRetentionSection() {
       <p className="mb-3 mt-1 text-meta text-muted">
         表级配置（三行固定，不能增删）；留空表示永久保留。档位步长在下方计划里按序列配置。
       </p>
+      {/* 清理按整月/整日 DROP 分区，实际保留会比设定值长——这里必须说清，否则会被当成"设多少留多少"。 */}
+      <p className="mb-3 mt-0 text-meta text-muted">
+        最小清理粒度 = 整月（粗表 / 分表）、整日（秒表），实际保留可能比设定值更长。
+      </p>
 
       {list.isError ? (
         <p className="m-0 text-negative-text" role="alert">

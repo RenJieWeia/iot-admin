@@ -38,7 +38,7 @@ export const qualityOptions = [
 
 
 
-/** `_meta.readonly`：最新值（offset）、小时暂存（offset）、小时快照（cursor）。 */
+/** `_meta.readonly`：最新值（offset）+ 快照三存储（cursor，无 total）。 */
 export const readonlyFixture: ReadonlyMeta[] = [
   {
     slot: 'latest-values',
@@ -101,6 +101,65 @@ export const readonlyFixture: ReadonlyMeta[] = [
         advancedOnly: true,
         widthStrategy: 'flex',
       }),
+    ],
+  },
+  {
+    slot: 'snapshot-coarse',
+    name: 'snapshot-coarse',
+    title: '粗表快照',
+    route: '/admin/v1/readonly/snapshot-coarse',
+    readOnly: true,
+    defaultSort: 'segment_start',
+    defaultOrder: 'desc',
+    pagination: 'cursor',
+    fields: [
+      field({ key: 'terminal_id', label: '终端', type: 'text', operators: ['contains', 'eq'], widthStrategy: 'min' }),
+      field({ key: 'item_code', label: '数据项', type: 'text', operators: ['contains'], widthStrategy: 'min' }),
+      field({
+        key: 'granularity', label: '档位', type: 'enum', filterType: 'multiSelect', operators: ['in'],
+        optionsSource: 'static', widthStrategy: 'fixed',
+        options: [
+          { value: 'hour', label: '时' }, { value: 'day', label: '日' },
+          { value: 'month', label: '月' }, { value: 'year', label: '年' },
+        ],
+      }),
+      field({ key: 'segment_start', label: '段起点', type: 'datetime', filterType: 'dateRange', operators: ['gte', 'lte'], widthStrategy: 'min' }),
+      field({ key: 'value_num', label: '数值', type: 'number', filterType: 'numberRange', operators: ['gte', 'lte'], widthStrategy: 'fixed' }),
+      field({ key: 'unit', label: '单位', type: 'text', operators: ['contains'], widthStrategy: 'fixed' }),
+    ],
+  },
+  {
+    slot: 'snapshot-minute',
+    name: 'snapshot-minute',
+    title: '分表快照',
+    route: '/admin/v1/readonly/snapshot-minute',
+    readOnly: true,
+    defaultSort: 'segment_start',
+    defaultOrder: 'desc',
+    pagination: 'cursor',
+    fields: [
+      field({ key: 'terminal_id', label: '终端', type: 'text', operators: ['contains', 'eq'], widthStrategy: 'min' }),
+      field({ key: 'item_code', label: '数据项', type: 'text', operators: ['contains'], widthStrategy: 'min' }),
+      field({ key: 'segment_start', label: '段起点', type: 'datetime', filterType: 'dateRange', operators: ['gte', 'lte'], widthStrategy: 'min' }),
+      field({ key: 'value_num', label: '数值', type: 'number', filterType: 'numberRange', operators: ['gte', 'lte'], widthStrategy: 'fixed' }),
+      field({ key: 'unit', label: '单位', type: 'text', operators: ['contains'], widthStrategy: 'fixed' }),
+    ],
+  },
+  {
+    slot: 'snapshot-second',
+    name: 'snapshot-second',
+    title: '秒表快照',
+    route: '/admin/v1/readonly/snapshot-second',
+    readOnly: true,
+    defaultSort: 'segment_start',
+    defaultOrder: 'desc',
+    pagination: 'cursor',
+    fields: [
+      field({ key: 'terminal_id', label: '终端', type: 'text', operators: ['contains', 'eq'], widthStrategy: 'min' }),
+      field({ key: 'item_code', label: '数据项', type: 'text', operators: ['contains'], widthStrategy: 'min' }),
+      field({ key: 'segment_start', label: '段起点', type: 'datetime', filterType: 'dateRange', operators: ['gte', 'lte'], widthStrategy: 'min' }),
+      field({ key: 'value_num', label: '数值', type: 'number', filterType: 'numberRange', operators: ['gte', 'lte'], widthStrategy: 'fixed' }),
+      field({ key: 'unit', label: '单位', type: 'text', operators: ['contains'], widthStrategy: 'fixed' }),
     ],
   },
 ];
@@ -569,3 +628,28 @@ export const allSnapshotSettings = [
   { table_name: 'snapshot_minute', retention_days: 30, updated_at: '2026-11-06T10:00:00+08:00' },
   { table_name: 'snapshot_second', retention_days: 7, updated_at: '2026-11-06T10:00:00+08:00' },
 ];
+
+/** 快照三存储的行（游标分页：字段里没有 total）。 */
+export const snapshotCoarseRows = [
+  { terminal_id: 't-001', item_code: 'temp', granularity: 'hour', segment_start: '2026-11-06T10:00:00+08:00', value_num: 25.4, unit: 'C' },
+  { terminal_id: 't-001', item_code: 'temp', granularity: 'day', segment_start: '2026-11-06T00:00:00+08:00', value_num: 26.1, unit: 'C' },
+  { terminal_id: 't-002', item_code: 'power', granularity: 'month', segment_start: '2026-11-01T00:00:00+08:00', value_num: 1.2, unit: 'kW' },
+  { terminal_id: 't-002', item_code: 'power', granularity: 'year', segment_start: '2026-01-01T00:00:00+08:00', value_num: 1.1, unit: 'kW' },
+];
+
+export const snapshotMinuteRows = Array.from({ length: 25 }).map((_, index) => ({
+  terminal_id: `t-${String((index % 3) + 1).padStart(3, '0')}`,
+  item_code: 'temp',
+  segment_start: new Date(Date.UTC(2026, 10, 6, 10, index)).toISOString(),
+  value_num: 20 + index,
+  unit: 'C',
+}));
+
+export const snapshotSecondRows = Array.from({ length: 25 }).map((_, index) => ({
+  terminal_id: 't-001',
+  item_code: 'temp',
+  segment_start: new Date(Date.UTC(2026, 10, 6, 10, 0, index)).toISOString(),
+  value_num: 20 + index,
+  unit: 'C',
+}));
+

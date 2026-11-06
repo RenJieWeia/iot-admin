@@ -14,7 +14,7 @@ async function waitForRows(expected: number) {
   );
 }
 
-describe('快照计划页（B4）', () => {
+describe('快照计划实体（SnapshotPlansEntity）', () => {
   it('列表展示派生列「已启用档位」，筛选不写死终端类型', async () => {
     renderApp('/snapshot-plans');
     await waitForRows(2);

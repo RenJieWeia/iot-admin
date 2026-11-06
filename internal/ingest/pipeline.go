@@ -304,7 +304,7 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 	// 2.7 六档快照：latest_value 已提交（T1）后再开 T2，快照失败不回滚最新值。
 	// 每档独立判迟到，未在计划白名单里的序列零写入；快照跳过不影响发布口径。
 	if len(cleaned) > 0 {
-		if serr := p.writeSnapshots(ctx, term, cleaned, qualityBits, qualityNotes, now); serr != nil {
+		if serr := p.writeSnapshots(ctx, term, ingress, cleaned, qualityBits, qualityNotes, now); serr != nil {
 			p.Log.Error("写快照失败", "terminal", term.ID, "err", serr)
 			p.Exc.Event(ctx, exception.SnapshotWriteFailed, term.ID, ingress, staging.HourStart(now), 1, serr.Error())
 			return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}
@@ -356,12 +356,13 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 //   - 计划未配置 → 该序列零写入；
 //   - 每档独立判迟到（段结束 + 15 分钟），跳过的档不出行、其余档照写；
 //   - 覆盖只认更新的 value_time（SQL 里的 WHERE 守卫，同值重发不增加 revision）。
-func (p *Processor) writeSnapshots(ctx context.Context, term validate.Terminal, outs []clean.Out,
+func (p *Processor) writeSnapshots(ctx context.Context, term validate.Terminal, ingress string, outs []clean.Out,
 	qualityBits map[string]int16, qualityNotes map[string][]string, now time.Time) error {
 	if p.Snap == nil {
 		return nil
 	}
 	var rows []snapshot.Row
+	var dropped []snapshot.Dropped
 	for _, o := range outs {
 		plan, ok, err := p.Snap.Lookup(ctx, term.TypeID, o.Code)
 		if err != nil {
@@ -370,12 +371,20 @@ func (p *Processor) writeSnapshots(ctx context.Context, term validate.Terminal, 
 		if !ok || !plan.Configured() {
 			continue
 		}
-		rows = append(rows, plan.Rows(now, snapshot.Value{
+		bandRows, bandDropped := plan.Rows(now, snapshot.Value{
 			TerminalID: term.ID, ItemCode: o.Code,
 			Num: o.Number, Text: o.Text, Unit: o.Unit, Time: o.Time,
 			Quality:       qualityBits[o.Code],
 			QualityReason: strings.Join(qualityNotes[o.Code], "; "),
-		})...)
+		})
+		rows = append(rows, bandRows...)
+		dropped = append(dropped, bandDropped...)
+	}
+	// 迟到丢弃按「终端 + 事件小时（staging.HourStart(now)）」聚合：一次 Event 调用 = 一行，
+	// 多档/多项合并进同一 detail；未配置白名单、档位没启用都不算丢弃，不会走到这里。
+	if len(dropped) > 0 {
+		p.Exc.Event(ctx, exception.SnapshotLateDropped, term.ID, ingress, staging.HourStart(now), 1,
+			lateDropDetail(dropped))
 	}
 	if len(rows) == 0 {
 		return nil
@@ -389,6 +398,35 @@ func (p *Processor) writeSnapshots(ctx context.Context, term validate.Terminal, 
 		return err
 	}
 	return tx.Commit(ctx)
+}
+
+// lateDropDetail 拼「快照迟到丢弃」的 detail：每档一段，最多列 6 段（六档上限），
+// 超出部分只报剩余条数——detail 要能直接看出是哪一档、哪一段、晚了多久。
+// 同一档同一段只保留一条（多个数据项同时迟到时不重复刷屏）。
+func lateDropDetail(dropped []snapshot.Dropped) string {
+	const maxEntries = 6
+	seen := make(map[string]struct{}, len(dropped))
+	entries := make([]string, 0, maxEntries)
+	truncated := 0
+	for _, d := range dropped {
+		key := string(d.Granularity) + "|" + d.SegmentStart.UTC().Format(time.RFC3339Nano)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		if len(entries) >= maxEntries {
+			truncated++
+			continue
+		}
+		entries = append(entries, fmt.Sprintf("granularity=%s seg=%s collectedAt=%s late=%s",
+			d.Granularity, d.SegmentStart.Format(time.RFC3339), d.ValueTime.Format(time.RFC3339),
+			d.Lateness.Round(time.Second)))
+	}
+	detail := strings.Join(entries, "; ")
+	if truncated > 0 {
+		detail += fmt.Sprintf("; …(+%d)", truncated)
+	}
+	return detail
 }
 
 // write 在同一事务里把本终端的全部清洗结果写入 latest_value。
