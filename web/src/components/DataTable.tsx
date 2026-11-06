@@ -129,7 +129,7 @@ export function DataTable({
   });
 
   const headerGroups = table.getHeaderGroups();
-  const skeletonCount = Math.min(skeletonRows, 10);
+  const skeletonCount = skeletonRows;
 
   return (
     <div className="overflow-x-auto rounded-md border border-border bg-surface">
@@ -159,7 +159,11 @@ export function DataTable({
                   <th
                     key={header.id}
                     scope="col"
-                    className="h-11 whitespace-nowrap border-b border-border bg-surface-2 px-3 text-left text-meta font-medium text-muted"
+                    // 首列与 body 的首列一起固定，横滚时列名不会和数据错位（§5.2）。
+                    className={cn(
+                      'h-11 whitespace-nowrap border-b border-border bg-surface-2 px-3 text-left text-meta font-medium text-muted',
+                      field?.key === fields[0]?.key && 'sticky left-0 z-20',
+                    )}
                     aria-sort={active ? ariaSort : canSort ? 'none' : undefined}
                   >
                     {canSort && field ? (

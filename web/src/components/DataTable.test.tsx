@@ -34,3 +34,18 @@ describe('DataTable 的表格说明（F3）', () => {
     expect(document.querySelectorAll('tbody tr')).toHaveLength(0);
   });
 });
+
+describe('DataTable 的骨架与固定列（§6.4 / §5.2）', () => {
+  it('骨架行数跟随调用方，不再被截到 10 行', () => {
+    render(<DataTable {...baseProps} state="loading" skeletonRows={20} caption="正在加载…" />);
+    expect(document.querySelectorAll('tbody tr')).toHaveLength(20);
+    expect(document.querySelectorAll('.bg-skeleton').length).toBeGreaterThan(0);
+  });
+
+  it('首个表头单元格与首列一起固定，横滚时列名不漂移', () => {
+    render(<DataTable {...baseProps} caption="共 0 条" />);
+    const firstHeader = document.querySelector('thead th');
+    expect(firstHeader?.className).toContain('sticky left-0');
+    expect(document.querySelectorAll('thead th[class*="sticky"]')).toHaveLength(1);
+  });
+});
