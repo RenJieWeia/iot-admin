@@ -256,3 +256,97 @@ ok internal/meta  ok internal/staging  ok internal/ui  ok internal/validate
 
 - 多选筛选控件仍是原生 `multiple` select（既有豁免 §13.2）；在 1440 视口下它比单行控件高、与同排标签不齐平。属视觉打磨，未在本轮顺手改（避免未申报的范围扩大），建议随 `table-query` §13.2 一起改成自定义多选或移入「更多筛选」。
 - R1（`FieldMeta.editable/required`）、R2（路由级 lazy + vendor 拆分）按 Lead 安排留到 `task-005`。
+
+---
+
+## 8. 本轮增量：`editable`/`required` + 路由级 lazy + vendor 拆包 + R2（`Base: rv-08`）
+
+- `commits:` `8df86ca`（契约驱动抽屉）、`8e985ae`（路由级 lazy）、`0607b6d`（vendor 拆包）、`6f1c595`（多选移入更多筛选）
+- `backend:` `cf5bb41`（`_meta` 补 `editable`/`required`，`be-api`），本轮前端按实测值对齐 MSW
+- `red-lines:` `internal/admin/**`、`cmd/server/**`、`go.mod`、`migrations/` 均未改动
+
+### 8.1 契约驱动：抽屉可编辑列与必填
+
+| 项 | 改动 |
+| --- | --- |
+| 类型 | `FieldMeta` 新增 `editable: boolean` / `required: boolean`；缺省按 `false`（fail-closed），**不**回退到 `id && filterable` 推断 |
+| `formFields()` | 改为 `fields.filter((f) => f.editable)` |
+| `buildSchema()` | 必填由 `field.required` 驱动；`(必填)` 提示与提交前校验同源；删除按字段类型猜必填 |
+| 可写性 | 新增 `isWritable()`：`readOnly` **或**没有任何 `editable` 字段 → 不渲染写入口；异常两页全部 `editable=false`，因此只读判定不依赖路由 |
+| MSW | 按后端实测值：`terminals` id `T/T`、type_id `T/T`、gateway_id `T/T`、name `T/F`、enabled `T/F`；`data-domains` id `F/F`、code/name `T/T`；`quality-rules` terminal_id/item_code/rule_type `T/T`、enabled/params `T/F`；异常两页全 `F/F` |
+
+**真实后端核对**（临时实例 `127.0.0.1:18999`，本机 PG，验证后删除）：
+
+```
+terminals   [('id', True, True), ('type_id', True, True), ('gateway_id', True, True), ('name', True, False)]
+data-domains[('id', False, False), ('code', True, True), ('name', True, True)]
+exceptions  editable 集合 = {False}
+```
+
+CDP 实测抽屉表单：5 个控件，标签为 `终端 ID（必填）`、`终端类型（必填）`、`网关 ID（必填）`、`名称`、`状态` —— 星号只跟 `required` 走，与后端口径一致。
+
+### 8.2 路由级 lazy
+
+- `EntityListPage` / `ExceptionListPage` 改 `React.lazy`；边界放在 `MetaGate`（`_meta` 就绪）之后，`Suspense` fallback 直接复用 `DataTable` 的加载态，因此**列数、`widthStrategy` 列宽、行高与真实表格一致**（放在 meta 之前只能固定列数，等于破坏 §6）。
+- `MetaGate` 同时收口「字段元数据加载中 / 失败」两个外壳态；页面内重复分支删除。
+- **四态判据逐字未改**（只改等待时机）。改前/改后表达式：
+
+```
+改前（rv-08）: renderApp → findByRole('table') → waitFor(10 行 + 首行 t-001)
+改后（本轮） : renderApp →（lazy 解析）→ findByRole('table') → 同一组 waitFor 表达式
+判据（两版完全相同）:
+  expect(screen.queryByText('正在加载列表…')).not.toBeInTheDocument();
+  expect(bodyRows()).toHaveLength(10);
+  expect(bodyRows()[0]).toHaveTextContent('t-001');
+  expect(seen.size).toBe(4);
+```
+无需改动用例：`waitForReady()` 本来就在等「表格就绪」，lazy 解析完成后自然满足。
+
+### 8.3 vendor 拆包与体积对照（1440×900，CDP 实际网络记录）
+
+| 阶段 | 首屏文件数 | 首屏 raw | 首屏 gzip | 进入列表页后累计文件数 | 累计 raw | 累计 gzip |
+| --- | --- | --- | --- | --- | --- | --- |
+| `rv-08` 单 chunk | 2（1 js + 1 css） | 529,357 | 162,114 | 2 | 529,357 | 162,114 |
+| 路由级 lazy | 2（1 js + 1 css） | 382,252 | 118,085 | 8 | 526,494 | 164,451 |
+| + vendor 拆包 | 5（4 js + 1 css） | 384,179 | 119,382 | 11（9 js + 2 css） | 529,072 | 165,864 |
+
+- **首屏**：`-27.4%` raw（529,357 → 384,179）、`-26.4%` gzip（162,114 → 119,382）；首屏文件数 2 → 5（HTTP/1.1 下多几个 RTT，内网可接受）。
+- **累计**（列表页完全就绪）：raw 基本持平（−285 B），gzip `+2.3%` —— 拆分失去了跨 chunk 的压缩共享，这是拆包的固有代价，已如实列出；vendor 拆分的收益按约定是**长缓存与警告消除，不降首屏字节**。
+- 单文件最大值 517,609 B → 223,623 B（`vendor-react`），Vite 的 `>500 kB` 警告消失。
+
+首屏加载顺序（CDP `Network.responseReceived`）：`index.js` → `vendor-react` / `vendor-router` / `vendor-tanstack`；随后按需 `EntityListPage` / `Pagination` / `vendor-misc` / `vendor-radix` / `vendor-zod`。
+
+### 8.4 R2：多选与关联筛选移入「更多筛选」
+
+- 常驻筛选只收单行控件（`text`/`boolean`/`numberRange`/`dateRange`）；`multiSelect`/`relation` 一律进抽屉，`advancedOnly` 仍由后端字段决定。
+- CDP 实测：常驻区标签 = `关键词 / 终端 ID / 网关 ID / 名称 / 状态`，**无「终端类型」**；打开「更多筛选」后 `#filter_type_id` 存在。
+- 已生效条件标签外显、单删/全清逻辑未变（用例仍通过）。
+
+### 8.5 本轮复跑
+
+```
+$ npx vitest run            → Test Files 6 passed / Tests 34 passed
+$ npx stylelint "src/**/*.css" → 无输出，exit 0
+$ npx tsc --noEmit          → 无输出
+$ npm run build && git diff --exit-code internal/ui/dist → exit 0
+$ GOCACHE=/tmp/gocache go build ./... && go vet ./...   → 无输出
+$ GOCACHE=/tmp/gocache go test ./... -count=1           → 8 包全绿（无 DSN；本轮未改 Go 代码）
+```
+
+新增前端用例：`formFields` 只返回 `editable:true` / fail-closed（缺键即不可编辑）/ 异常两页不可写 / `required` 阻止空提交并显示 `(必填)` / 非 required 字段不被前端拦下 / 常驻区无关联筛选（单元 + RTL 两层）。
+
+### 8.6 CDP 冒烟（1440×900，`Emulation.setDeviceMetricsOverride`）
+
+| 项 | 结果 |
+| --- | --- |
+| `main` | `x=200, y=0, w=1240`；`aside w=200` |
+| `table` | `x=225, w=1190, table-layout: fixed`，6 列 4 行 |
+| 抽屉 | 标题「新建终端」，5 个控件，`(必填)` 标记 3 个；Esc 后 `dialogs=0`，焦点回 `BUTTON("新建")`、`data-action="new"` |
+| console | CSP 违规 **0**、error/exception **0** |
+| 截图 | `.devcache/shots/round4-1440.png` |
+
+### 8.7 风险
+
+- vendor 拆分后**累计** gzip 比单 chunk 高 2.3%（压缩共享丢失），换来的是首屏 −26% 与长缓存；如果后续更在意总量，可合并 `vendor-misc`（12.8 KB）回入口。
+- 首屏文件数 2 → 5，HTTP/1.1 + 高 RTT 环境下收益会打折；内网同源部署按现状接受。
+- `editable`/`required` 是 fail-closed：后端若不发这两个键，抽屉将没有可编辑字段（本轮后端已落地，属契约依赖）。
