@@ -163,15 +163,24 @@ func buildSnapshotQuery(e Entity, qs QueryState, q snapshotQuery, withGranularit
 	return sb.String(), args, nil
 }
 
-// SnapshotPage 是快照游标页的 data：行 + 游标（没有下一页时 cursor 为空）。
+// SnapshotCursorMeta 是游标页的 meta（与 offset 列表的 meta 同层级）。
 //
-// 契约与已下线的 changes 端点一致：{rows, limit, hasMore, cursor}。
-// 空结果（例如保留期把老分区 DROP 了）就是空 rows + hasMore=false，不是错误。
-type SnapshotPage struct {
-	Rows    []map[string]any `json:"rows"`
-	Limit   int              `json:"limit"`
-	HasMore bool             `json:"hasMore"`
-	Cursor  string           `json:"cursor,omitempty"`
+// 信封沿用全站约定：data 直接是行数组，分页信息进 meta。前端 fetchCursorPage 读的就是
+// `payload.data`（数组）+ `payload.meta.nextCursor/hasMore/limit`——这与已下线 changes 端点、
+// 以及 offset 列表的 `{data: rows[], meta:{...}}` 完全一致。
+// 空结果（例如保留期把老分区 DROP 了）就是空数组 + hasMore=false，不是错误。
+type SnapshotCursorMeta struct {
+	Limit      int    `json:"limit"`
+	HasMore    bool   `json:"hasMore"`
+	NextCursor string `json:"nextCursor,omitempty"`
+}
+
+// snapshotCursorResponse 是游标页的响应信封（data=行数组，meta=分页信息）。
+type snapshotCursorResponse struct {
+	Code    int                `json:"code"`
+	Message string             `json:"message"`
+	Data    []map[string]any   `json:"data"`
+	Meta    SnapshotCursorMeta `json:"meta"`
 }
 
 // writeSnapshotList 处理 snapshot-* 三个只读 slot 的游标分页请求。
@@ -210,13 +219,18 @@ func (a *API) writeSnapshotList(w http.ResponseWriter, r *http.Request, page Rea
 	if items == nil {
 		items = []map[string]any{}
 	}
-	out := SnapshotPage{Rows: items, Limit: sq.Limit, HasMore: hasMore}
+	out := snapshotCursorResponse{
+		Code:    0,
+		Message: "ok",
+		Data:    items,
+		Meta:    SnapshotCursorMeta{Limit: sq.Limit, HasMore: hasMore},
+	}
 	if hasMore {
 		if cur, ok := cursorOf(items[len(items)-1], withGranularity); ok {
-			out.Cursor = encodeSnapshotCursor(cur, withGranularity)
+			out.Meta.NextCursor = encodeSnapshotCursor(cur, withGranularity)
 		}
 	}
-	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: out})
+	writeJSON(w, http.StatusOK, out)
 }
 
 // cursorOf 从一行的 JSON 视图里取回游标键（collect 把时间转成了 RFC3339Nano 字符串）。

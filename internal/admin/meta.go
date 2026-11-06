@@ -28,6 +28,11 @@ var entityLabels = map[string]string{
 	"snapshot-settings":      "存储与保留",
 	"exception-events":       "异常事件",
 	"latest-values":          "最新值",
+	// 三个快照存储：导航里由前端按 snapshot- 前缀合并成一项「快照」，
+	// 页面内的「存储」切换用这里的标题（粗表要连档位一起说清，否则用户不知道能筛档）。
+	"snapshot-coarse": "快照 · 时/日/月/年",
+	"snapshot-minute": "快照 · 分钟",
+	"snapshot-second": "快照 · 秒",
 }
 
 // EntityLabel 返回实体或只读页的中文名；未知名字原样返回，不吞掉新实体。
