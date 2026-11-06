@@ -145,6 +145,14 @@ export function clearFilters(state: QueryState): QueryState {
   return patchQuery(state, { filters: [], q: '' });
 }
 
+/**
+ * 错误恢复：连 sort/order/page 一起清空，回默认视图。
+ * clearFilters 保留排序，遇到 `?sort=非法` 这类 400 时重试必然再失败（table-query §10、§11）。
+ */
+export function resetQuery(state: QueryState): QueryState {
+  return { ...DEFAULT_QUERY, pageSize: state.pageSize };
+}
+
 export function setSort(state: QueryState, field: string): QueryState {
   // 同列再点一次切换方向；换列从 desc 开始（与后端默认 id desc 同向）。
   const order = state.sort === field && state.order === 'desc' ? 'asc' : 'desc';

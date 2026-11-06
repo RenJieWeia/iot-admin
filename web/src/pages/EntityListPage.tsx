@@ -20,6 +20,7 @@ import {
   hasActiveConditions,
   parseQueryState,
   patchQuery,
+  resetQuery,
   setSort,
   toListQuery,
   toSearchParams,
@@ -252,17 +253,22 @@ export function EntityListPage() {
 
   const fields = entity.fields.filter((field) => field.visible);
   const activeFilters = hasActiveConditions(query);
+  /** 地址里除默认视图外还有别的条件：错误态才需要「重置查询」这个出口。 */
+  const dirtyQuery = activeFilters || query.sort !== '' || query.page > 1;
   const outOfRange = listMeta.total > 0 && rows.length === 0;
-  const listState = list.isError
+  /** 已有数据时的刷新失败：TanStack 保留了 rows，不能把整表换成整页错误态（§13.4）。 */
+  const staleRefreshError = list.isError && Boolean(list.data);
+  const listState = list.isError && !list.data
     ? 'error'
     : list.isPending
       ? 'loading'
       : rows.length === 0
-        ? // 空页但总数 > 0 说明数据在变化（或刚被自动修正回第一页仍为空），按「无匹配」处理，
-          // 不再继续跳转，避免与 F2 的自动修正形成循环。
-          activeFilters || listMeta.total > 0
+        ? // 只有确实设了条件才算「无匹配」；total > 0 但没有条件，说明是这一页暂时取不到数据。
+          activeFilters
           ? 'nomatch'
-          : 'empty'
+          : listMeta.total > 0
+            ? 'stale'
+            : 'empty'
         : 'ready';
 
   const saveError = errorDetail(saveMutation.error);
@@ -300,17 +306,37 @@ export function EntityListPage() {
         onChange={setQuery}
       />
 
+      {staleRefreshError && (
+        <div
+          role="alert"
+          className="mb-4 flex flex-wrap items-center gap-3 rounded-control border border-warning bg-warning-weak px-3 py-2 text-warning"
+        >
+          <span>刷新失败，显示的是上次数据</span>
+          <span className="text-muted">{errorDetail(list.error) ?? '未知错误'}</span>
+          <button type="button" className="btn h-8" onClick={() => void list.refetch()}>
+            重试
+          </button>
+        </div>
+      )}
+
       {listState === 'error' ? (
         <ErrorState
           title="列表加载失败"
-          text={`${errorDetail(list.error) ?? '未知错误'}。数据未丢失，可重试；若筛选条件非法，清除筛选后重试。`}
+          text={`${errorDetail(list.error) ?? '未知错误'}。数据未丢失，可重试；若地址里的筛选或排序参数非法，清空条件后重试。`}
           onRetry={() => void list.refetch()}
           extra={
-            activeFilters ? (
-              <button type="button" className="btn" onClick={() => setQuery(clearFilters(query))}>
-                清除筛选
-              </button>
-            ) : undefined
+            <>
+              {activeFilters ? (
+                <button type="button" className="btn" onClick={() => setQuery(clearFilters(query))}>
+                  清除筛选
+                </button>
+              ) : null}
+              {dirtyQuery ? (
+                <button type="button" className="btn" onClick={() => setQuery(resetQuery(query))}>
+                  重置查询
+                </button>
+              ) : null}
+            </>
           }
         />
       ) : listState === 'empty' ? (
@@ -321,11 +347,11 @@ export function EntityListPage() {
             writable ? (
               <button
                 type="button"
-                className="btn btn-primary"
+                className="btn"
                 data-action="new"
                 onClick={(event) => openDrawer('new', { trigger: event.currentTarget })}
               >
-                新建
+                新建{entity.title}
               </button>
             ) : undefined
           }
@@ -337,6 +363,17 @@ export function EntityListPage() {
           action={
             <button type="button" className="btn" onClick={() => setQuery(clearFilters(query))}>
               清除筛选
+            </button>
+          }
+        />
+      ) : listState === 'stale' ? (
+        // 没有设任何条件却取不到行，但总数仍 > 0：多半是数据刚被改/删，不能说「筛选排除了全部结果」。
+        <EmptyState
+          title="当前页暂时没有数据"
+          text={`总数显示仍有 ${listMeta.total} 条，但这一页取不到数据：可能刚被删除，或数据在变化，请刷新或重试。`}
+          action={
+            <button type="button" className="btn" onClick={() => void list.refetch()}>
+              刷新
             </button>
           }
         />

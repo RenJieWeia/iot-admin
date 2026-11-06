@@ -2,6 +2,7 @@ import { cleanup, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
+import { allTerminals } from '../test/fixtures';
 import { renderApp } from '../test/utils';
 import { server, writeCalls } from '../test/server';
 
@@ -136,7 +137,7 @@ describe('实体列表页（服务端驱动）', () => {
     expect(bodyRows()).toHaveLength(10);
   });
 
-  it('修正后第一页仍为空时按「无匹配」展示，不再跳转', async () => {
+  it('修正后第一页仍为空：无筛选不判「无匹配」，按数据在变化提示', async () => {
     // 模拟数据在翻页期间被删空：总数仍 > 0，但任何页都取不到行。
     server.use(
       http.get('/admin/v1/terminals', () =>
@@ -150,10 +151,91 @@ describe('实体列表页（服务端驱动）', () => {
     );
     const view = renderApp('/terminals?page=99');
     await waitFor(() => expect(view.location()).not.toContain('page='));
-    expect(await screen.findByText('没有匹配的记录')).toBeInTheDocument();
+    expect(await screen.findByText(/数据在变化，请刷新或重试/)).toBeInTheDocument();
+    // 没有任何筛选条件时不能说「筛选排除了全部结果」。
+    expect(screen.queryByText('没有匹配的记录')).not.toBeInTheDocument();
     const settled = view.location();
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(view.location()).toBe(settled);
+  });
+
+  it('总数 > 0 但无筛选的空页：不出现「清除筛选」死按钮', async () => {
+    server.use(
+      http.get('/admin/v1/terminals', () =>
+        HttpResponse.json({
+          code: 0,
+          message: 'ok',
+          data: [],
+          meta: { total: 5, page: 1, pageSize: 10, sort: 'id', order: 'desc' },
+        }),
+      ),
+    );
+    renderApp('/terminals');
+    expect(await screen.findByText(/数据在变化，请刷新或重试/)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '清除筛选' })).not.toBeInTheDocument();
+    // 恢复路径仍在：刷新就是重发当前查询。
+    expect(screen.getByRole('button', { name: '刷新' })).toBeInTheDocument();
+  });
+
+  it('空列表只有一个主按钮：空态 CTA 与顶栏新建不同权重', async () => {
+    server.use(
+      http.get('/admin/v1/terminals', () =>
+        HttpResponse.json({
+          code: 0,
+          message: 'ok',
+          data: [],
+          meta: { total: 0, page: 1, pageSize: 10, sort: 'id', order: 'desc' },
+        }),
+      ),
+    );
+    renderApp('/terminals');
+    expect(await screen.findByText('还没有终端')).toBeInTheDocument();
+    expect(document.querySelectorAll('.btn-primary')).toHaveLength(1);
+    expect(screen.getByRole('button', { name: '新建终端' })).toBeInTheDocument();
+  });
+
+  it('已有数据时刷新失败保留表格，只在顶部提示上次数据', async () => {
+    const view = renderApp('/terminals');
+    await waitForReady();
+
+    server.use(
+      http.get('/admin/v1/terminals', () =>
+        HttpResponse.json({ code: 500, message: 'db_unavailable' }, { status: 500 }),
+      ),
+    );
+    await view.queryClient.invalidateQueries({ queryKey: ['list'] });
+
+    expect(await screen.findByText('刷新失败，显示的是上次数据')).toBeInTheDocument();
+    // 整页错误态不得替换掉已渲染的数据（§13.4 刷新失败保留已有内容）。
+    expect(screen.queryByText('列表加载失败')).not.toBeInTheDocument();
+    expect(screen.getByRole('table')).toBeInTheDocument();
+    expect(bodyRows()).toHaveLength(10);
+    expect(bodyRows()[0]).toHaveTextContent('t-001');
+  });
+
+  it('排序参数非法（400）时「重置查询」清空 sort 后恢复', async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.get('/admin/v1/terminals', ({ request }) => {
+        const url = new URL(request.url);
+        if (url.searchParams.get('sort') === 'nope') {
+          return HttpResponse.json({ code: 400, message: 'invalid_sort' }, { status: 400 });
+        }
+        return HttpResponse.json({
+          code: 0,
+          message: 'ok',
+          data: allTerminals.slice(0, 1),
+          meta: { total: 1, page: 1, pageSize: 10, sort: 'id', order: 'desc' },
+        });
+      }),
+    );
+    const view = renderApp('/terminals?sort=nope');
+    expect(await screen.findByText('列表加载失败')).toBeInTheDocument();
+
+    await user.click(screen.getByRole('button', { name: '重置查询' }));
+    await waitFor(() => expect(view.location()).not.toContain('sort=nope'));
+    await waitFor(() => expect(bodyRows()).toHaveLength(1));
+    expect(screen.queryByText('列表加载失败')).not.toBeInTheDocument();
   });
 
   it('翻页写 URL 并请求下一页，不重置筛选', async () => {
