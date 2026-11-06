@@ -3,7 +3,6 @@ package ingest_test
 import (
 	"context"
 	"net/http"
-	"os"
 	"sync"
 	"testing"
 	"time"
@@ -192,10 +191,7 @@ func TestNoIntervalAnomaliesInNormalFlow(t *testing.T) {
 // R-014：写路径平台故障 → 逐终端 internal_error + 整包 503；
 // 异常仍记 cache_write_failed（可观测性不因返回 503 而丢）。
 func TestWriteFailureReturns503(t *testing.T) {
-	dsn := os.Getenv("IOT_TEST_DSN")
-	if dsn == "" {
-		t.Skip("未设置 IOT_TEST_DSN，跳过需要 PostgreSQL 的用例")
-	}
+	dsn := testDSN(t) // 每包独立测试库（task-006 / R3），避免并行跑包互踩
 	e := newEnv(t)
 	ctx := context.Background()
 	at := baseTime.Add(5 * time.Minute)

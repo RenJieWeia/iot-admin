@@ -62,10 +62,7 @@ func TestOptionLabelExpr(t *testing.T) {
 
 // 需 DSN：真实取数（id→label、空 name 回退 code、上限 1000）。
 func TestOptionsWithDB(t *testing.T) {
-	dsn := os.Getenv("IOT_TEST_DSN")
-	if dsn == "" {
-		t.Skip("未设置 IOT_TEST_DSN，跳过需要 PostgreSQL 的用例")
-	}
+	dsn := testDSN(t) // 每包独立测试库（task-006 / R3），避免并行跑包互踩
 	ctx := context.Background()
 	pool, err := store.Connect(ctx, dsn)
 	if err != nil {

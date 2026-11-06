@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/url"
-	"os"
 	"strings"
 	"testing"
 
@@ -212,10 +211,7 @@ func TestParseQueryStateUnknownEntity(t *testing.T) {
 
 // 验收 §9（需 DSN）：三种组合的返回行序与 meta.total 正确。
 func TestListRowsWithDB(t *testing.T) {
-	dsn := os.Getenv("IOT_TEST_DSN")
-	if dsn == "" {
-		t.Skip("未设置 IOT_TEST_DSN，跳过需要 PostgreSQL 的用例")
-	}
+	dsn := testDSN(t) // 每包独立测试库（task-006 / R3），避免并行跑包互踩
 	ctx := context.Background()
 	pool, err := store.Connect(ctx, dsn)
 	if err != nil {

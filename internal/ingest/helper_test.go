@@ -8,7 +8,6 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -96,10 +95,7 @@ type testEnv struct {
 // newEnv 连接测试库、迁移、清库并种入一套最小数据源。
 func newEnv(t *testing.T) *testEnv {
 	t.Helper()
-	dsn := os.Getenv("IOT_TEST_DSN")
-	if dsn == "" {
-		t.Skip("未设置 IOT_TEST_DSN，跳过需要 PostgreSQL 的用例")
-	}
+	dsn := testDSN(t) // 每包独立测试库（task-006 / R3），避免并行跑包互踩
 	ctx := context.Background()
 	pool, err := store.Connect(ctx, dsn)
 	if err != nil {

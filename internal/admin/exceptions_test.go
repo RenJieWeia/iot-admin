@@ -201,10 +201,7 @@ var periodBoundaries = regexp.MustCompile(`^\["([^"]+)","([^"]+)"\)$`)
 
 // 需 DSN：异常两表的真实查询（列表 + 总数 + 排序 + 分页）。
 func TestExceptionRowsWithDB(t *testing.T) {
-	dsn := os.Getenv("IOT_TEST_DSN")
-	if dsn == "" {
-		t.Skip("未设置 IOT_TEST_DSN，跳过需要 PostgreSQL 的用例")
-	}
+	dsn := testDSN(t) // 每包独立测试库（task-006 / R3），避免并行跑包互踩
 	ctx := context.Background()
 	pool, err := store.Connect(ctx, dsn)
 	if err != nil {
