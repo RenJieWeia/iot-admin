@@ -1,8 +1,9 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { describe, expect, it, vi } from 'vitest';
+import { HttpResponse, http } from 'msw';
 import { renderApp } from '../test/utils';
-import { propertyQueries, writeCalls } from '../test/server';
+import { propertyQueries, server, writeCalls } from '../test/server';
 
 function bodyRows(): HTMLElement[] {
   return Array.from(document.querySelectorAll('tbody tr')) as HTMLElement[];
@@ -126,5 +127,34 @@ describe('终端类型详情页（task-016）', () => {
     await screen.findByRole('link', { name: '终端类型' }, { timeout: 5000 });
     const nav = screen.getByRole('navigation', { name: '主导航' });
     expect(within(nav).queryByRole('link', { name: '终端属性' })).not.toBeInTheDocument();
+  });
+
+  it('分页越界（total>0 但当前页无行）：给「当前页暂时没有数据」，不是「还没有属性」', async () => {
+    server.use(
+      http.get('/admin/v1/thing-model-properties', () =>
+        HttpResponse.json({
+          code: 0,
+          message: 'ok',
+          data: [],
+          meta: { total: 8, page: 3, pageSize: 10, sort: 'id', order: 'desc' },
+        }),
+      ),
+    );
+    const view = renderApp('/device-types/1?page=3');
+
+    expect(await screen.findByText('当前页暂时没有数据')).toBeInTheDocument();
+    // 关键回归：越界不等于「这个类型没有属性」。
+    expect(screen.queryByText('该终端类型下还没有属性')).not.toBeInTheDocument();
+    // 纠偏：replace 回第一页，只纠偏一次，提示是中性嵌入条。
+    await waitFor(() => expect(view.location()).toBe('/device-types/1'));
+    expect(screen.getByText(/已回到第一页（筛选条件保留）/)).toBeInTheDocument();
+  });
+
+  it('旧深链 /ui/thing-model-properties 重定向到终端类型列表，并给中性提示', async () => {
+    const view = renderApp('/thing-model-properties');
+    await waitFor(() => expect(view.location()).toBe('/device-types'));
+    expect(await screen.findByText(/终端属性已并入终端类型详情页/)).toBeInTheDocument();
+    // 重定向后仍在正常页面上，不是「未知实体」错误页。
+    expect(screen.queryByText('未知实体')).not.toBeInTheDocument();
   });
 });

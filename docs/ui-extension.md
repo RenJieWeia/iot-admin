@@ -16,7 +16,7 @@
 | 中文名 | 代码/接口标识 | 含义 |
 |---|---|---|
 | 数据域 | `data-domains` / `data_domain` | 业务域（当前只有 `energy`） |
-| 终端类型 | `device-types` / `device_type` | 一类终端的物模型载体（当前只有 `meter`） |
+| 终端类型 | `device-types` / `device_type` | 一类终端的定义载体（当前只有 `meter`） |
 | 终端属性 | `thing-model-properties` / `thing_model_property` | 终端类型下声明的数据项定义。**界面只说「终端属性」**；代码标识保留 `thing_model_property`，URL 段仍是 `thing-model-properties` |
 | 终端 | `terminals` / `terminal` | 一台被采集的设备，归属于某网关 |
 | 质量规则 | `quality-rules` / `quality_rule` | 行级质量判定规则 |
@@ -30,7 +30,7 @@
 | 小时暂存 | `hourly-staging` | 未结算小时的中间态 |
 | 小时快照 | `hourly-snapshot` | 结算后的定稿数据 |
 | 异常事件 | `exception-events` | 事件型异常（计数表，按小时聚合） |
-| 数据项 | `item_code` | 物模型里的一个属性编码 |
+| 数据项 | `item_code` | 终端属性里的一个数据项编码 |
 | 补录 | `msgType=2` | 补传历史数据（只作来源标记，不影响落库路径） |
 
 **已下线、不要再用**：`异常区间` / `exception-intervals` / `gateway_disconnected` / `item_silent` /

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams, useSearchParams } from 'react-router';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
+import { RESET_PAGE_NOTICE, computeListState, shouldResetPage } from '../lib/listState';
 import { ApiError, createRow, deleteRow, fetchList, fetchOne, updateRow } from '../api/client';
 import { toLabelMap, useFieldOptions } from '../api/entities';
 import { useMeta } from '../api/meta';
@@ -120,6 +121,15 @@ export function EntityListPage() {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   /** 页码越界纠偏是"系统替你调了页"，不是成功事件：用嵌入式中性提示，不弹成功样式 toast（§16.4）。 */
   const [pageNotice, setPageNotice] = useState<string | null>(null);
+  // 旧深链重定向带过来的中性提示（/ui/thing-model-properties → /ui/device-types）：
+  // 显示一次后清掉 history state，刷新不会重复出现。
+  const location = useLocation();
+  useEffect(() => {
+    const notice = (location.state as { notice?: string } | null)?.notice;
+    if (!notice) return;
+    setPageNotice(notice);
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
+  }, [location, navigate]);
   const [pendingDelete, setPendingDelete] = useState<RowData | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   /** 越界自动修正只做一次：回到第一页后置位，避免反复跳转。 */
@@ -208,19 +218,24 @@ export function EntityListPage() {
   // F2：页码越界（当前页无行、但总数 > 0）时用 replace 回到第一页，筛选条件全部保留。
   // 用 ref 去重：回到第一页后不再触发；第一页仍为空则按「无匹配」态展示。
   useEffect(() => {
-    if (!entity || list.isPending || list.isError) return;
+    if (!entity) return;
     if (query.page === 1) {
       correctedRef.current = false;
       return;
     }
-    if (correctedRef.current) return;
-    const empty = rows.length === 0;
-    if (empty && listMeta.total > 0 && query.page > 1) {
-      correctedRef.current = true;
-      // replace：历史里不留下"无数据的页"这一跳；page=1 不落 URL。
-      setSearchParams(toSearchParams(patchQuery(query, { page: 1 })), { replace: true });
-      setPageNotice('当前页无数据，已回到第一页（筛选条件保留）。');
-    }
+    const need = shouldResetPage({
+      page: query.page,
+      rowCount: rows.length,
+      total: listMeta.total,
+      isPending: list.isPending,
+      isError: list.isError,
+      alreadyCorrected: correctedRef.current,
+    });
+    if (!need) return;
+    correctedRef.current = true;
+    // replace：历史里不留下"无数据的页"这一跳；page=1 不落 URL。
+    setSearchParams(toSearchParams(patchQuery(query, { page: 1 })), { replace: true });
+    setPageNotice(RESET_PAGE_NOTICE);
   }, [entity, list, query, rows.length, listMeta.total, setSearchParams]);
 
   // 滚动位置：按「列表地址」记忆，返回/刷新后恢复阅读位置（§8 状态保持）。
@@ -261,18 +276,16 @@ export function EntityListPage() {
   const outOfRange = listMeta.total > 0 && rows.length === 0;
   /** 已有数据时的刷新失败：TanStack 保留了 rows，不能把整表换成整页错误态（§13.4）。 */
   const staleRefreshError = list.isError && Boolean(list.data);
-  const listState = list.isError && !list.data
-    ? 'error'
-    : list.isPending
-      ? 'loading'
-      : rows.length === 0
-        ? // 只有确实设了条件才算「无匹配」；total > 0 但没有条件，说明是这一页暂时取不到数据。
-          activeFilters
-          ? 'nomatch'
-          : listMeta.total > 0
-            ? 'stale'
-            : 'empty'
-        : 'ready';
+  // 四态判定与详情页同源（lib/listState.ts）：只有确实设了条件才算「无匹配」；
+  // total > 0 但没有条件，说明是这一页暂时取不到数据。
+  const listState = computeListState({
+    isError: list.isError,
+    hasData: Boolean(list.data),
+    isPending: list.isPending,
+    rowCount: rows.length,
+    total: listMeta.total,
+    hasConditions: activeFilters,
+  });
 
   const saveError = errorDetail(saveMutation.error);
   const deleteError = errorDetail(deleteMutation.error);

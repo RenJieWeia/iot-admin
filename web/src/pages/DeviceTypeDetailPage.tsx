@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { ApiError, createRow, deleteRow, fetchList, fetchOne, updateRow } from '../api/client';
@@ -14,6 +14,7 @@ import { Pagination } from '../components/Pagination';
 import { RecordDrawer, objectLabel } from '../components/RecordDrawer';
 import { Toast, type ToastMessage } from '../components/Toast';
 import { defaultSort, isWritable, relationTarget } from '../lib/fieldMeta';
+import { RESET_PAGE_NOTICE, computeListState, shouldResetPage } from '../lib/listState';
 import { formatCell } from '../lib/format';
 import {
   patchQuery,
@@ -68,6 +69,10 @@ export function DeviceTypeDetailPage() {
 
   const query = useMemo(() => parseQueryState(searchParams), [searchParams]);
   const setQuery = (next: QueryState) => setSearchParams(toSearchParams(next));
+  // 页码越界纠偏：口径与实体列表页一致（lib/listState.ts 的 shouldResetPage），
+  // 用 ref 去重保证只纠偏一次；提示走中性嵌入条，不是成功事件。
+  const correctedRef = useRef(false);
+  const [pageNotice, setPageNotice] = useState<string | null>(null);
 
   const typeQuery = useQuery({
     queryKey: ['row', PARENT_ENTITY, id],
@@ -109,6 +114,7 @@ export function DeviceTypeDetailPage() {
   }, [parent, options.data]);
 
   const rows = list.data?.rows ?? [];
+
   const listMeta: ListMeta = list.data?.meta ?? {
     total: 0,
     page: query.page,
@@ -116,6 +122,34 @@ export function DeviceTypeDetailPage() {
     sort: query.sort,
     order: query.order,
   };
+  // 四态与列表页同源：total>0 且当前页无行 → stale（页内数据在变），不是「还没有属性」。
+  const listState = computeListState({
+    isError: list.isError,
+    hasData: Boolean(list.data),
+    isPending: list.isPending,
+    rowCount: rows.length,
+    total: listMeta.total,
+    hasConditions: false, // 本页只有固定条件，用户改不了，故不算「无匹配」
+  });
+
+  useEffect(() => {
+    if (query.page === 1) {
+      correctedRef.current = false;
+      return;
+    }
+    const need = shouldResetPage({
+      page: query.page,
+      rowCount: rows.length,
+      total: listMeta.total,
+      isPending: list.isPending,
+      isError: list.isError,
+      alreadyCorrected: correctedRef.current,
+    });
+    if (!need) return;
+    correctedRef.current = true;
+    setSearchParams(toSearchParams(patchQuery(query, { page: 1 })), { replace: true });
+    setPageNotice(RESET_PAGE_NOTICE);
+  }, [query, rows.length, listMeta.total, list.isPending, list.isError, setSearchParams]);
   const fields = (property?.fields ?? []).filter(
     (field) => field.visible && field.key !== LOCK_FIELD,
   );
@@ -293,13 +327,24 @@ export function DeviceTypeDetailPage() {
         <span className="text-muted">（不可移除，也不能在地址里改掉）</span>
       </p>
 
-      {list.isError ? (
+      {pageNotice && (
+        <p
+          className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-control border border-border bg-neutral-bg px-3 py-2 text-sm text-neutral-text"
+          role="status"
+        >
+          <span>{pageNotice}</span>
+          <button type="button" className="btn" onClick={() => setPageNotice(null)}>
+            知道了
+          </button>
+        </p>
+      )}
+      {listState === 'error' ? (
         <ErrorState
           title="终端属性加载失败"
           text={`${errorDetail(list.error) ?? '未知错误'}。数据未丢失，可重试。`}
           onRetry={() => void list.refetch()}
         />
-      ) : list.isPending ? (
+      ) : listState === 'loading' ? (
         <DataTable
           fields={fields}
           rows={[]}
@@ -312,7 +357,7 @@ export function DeviceTypeDetailPage() {
           skeletonRows={query.pageSize}
           caption="当前筛选结果"
         />
-      ) : rows.length === 0 ? (
+      ) : listState === 'empty' ? (
         <EmptyState
           title="该终端类型下还没有属性"
           text="用右上角「新建属性」录入第一条；type_id 会自动锁定为当前终端类型。"
@@ -322,6 +367,16 @@ export function DeviceTypeDetailPage() {
                 新建{property.title}
               </button>
             ) : undefined
+          }
+        />
+      ) : listState === 'stale' ? (
+        <EmptyState
+          title="当前页暂时没有数据"
+          text="这一页正好取不到数据（总数仍大于 0）。已尝试回到第一页，也可以直接重试。"
+          action={
+            <button type="button" className="btn" onClick={() => void list.refetch()}>
+              刷新
+            </button>
           }
         />
       ) : (
