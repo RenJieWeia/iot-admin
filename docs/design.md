@@ -29,7 +29,7 @@
 - MQTT 发布 `iot/realtime/{domain_code}/{type_code}/{terminal_id}`，QoS 1，retain=false，按终端一条
 - 管理 API `/admin/v1/{data-domains,device-types,thing-model-properties,terminals,quality-rules,settle-configs}`，统一 `{code,message,data}`；列表支持 `q/sort/order/page/pageSize/filter.<col>[.<op>]` 并返回 `meta{total,page,pageSize,sort,order}`（`limit/offset` 兼容）
 - 管理后台 UI `/ui/*`：React SPA，命中产物文件直接返回，其余路径回退 `index.html`（深链刷新可用）；`/` 302 → `/ui/`
-- 管理后台契约 `GET /admin/v1/_meta`（6 实体 + 2 异常页字段元数据、枚举/布尔字典、分页档位）、`GET /admin/v1/exceptions/{events,intervals}`（只读列表）、`GET /admin/v1/options/{entity}`（关联下拉选项，上限 1000）
+- 管理后台契约 `GET /admin/v1/_meta`（6 实体 + 2 异常页 + 1 只读源 `latest-values` 的字段元数据、枚举/布尔字典、分页档位）、`GET /admin/v1/exceptions/{events,intervals}`（只读列表）、`GET /admin/v1/readonly/{slot}`（通用只读源列表，本期 `latest-values`）、`GET /admin/v1/options/{entity}`（关联下拉选项，上限 1000）、`GET /admin/v1/snapshot/changes?since=&limit=&cursor=`（快照变更游标分页）。`_meta.exceptions` 是 `_meta.readonly` 的特例，保留两个独立键（前端已在用 `exceptions`），本期不合并。
 - 所有响应带 `Content-Security-Policy: default-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'`
 
 ## 二、v2 契约要点

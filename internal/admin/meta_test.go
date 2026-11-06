@@ -112,7 +112,7 @@ func TestMetaSections(t *testing.T) {
 		gotDataKeys = append(gotDataKeys, k)
 	}
 	sort.Strings(gotDataKeys)
-	wantDataKeys := []string{"booleans", "entities", "enums", "exceptions", "pagination"}
+	wantDataKeys := []string{"booleans", "entities", "enums", "exceptions", "pagination", "readonly"}
 	if strings.Join(gotDataKeys, ",") != strings.Join(wantDataKeys, ",") {
 		t.Fatalf("data 顶层键 = %v，期望 %v", gotDataKeys, wantDataKeys)
 	}
@@ -166,7 +166,7 @@ func TestMetaFieldShape(t *testing.T) {
 	}
 
 	var sections []json.RawMessage
-	for _, name := range []string{"entities", "exceptions"} {
+	for _, name := range []string{"entities", "exceptions", "readonly"} {
 		var list []json.RawMessage
 		if err := json.Unmarshal(data[name], &list); err != nil {
 			t.Fatalf("%s 解析失败: %v", name, err)
@@ -188,6 +188,7 @@ func TestMetaFieldShape(t *testing.T) {
 			if name == "entities" {
 				wantKeys = []string{"name", "title", "route", "readOnly", "defaultSort", "defaultOrder", "fields"}
 			} else {
+				// exceptions 与 readonly 同形（exceptions 是 readonly 的特例）
 				wantKeys = []string{"slot", "name", "title", "route", "readOnly", "defaultSort", "defaultOrder", "fields"}
 			}
 			sort.Strings(wantKeys)
@@ -209,8 +210,8 @@ func TestMetaFieldShape(t *testing.T) {
 			sections = append(sections, item)
 		}
 	}
-	if len(sections) != 8 {
-		t.Fatalf("元数据段数 = %d，期望 6 实体 + 2 异常页", len(sections))
+	if len(sections) != 9 {
+		t.Fatalf("元数据段数 = %d，期望 6 实体 + 2 异常页 + 1 只读源", len(sections))
 	}
 }
 

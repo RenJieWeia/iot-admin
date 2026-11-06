@@ -69,6 +69,7 @@ func (a *API) Handler() http.Handler {
 	// 字面量段优先于通配段：_meta 与 exceptions/* 不会被 {entity} / {entity}/{id} 抢走。
 	mux.HandleFunc("GET /admin/v1/_meta", a.meta)
 	mux.HandleFunc("GET /admin/v1/exceptions/{slot}", a.exceptionList)
+	mux.HandleFunc("GET /admin/v1/readonly/{slot}", a.readonlyList)
 	mux.HandleFunc("GET /admin/v1/options/{entity}", a.options)
 	// 快照变更查询（R-032）：只读、游标分页，不进 Entities。
 	mux.HandleFunc("GET /admin/v1/snapshot/changes", a.changes)

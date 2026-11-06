@@ -9,7 +9,8 @@ import "net/http"
 //
 //	{"code":0,"message":"ok","data":{
 //	  "entities":[{"name","label","route","readOnly","defaultSort","defaultOrder","fields":[MetaField]}],
-//	  "exceptions":[{"slot","name","label","route","readOnly","defaultSort","defaultOrder","fields":[MetaField]}],
+//	  "exceptions":[{"slot","name","title","route","readOnly","defaultSort","defaultOrder","fields":[MetaField]}],
+//	  "readonly":[…同 exceptions 形状…],
 //	  "pagination":{"default":10,"max":50,"options":[10,20,50]}}}
 //
 // MetaField 是 FieldMeta 全字段的 JSON 投影：operators/options 永远是数组（不出现 null），
@@ -26,9 +27,10 @@ var entityLabels = map[string]string{
 	"settle-configs":         "结算窗口",
 	"exception-events":       "异常事件",
 	"exception-intervals":    "异常区间",
+	"latest-values":          "最新值",
 }
 
-// EntityLabel 返回实体或异常页的中文名；未知实体原样返回名字，不吞掉新实体。
+// EntityLabel 返回实体或只读页的中文名；未知名字原样返回，不吞掉新实体。
 func EntityLabel(name string) string {
 	if label, ok := entityLabels[name]; ok {
 		return label
@@ -87,8 +89,11 @@ type MetaEntity struct {
 	Fields       []MetaField `json:"fields"`
 }
 
-// MetaException 是一张异常只读页的元数据；slot 是 URL 段（events|intervals）。
-type MetaException struct {
+// MetaReadonly 是一张只读页（异常两页 + 通用只读源）的元数据；slot 是 URL 段。
+//
+// 说明：`exceptions` 段是 `readonly` 的特例（异常页也走 readonlyPages 那套机制），
+// 但契约上保留两个独立键，前端已在用 `exceptions`，本期不动、后续可合并。
+type MetaReadonly struct {
 	Slot         string      `json:"slot"`
 	Name         string      `json:"name"`
 	Title        string      `json:"title"`
@@ -98,6 +103,9 @@ type MetaException struct {
 	DefaultOrder string      `json:"defaultOrder"`
 	Fields       []MetaField `json:"fields"`
 }
+
+// MetaException 是 MetaReadonly 的别名（历史键名保持可读，JSON 形状一致）。
+type MetaException = MetaReadonly
 
 // MetaPagination 下发分页档位，前端不硬编码 10/20/50。
 type MetaPagination struct {
@@ -111,6 +119,7 @@ type MetaPagination struct {
 type MetaPayload struct {
 	Entities   []MetaEntity                 `json:"entities"`
 	Exceptions []MetaException              `json:"exceptions"`
+	Readonly   []MetaReadonly               `json:"readonly"`
 	Enums      map[string]map[string]string `json:"enums"`
 	Booleans   map[string]string            `json:"booleans"`
 	Pagination MetaPagination               `json:"pagination"`
@@ -126,6 +135,7 @@ func BuildMeta() MetaPayload {
 	payload := MetaPayload{
 		Entities:   make([]MetaEntity, 0, len(Entities)),
 		Exceptions: make([]MetaException, 0, len(exceptionPages)),
+		Readonly:   make([]MetaReadonly, 0, len(readonlyPages)),
 		Enums:      enumDictionaries(),
 		Booleans:   optionLabels(boolOptions),
 		Pagination: MetaPagination{Default: DefaultPageSize, Max: MaxPageSize, Options: PageSizeOptions},
@@ -139,6 +149,18 @@ func BuildMeta() MetaPayload {
 			DefaultSort:  defaultSortOf(e.Name),
 			DefaultOrder: "desc",
 			Fields:       metaFields(e.Name),
+		})
+	}
+	for _, page := range readonlyPages {
+		payload.Readonly = append(payload.Readonly, MetaReadonly{
+			Slot:         page.Slot,
+			Name:         page.Entity.Name,
+			Title:        EntityLabel(page.Entity.Name),
+			Route:        "/admin/v1/readonly/" + page.Slot,
+			ReadOnly:     true,
+			DefaultSort:  defaultSortOf(page.Entity.Name),
+			DefaultOrder: "desc",
+			Fields:       metaFields(page.Entity.Name),
 		})
 	}
 	for _, page := range exceptionPages {

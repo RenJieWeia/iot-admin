@@ -70,6 +70,19 @@ var eventTypeOptions = []Option{
 	{Value: "quality_violation", Label: "质量违规", Tone: "warning"},
 }
 
+// qualityOptions 是行级质量位掩码的 8 种组合（R-022 读路径）：0 正常，其余都是"有问题"。
+// 位语义：1 物模型越界、2 规则命中、4 单位闭集外，可叠加（3 = 越界+规则，7 = 三者全中）。
+var qualityOptions = []Option{
+	{Value: "0", Label: "正常", Tone: "neutral"},
+	{Value: "1", Label: "越界", Tone: "warning"},
+	{Value: "2", Label: "规则命中", Tone: "warning"},
+	{Value: "3", Label: "越界+规则", Tone: "warning"},
+	{Value: "4", Label: "单位闭集外", Tone: "warning"},
+	{Value: "5", Label: "越界+单位闭集外", Tone: "warning"},
+	{Value: "6", Label: "规则命中+单位闭集外", Tone: "warning"},
+	{Value: "7", Label: "越界+规则+单位闭集外", Tone: "warning"},
+}
+
 var intervalTypeOptions = []Option{
 	{Value: "gateway_disconnected", Label: "网关断连", Tone: "negative"},
 	{Value: "auth_failed", Label: "鉴权失败", Tone: "negative"},
@@ -205,6 +218,31 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "numberRange", Operators: []string{"gte", "lte"}, WidthStrategy: "fixed"},
 			{Key: "created_at", Label: "创建时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
+		},
+	},
+	// 只读数据源（R-022 读路径）：不在 admin.Entities 里，只服务 /admin/v1/readonly/{slot}。
+	// 只读页没有写路径，Editable/Required 一律 false（Editable 由 FieldMetas 推导，
+	// 该名字不在 Entities 内，因此天然为 false）。
+	"latest-values": {
+		fields: []FieldMeta{
+			{Key: "terminal_id", Label: "终端", Type: "text", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
+			{Key: "item_code", Label: "数据项", Type: "text", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
+			{Key: "value_num", Label: "数值", Type: "number", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "numberRange", Operators: []string{"gte", "lte"}, AdvancedOnly: true, WidthStrategy: "min"},
+			{Key: "value_text", Label: "文本值", Type: "text", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "text", Operators: []string{"contains"}, AdvancedOnly: true, WidthStrategy: "min"},
+			{Key: "unit", Label: "单位", Type: "text", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "text", Operators: []string{"contains"}, AdvancedOnly: true, WidthStrategy: "fixed"},
+			{Key: "value_time", Label: "采集时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
+			// quality 是位掩码：不新增 SQL 操作符，"仅看有问题"用 filter.quality.gte=1 表达。
+			{Key: "quality", Label: "质量", Type: "number", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "numberRange", Operators: []string{"gte", "lte"}, OptionsSource: "static",
+				Options: qualityOptions, WidthStrategy: "fixed"},
+			{Key: "quality_reason", Label: "质量说明", Type: "text", Visible: true, Sortable: false, Filterable: true,
+				FilterType: "text", Operators: []string{"contains"}, AdvancedOnly: true, WidthStrategy: "flex"},
 		},
 	},
 	"settle-configs": {
