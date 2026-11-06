@@ -44,7 +44,7 @@
 8. **窗口**：关闭时刻 `H + 1h + window`，闭区间（接收时刻 `>= close` 即迟到）；结算扫描镜像条件 `<= now`。
 9. **结算**：窗口解析只有一个实现（`settle.WindowConfig`），SQL 侧不再内联 CTE；按窗口分组批量 INSERT ... ON CONFLICT DO NOTHING + DELETE 暂存。
 10. **区间异常**：`exception_interval` 的写入机制（`OpenInterval` / `CloseInterval` / 抖动合并 / `upper_inf`）完整保留，但**本期没有任何生产写入路径**——见下条。
-11. **本期区间表无生产写入路径**：网关断连需要 Broker 侧信号（BroMQ 的 client tracking 或 MQTT 遗嘱消息）才能感知；平台只是另一个 MQTT 客户端，观测不到"某个网关掉线"，把"平台到 Broker 的客户端连接断开"记为网关断连会产生 100% 假阳性 + 100% 假阴性。该能力随 Broker 集成排期，当前不得用平台连接状态冒充。
+11. **本期区间表无生产写入路径**（能力具备、平台侧未实现）：BroMQ 侧已具备网关离线观测能力——`tracking` hook 维护 `mqtt_clients` 连接状态（`/api/mqtt/clients` 与 `/metrics` 可读），且支持 MQTT 遗嘱（LWT，仅当网关自己在 CONNECT 里声明 `WillTopic` 时才可用，正常 DISCONNECT 不触发）。**平台侧写入路径仍未实现**：`gateway_disconnected` 只能由 Broker 侧信号判定，把"平台到 Broker 的客户端连接断开"记为网关断连仍会产生 100% 假阳性 + 100% 假阴性，因此当前不得用平台连接状态冒充。写入路径随网关离线观测任务排期（证据：`docs/review/RESEARCH-002.md` §5/§6）。
 12. **平台故障与数据问题分离**：DB 等平台侧故障时逐终端标 `internal_error`，HTTP 整包 503（body 仍带完整 `results`）；数据问题仍是 200 + 逐终端 `results`。网关按状态码决定是否整批重传。写路径失败（`latest.Upsert`/`staging.Upsert` 事务失败）同属平台侧故障：异常仍记 `cache_write_failed` 保可观测，但逐终端返回 `internal_error`、整包 503。
 13. **质量违规来源**：`quality_violation` 摘要前缀固定 `source=thing_model`（物模型 min/max 越界）或 `source=rule`（终端质量规则命中），同一项两类都命中计 2 次。
 14. **单位换算短路**：`from == target` 时直接透传、不计数——即使该单位不在换算闭集内。否则电表场景里 A / V / kvar 等只要物模型声明与上报一致就会每分钟刷出大量假 `clean_failed`。
@@ -145,7 +145,7 @@ IOT_TEST_DSN=... IOT_CAPACITY=1 go test ./internal/ingest -run TestCapacity -v
 6. **单实例**：写锁是进程内的，多实例会破坏 `value_time` 串行化。
 7. **异常表无清理策略**：`exception_count` 长期累积，需按保留期归档。
 8. **元数据缓存的一致性代价**：四类元数据已进程内缓存（TTL 30s + 管理 API 写时失效，见 §三之三）。代价有三：单实例前提，多实例各自持有副本；绕过管理 API 直接改库最长脏 30s；缓存命中期间 DB 不可用不再整包 503，故障推迟到写路径（`cache_write_failed` + 200）。
-9. **本期不产出区间型异常**：`gateway_disconnected` / `item_silent` / `auth_failed` 三类只有枚举与写入机制，没有任何生产写入路径；网关掉线对平台不可观测，需要 Broker 侧集成。
+9. **本期不产出区间型异常**：`gateway_disconnected` / `item_silent` / `auth_failed` 三类只有枚举与写入机制，没有任何生产写入路径。网关离线**在 Broker 侧可观测**：BroMQ 具备 `mqtt_clients` 客户端跟踪与 MQTT 遗嘱能力（`RESEARCH-002` §5/§6），缺的是平台侧写入路径，随网关离线观测任务排期。
 10. **503 会触发整批重传**：平台故障恢复后网关会重发整批，可能重复发布实时消息与重复计数（已明确允许，不做幂等）。读元数据失败与写路径失败（`cache_write_failed`）都归入这一条：重传由 `value_time` 相等不覆盖兜底，重复发布属已接受行为。
 
 ## 六、未完成项与建议

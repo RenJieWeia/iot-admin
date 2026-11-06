@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -144,4 +145,45 @@ func waitFor(t *testing.T, cond func() bool, timeout time.Duration, what string)
 		time.Sleep(20 * time.Millisecond)
 	}
 	t.Fatalf("等待超时: %s", what)
+}
+
+// 订阅结果校验：SUBACK 的 granted 值决定启动成败（R 级：连上了但零数据零报错是事故形态）。
+// paho v1.5.1 的 Token.Error() 对被拒订阅返回 nil，只能靠 Result() 判定。
+func TestCheckGranted(t *testing.T) {
+	cases := []struct {
+		name    string
+		granted map[string]byte
+		wantErr bool
+	}{
+		{"granted QoS0", map[string]byte{"iot/ingest/+": 0}, false},
+		{"granted QoS1", map[string]byte{"iot/ingest/+": 1}, false},
+		{"granted QoS2", map[string]byte{"iot/ingest/+": 2}, false},
+		{"各主题全部成功", map[string]byte{"iot/ingest/+": 1, "iot/realtime/#": 0}, false},
+		{"0x80 订阅被拒", map[string]byte{"iot/ingest/+": 0x80}, true},
+		{"0x87 非法 QoS", map[string]byte{"iot/ingest/+": 0x87}, true},
+		{"多主题里任一项被拒", map[string]byte{"iot/ingest/+": 1, "iot/realtime/#": 0x80}, true},
+		{"nil map 视为通过", nil, false},
+		{"空 map 视为通过", map[string]byte{}, false},
+	}
+	for _, c := range cases {
+		err := ingest.CheckGranted(c.granted)
+		if c.wantErr && err == nil {
+			t.Fatalf("%s: 期望返回错误，实际 nil", c.name)
+		}
+		if !c.wantErr && err != nil {
+			t.Fatalf("%s: 期望通过，实际 %v", c.name, err)
+		}
+	}
+
+	// 错误信息必须带主题与取值（便于一眼看出是 ACL 还是配置问题），且不得包含口令。
+	err := ingest.CheckGranted(map[string]byte{"iot/ingest/+": 0x80})
+	if err == nil {
+		t.Fatal("0x80 必须报错")
+	}
+	msg := err.Error()
+	for _, want := range []string{"iot/ingest/+", "128", "0x80"} {
+		if !strings.Contains(msg, want) {
+			t.Fatalf("错误信息缺少 %q: %s", want, msg)
+		}
+	}
 }

@@ -8,7 +8,7 @@
 | 组件 | 地址 / 路径 | 凭据 | 说明 |
 | --- | --- | --- | --- |
 | PostgreSQL 16 | `127.0.0.1:55432`，库 `iot` | `postgres` / `pg` | Podman 容器 `iot-pg`（`--network host`）；DSN `postgres://postgres:pg@127.0.0.1:55432/iot?sslmode=disable` |
-| BroMQ（本仓库构建） | MQTT `127.0.0.1:1883`、WS `127.0.0.1:1884`、HTTP API `127.0.0.1:18080` | 匿名开；控制台 `admin` / `admin` | 二进制 `.devcache/bin/bromq`，配置 `.devcache/bromq.conf`，预置 `.devcache/bromq-provision.yml`（`anonymous` 用户 + `#` 全通 ACL），数据 `.devcache/bromq-data/`，日志 `.devcache/log/bromq.log` |
+| BroMQ（本仓库构建） | MQTT `127.0.0.1:1883`、WS `127.0.0.1:1884`、HTTP API `127.0.0.1:18080` | 匿名开；控制台 `admin` / `admin` | 二进制 `.devcache/bin/bromq`，配置 `.devcache/bromq.conf`，预置 `.devcache/bromq-provision.yml`（`anonymous` 用户 + `#` 全通 ACL），数据 `.devcache/bromq-data/`，日志 `.devcache/log/bromq.log`。**启动必须带 `CONFIG_FILE=.devcache/bromq-provision.yml`**，否则 ACL 全拒（见 §7.1） |
 | iot-admin | `127.0.0.1:8080`（`IOT_LISTEN`） | 无鉴权（`AllowAll`，仅监听回环） | 接入 `POST /ingest/v1/messages`、管理 API `/admin/v1/*`、管理后台 `/ui/*` |
 | 启动方式 | `.devcache/bin/bromqup.sh`（幂等）· `pgup.sh` | — | 沙箱每次 bash 调用在 bwrap 内（`--die-with-parent`、fresh `/tmp`）：broker 只活在启动它的那次调用里，或改成后台任务 |
 
@@ -73,7 +73,13 @@ IOT_LISTEN=127.0.0.1:8082 .devcache/bin/iot-admin
 
 实测（2026-11-06 08:34）：`MQTT 已连接` + `HTTP 监听 127.0.0.1:8082`，`GET /ui/` 200。
 
-**仍未验证**：网关侧（`3zhang-jingsanlu`）向 `iot/ingest/+` 实际上报并在平台侧落库的端到端链路——需要一条真实网关报文或临时给测试用户加 `iot/ingest/+` 的 `pub` 权限；本期不做，等联调窗口。
+**端到端已验证（隔离 broker，2026-11-06）**：在加载了 `.devcache/bromq-provision.yml` 的隔离 broker 上，
+MQTT `iot/ingest/+` → 平台落库（`latest_value` / `hourly_staging` / `exception_count`）→ 实时发布
+`iot/realtime/...` 全链路跑通，且与 HTTP 通道结果逐项一致（证据：`docs/review/RESEARCH-003.md` §2）。
+本文档早前"端到端未验证"一项据此勾掉。
+
+**仍未验证**：**现场** broker（`192.168.100.1:1884`）上的同一条链路——需要一条真实网关报文或联调窗口；
+以及网关是否自己声明了 MQTT 遗嘱（LWT），这决定能否走遗嘱判离线。
 
 ## 5. 常驻 UI 实例（给用户看的那个）
 
@@ -150,3 +156,38 @@ GOCACHE=$PWD/.devcache/gocache go test ./... -count=1
 
 > 首次跑会多建两个库；想清理可 `drop database iot_admin; drop database iot_ingest;`，
 > 下次运行会自动重建。基础库 `iot` 不再被测试写入。
+
+## 7. Broker 启动护栏与排障顺序（task-005 / RESEARCH-003 F6·F7）
+
+### 7.1 broker 必须以 `CONFIG_FILE` 启动
+
+`MQTT_ALLOW_ANONYMOUS=true` **只放行"建连"**，不放过授权：ACL hook 把空用户名映射成 `anonymous`
+主体，若该用户没有 ACL 规则则一切 deny。所以本地 broker 必须这样起：
+
+```bash
+CONFIG_FILE=.devcache/bromq-provision.yml .devcache/bin/bromq > .devcache/log/bromq.log 2>&1 &
+```
+
+`bromq-provision.yml` 预置了 `anonymous` 用户的 `#` 全通 ACL。漏掉 `CONFIG_FILE` 的典型表象是：
+能连、能发（拿到 PUBACK）、订阅拿到 SUBACK，但**自投递收不到、平台一条数据都没有**——
+很容易被误判成"网关没数据"。
+
+### 7.2 ACL / 用户缓存 TTL 默认 5 分钟
+
+Broker 侧对用户与 ACL 做进程内缓存，**新建账号后立刻用该账号连接会得到 `not authorized`**，
+等缓存过期（默认 5 分钟）或重启 broker 才生效。实测：`iot-admin` 用户通过 dashboard API 建好后
+立即连接曾收到 `CONNACK 0x05`，等缓存过期后连接成功。
+
+### 7.3 平台侧护栏（本仓库已实现）
+
+`internal/ingest/mqtt.go` 现在校验 SUBACK 的 granted 值：**任一项 `>= 0x80` 直接返回错误让进程退出**
+（paho v1.5.1 的 `Token.Error()` 对被拒订阅返回 `nil`，这是"连上了但零数据零报错"的根因），
+成功时日志打印实际 granted QoS：`MQTT 订阅成功 topic=iot/ingest/+ granted=map[iot/ingest/+:1]`。
+因此 ACL 配错现在会**启动即失败**，而不是静默空转。
+
+### 7.4 排障顺序
+
+1. 平台日志有 `MQTT 订阅成功` 且 granted 不是 `0x80`？→ 订阅侧正常，往下走。
+2. 平台日志有 `MQTT 订阅被拒绝`/启动退出？→ 看 broker 的 ACL 日志与 `CONFIG_FILE`（§7.1）。
+3. 连上了、订阅正常、但零数据 → 查 broker 侧该客户端的 ACL 是否允许 `pub` 到 `iot/ingest/#`，
+   再看网关是否真的在发（不要先怀疑平台解析）。
