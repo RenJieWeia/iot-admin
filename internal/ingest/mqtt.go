@@ -27,7 +27,7 @@ func Subscribe(client mqtt.Client, p *Processor, log *slog.Logger) error {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		gatewayID := strings.TrimPrefix(m.Topic(), IngestTopicPrefix)
-		res, err := p.Handle(ctx, gatewayID, m.Payload())
+		res, err := p.HandleSource(ctx, "mqtt", gatewayID, m.Payload())
 		if err != nil {
 			log.Info("MQTT 接入整包被拒", "topic", m.Topic(), "err", err)
 			return

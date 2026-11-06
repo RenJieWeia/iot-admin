@@ -301,3 +301,35 @@ func TestFindFuture(t *testing.T) {
 		t.Fatalf("边界 now+5m: 期望不命中，实际命中 %q", got.Code)
 	}
 }
+
+// R-031：msgType 是可选字段，只做来源标记，不影响整包/终端校验结果。
+func TestParseEnvelopeMsgType(t *testing.T) {
+	payload := func(extra string) []byte {
+		return []byte(`{"ver":1,"messageId":"m-1","gatewayId":"GW1",` + extra +
+			`"terminals":[{"terminalId":"T1","items":[{"code":"temp","value":1,"collectedAt":"2026-11-05T10:00:00+08:00"}]}]}`)
+	}
+	cases := []struct {
+		name string
+		raw  []byte
+		want int
+	}{
+		{"缺省", payload(""), 0},
+		{"实时", payload(`"msgType":1,`), 1},
+		{"补传", payload(`"msgType":2,`), 2},
+		{"未知值原样透传", payload(`"msgType":9,`), 9},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			env, err := validate.ParseEnvelope(c.raw)
+			if err != nil {
+				t.Fatalf("解析失败: %v", err)
+			}
+			if env.MsgType != c.want {
+				t.Fatalf("MsgType = %d，期望 %d", env.MsgType, c.want)
+			}
+			if len(env.Terminals) != 1 {
+				t.Fatalf("terminals = %d，期望 1（msgType 不影响终端解析）", len(env.Terminals))
+			}
+		})
+	}
+}

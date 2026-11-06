@@ -53,7 +53,15 @@ type BatchResult struct {
 
 // Handle 处理一条 v2 批量消息。返回的 error 只可能是整包级错误（*validate.EnvelopeError）
 // 或平台故障；逐终端拒收体现在 Results 里，不影响同批其他终端。
+//
+// 等价于 HandleSource(ctx, "api", …)：HTTP 接入路径沿用原签名。
 func (p *Processor) Handle(ctx context.Context, ingressGateway string, raw []byte) (BatchResult, error) {
+	return p.HandleSource(ctx, "api", ingressGateway, raw)
+}
+
+// HandleSource 与 Handle 相同，额外记录接入来源（mqtt|api），只用于异常 detail 的来源标记
+// （R-030 §2.4 / R-031），不参与任何路径判定。
+func (p *Processor) HandleSource(ctx context.Context, source, ingressGateway string, raw []byte) (BatchResult, error) {
 	now := p.Now()
 	env, err := validate.ParseEnvelope(raw)
 	if err != nil {
@@ -89,13 +97,13 @@ func (p *Processor) Handle(ctx context.Context, ingressGateway string, raw []byt
 		return out, nil
 	}
 	for _, tw := range env.Terminals {
-		out.Results = append(out.Results, p.handleTerminal(ctx, env, ingress, tw, now, cfg))
+		out.Results = append(out.Results, p.handleTerminal(ctx, source, env, ingress, tw, now, cfg))
 	}
 	return out, nil
 }
 
 // handleTerminal 处理单个终端；任何失败都只影响本终端。
-func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, ingress string,
+func (p *Processor) handleTerminal(ctx context.Context, source string, env *validate.Envelope, ingress string,
 	tw validate.TerminalWire, now time.Time, cfg settle.WindowConfig) Result {
 
 	// 2.1/2.2 结构、value、collectedAt、code 重复、跨度
@@ -212,25 +220,32 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 		cleaned = append(cleaned, out)
 	}
 
-	// 2.6 归属小时逐项独立判定：到达关闭时刻即迟到
-	var inWindow []clean.Out
+	// 2.6 两段写入模型（R-030）：按归属小时是否已到关闭时刻分流，**不再丢弃**。
+	//   - 窗口内：latest_value + hourly_staging，等结算任务；
+	//   - 窗口外：latest_value 照常写 + 直接修正 hourly_snapshot（revision++），不发布实时。
+	// 窗口判定只走 staging.InWindow/CloseAt 这一处口径。
+	var inWindow, outWindow []clean.Out
 	lateCount := 0
 	for _, o := range cleaned {
 		hour := staging.HourStart(o.Time)
 		if !staging.InWindow(hour, window, now) {
 			lateCount++
+			outWindow = append(outWindow, o)
+			// R-026/R-031：detail 带来源与 msgType，便于区分实时上报与补传回填。
 			p.Exc.Event(ctx, exception.LateData, term.ID, ingress, hour, 1,
-				fmt.Sprintf("item=%s collectedAt=%s", o.Code, o.Time.Format(time.RFC3339Nano)))
+				fmt.Sprintf("source=%s msgType=%s item=%s collectedAt=%s",
+					sourceTag(source), msgTypeLabel(env.MsgType), o.Code,
+					o.Time.Format(time.RFC3339Nano)))
 			continue
 		}
 		inWindow = append(inWindow, o)
 	}
 
-	// 2.7 串行化写入
+	// 2.7 串行化写入：窗口内与窗口外同一事务内分别处理（混存时一次提交）
 	var written, regressed []clean.Out
-	if len(inWindow) > 0 {
+	if len(cleaned) > 0 && (len(inWindow) > 0 || len(outWindow) > 0) {
 		var werr error
-		written, regressed, werr = p.write(ctx, term.ID, inWindow, qualityBits, qualityNotes)
+		written, regressed, werr = p.write(ctx, term.ID, inWindow, outWindow, qualityBits, qualityNotes)
 		if werr != nil {
 			p.Log.Error("写缓存/暂存失败", "terminal", term.ID, "err", werr)
 			// 写失败属平台侧故障：异常仍记 cache_write_failed 保可观测，但返回值必须是
@@ -246,9 +261,9 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 	}
 
 	res := Result{TerminalID: tp.TerminalID, Accepted: true, Written: len(written)}
-	// 2.9 按终端发布一条
-	if len(written) > 0 {
-		res.Published = p.publishRealtime(ctx, term, written, ingress, now)
+	// 2.9 按终端发布一条：只发窗口内的值（窗口外数据不触发实时主题）
+	if published := inWindowOnly(written, inWindow); len(published) > 0 {
+		res.Published = p.publishRealtime(ctx, term, published, ingress, now)
 	}
 	for _, v := range violations {
 		p.Exc.Event(ctx, exception.QualityViolation, term.ID, ingress, v.hour, 1,
@@ -261,30 +276,47 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 		p.Exc.Event(ctx, exception.CleanFailed, term.ID, ingress, staging.HourStart(now), 1,
 			fmt.Sprintf("物模型未声明的数据项被忽略: %v", unknownCodes))
 	}
-	if res.Written == 0 && len(cleaned) > 0 && lateCount == len(cleaned) {
-		res.Accepted = false
-		res.Reason = string(exception.LateData)
+	// 整条消息全部落在窗口外时，仍按迟到语义回报（accepted=false + reason=late_data），
+	// 但数据已经直写快照、latest_value 也写入了 —— R-030 只取消了"丢弃"，没有改对外结果口径。
+	if res.Written == 0 || (len(cleaned) > 0 && lateCount == len(cleaned)) {
+		if len(cleaned) > 0 && lateCount == len(cleaned) {
+			res.Accepted = false
+			res.Reason = string(exception.LateData)
+		}
 	}
 	return res
 }
 
 // write 在同一事务里串行化写入 latest_value 与 hourly_staging；返回写入项与回拨项。
 // 每条消息对每张表只发一条批量语句，避免逐项 round trip。
-func (p *Processor) write(ctx context.Context, terminalID string, outs []clean.Out,
+func (p *Processor) write(ctx context.Context, terminalID string, inWindow, outWindow []clean.Out,
 	qualityBits map[string]int16, qualityNotes map[string][]string) (written, regressed []clean.Out, err error) {
 	unlock := p.Locks.Lock(terminalID)
 	defer unlock()
-	vals := make([]store.Value, len(outs))
-	rows := make([]staging.Row, len(outs))
-	for i, o := range outs {
+
+	all := make([]clean.Out, 0, len(inWindow)+len(outWindow))
+	all = append(all, inWindow...)
+	all = append(all, outWindow...)
+	vals := make([]store.Value, len(all))
+	for i, o := range all {
 		vals[i] = store.Value{
 			TerminalID: terminalID, ItemCode: o.Code,
 			ValueNum: o.Number, ValueText: o.Text, Unit: o.Unit, ValueTime: o.Time,
 			Quality:       qualityBits[o.Code],
 			QualityReason: strings.Join(qualityNotes[o.Code], "; "),
 		}
+	}
+	rows := make([]staging.Row, len(inWindow))
+	for i, o := range inWindow {
 		rows[i] = staging.Row{Value: vals[i], HourStart: staging.HourStart(o.Time)}
 	}
+	// 窗口外：直接进快照（与结算共用 UpsertSnapshot，不另写一份 SQL）。
+	var snaps []staging.Row
+	for i, o := range outWindow {
+		v := vals[len(inWindow)+i]
+		snaps = append(snaps, staging.Row{Value: v, HourStart: staging.HourStart(o.Time)})
+	}
+
 	tx, err := p.DB.Begin(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -297,7 +329,12 @@ func (p *Processor) write(ctx context.Context, terminalID string, outs []clean.O
 	if err := staging.Upsert(ctx, tx, rows); err != nil {
 		return nil, nil, err
 	}
-	for _, o := range outs {
+	if len(snaps) > 0 {
+		if _, err := settle.UpsertSnapshot(ctx, tx, snaps); err != nil {
+			return nil, nil, err
+		}
+	}
+	for _, o := range all {
 		if _, ok := writtenSet[o.Code]; ok {
 			written = append(written, o)
 		} else {
@@ -308,6 +345,46 @@ func (p *Processor) write(ctx context.Context, terminalID string, outs []clean.O
 		return nil, nil, err
 	}
 	return written, regressed, nil
+}
+
+// sourceTag 把接入来源收敛成 source= 标记（只用于异常 detail/日志）。
+func sourceTag(source string) string {
+	if source == "mqtt" {
+		return "mqtt"
+	}
+	return "api"
+}
+
+// msgTypeLabel 把可选 msgType 变成可读标记（只用于 detail/日志，不参与路径判定）。
+func msgTypeLabel(msgType int) string {
+	switch msgType {
+	case 1:
+		return "1(实时)"
+	case 2:
+		return "2(补传)"
+	case 0:
+		return "未声明"
+	default:
+		return fmt.Sprintf("%d", msgType)
+	}
+}
+
+// inWindowOnly 从写入成功的项里筛出窗口内的（实时发布只覆盖窗口内数据）。
+func inWindowOnly(written, inWindow []clean.Out) []clean.Out {
+	if len(written) == 0 || len(inWindow) == 0 {
+		return nil
+	}
+	keep := make(map[string]struct{}, len(inWindow))
+	for _, o := range inWindow {
+		keep[o.Code] = struct{}{}
+	}
+	out := make([]clean.Out, 0, len(written))
+	for _, o := range written {
+		if _, ok := keep[o.Code]; ok {
+			out = append(out, o)
+		}
+	}
+	return out
 }
 
 func (p *Processor) publishRealtime(ctx context.Context, term validate.Terminal, outs []clean.Out,

@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -278,6 +279,38 @@ func (t term) marshal() map[string]any {
 
 // batch 构造 v2 批量信封（ver=1）。
 func batch(gatewayID string, terms ...term) []byte { return batchVer(1, gatewayID, terms...) }
+
+// batchWithMsgType 构造带可选 msgType 的信封（R-031：仅来源标记）。
+func batchWithMsgType(msgType, gatewayID string, terms ...term) []byte {
+	return batchWithMeta(msgType, "1", gatewayID, terms...)
+}
+
+func batchWithMeta(msgType, ver, gatewayID string, terms ...term) []byte {
+	body := map[string]any{
+		"messageId": fmt.Sprintf("m-%d", time.Now().UnixNano()),
+		"gatewayId": gatewayID,
+	}
+	if msgType != "" {
+		if n, err := strconv.Atoi(msgType); err == nil {
+			body["msgType"] = n
+		}
+	}
+	if ver != "" {
+		if n, err := strconv.Atoi(ver); err == nil {
+			body["ver"] = n
+		}
+	}
+	list := make([]map[string]any, 0, len(terms))
+	for _, t := range terms {
+		list = append(list, t.marshal())
+	}
+	body["terminals"] = list
+	b, err := json.Marshal(body)
+	if err != nil {
+		panic(err)
+	}
+	return b
+}
 
 // batchVer 指定 ver；ver<=0 表示不带 ver 字段。
 func batchVer(ver int, gatewayID string, terms ...term) []byte {

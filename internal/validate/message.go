@@ -67,6 +67,9 @@ type Envelope struct {
 	Ver       int
 	MessageID string
 	GatewayID string
+	// MsgType 是可选的上游报文类型（R-031）：1 实时、2 补传；0 表示未声明。
+	// **只用于异常 detail/日志的来源标记，不参与任何路径判定**。
+	MsgType   int
 	Terminals []TerminalWire
 }
 
@@ -96,6 +99,7 @@ type envelopeWire struct {
 	Ver       *int            `json:"ver"`
 	MessageID string          `json:"messageId"`
 	GatewayID string          `json:"gatewayId"`
+	MsgType   *int            `json:"msgType"` // 可选：1 实时 / 2 补传，仅来源标记
 	Terminals json.RawMessage `json:"terminals"`
 }
 
@@ -126,7 +130,12 @@ func ParseEnvelope(payload []byte) (*Envelope, error) {
 	if len(terminals) == 0 {
 		return nil, &EnvelopeError{Reason: ReasonTerminalsInvalid, Detail: "terminals 为空"}
 	}
-	return &Envelope{Ver: ver, MessageID: w.MessageID, GatewayID: w.GatewayID, Terminals: terminals}, nil
+	msgType := 0
+	if w.MsgType != nil {
+		msgType = *w.MsgType
+	}
+	return &Envelope{Ver: ver, MessageID: w.MessageID, GatewayID: w.GatewayID,
+		MsgType: msgType, Terminals: terminals}, nil
 }
 
 // ParseTerminal 做单终端校验（R2/R3/R4/R7/R8）：terminalId 非空、items 非空、

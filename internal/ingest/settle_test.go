@@ -2,6 +2,7 @@ package ingest_test
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,7 +48,8 @@ func TestWindowBoundaryIsClosedAtCloseTime(t *testing.T) {
 	}
 }
 
-// 用例 19：迟到数据 → 记 late_data，不写缓存，快照不含该值。
+// 用例 19（R-030 重写）：窗口外数据**不再丢弃**——latest_value 照常写、直写快照、
+// 不发布实时、仍记 late_data；对外结果口径保持 accepted=false + reason=late_data。
 func TestLateDataOutsideWindow(t *testing.T) {
 	e := newEnv(t)
 	hour := hourOf(baseTime)
@@ -59,11 +61,28 @@ func TestLateDataOutsideWindow(t *testing.T) {
 	if r.Accepted || r.Reason != string(exception.LateData) {
 		t.Fatalf("窗口外数据应记 late_data: %+v", r)
 	}
-	if n := e.count(`select count(*) from latest_value`); n != 0 {
-		t.Fatalf("迟到数据不应写缓存，实际 %d 行", n)
+	// 两段模型：latest_value 与 hourly_snapshot 都写入（后者 revision=0），
+	// 但 hourly_staging 必须为空（不参与后续结算）。
+	if n := e.count(`select count(*) from latest_value`); n != 2 {
+		t.Fatalf("窗口外数据应写 latest_value，实际 %d 行", n)
 	}
 	if n := e.stagingCount(); n != 0 {
-		t.Fatalf("迟到数据不应写暂存，实际 %d 行", n)
+		t.Fatalf("窗口外数据不应写暂存，实际 %d 行", n)
+	}
+	if n := e.snapshotCount(); n != 2 {
+		t.Fatalf("窗口外数据应直写快照，实际 %d 行", n)
+	}
+	if n := e.count(`select count(*) from hourly_snapshot where revision <> 0`); n != 0 {
+		t.Fatalf("首次直写快照 revision 应为 0，实际 %d 行非 0", n)
+	}
+	var settled *time.Time
+	if err := e.pool.QueryRow(context.Background(),
+		`select settled_at from hourly_snapshot where terminal_id = $1 and item_code = 'temp' and hour_start = $2`,
+		testTerminalID, hour).Scan(&settled); err != nil {
+		t.Fatalf("读取 settled_at: %v", err)
+	}
+	if settled == nil {
+		t.Fatal("settled_at 应非空")
 	}
 	if n := e.eventCount(testTerminalID, exception.LateData, hour); n != 2 {
 		t.Fatalf("late_data 计数 = %d，期望 2（两个数据项）", n)
@@ -72,13 +91,13 @@ func TestLateDataOutsideWindow(t *testing.T) {
 		t.Fatalf("late_data 行数 = %d，期望 1（按终端/小时汇总）", n)
 	}
 	if n := e.pub.count(); n != 0 {
-		t.Fatalf("迟到数据不应发布，实际 %d 条", n)
+		t.Fatalf("窗口外数据不应发布，实际 %d 条", n)
 	}
 	if _, err := e.settler.Run(context.Background()); err != nil {
 		t.Fatalf("结算失败: %v", err)
 	}
-	if n := e.snapshotCount(); n != 0 {
-		t.Fatalf("快照不应包含迟到值，实际 %d 行", n)
+	if n := e.snapshotCount(); n != 2 {
+		t.Fatalf("结算不应改变快照行数，实际 %d 行", n)
 	}
 }
 
@@ -125,16 +144,27 @@ func TestRepeatedSettleProducesNoSecondRow(t *testing.T) {
 	if r := resultOf(t, e.handle(single(testTerminalID,
 		it("temp", 99.0, "C", baseTime.Add(50*time.Minute)),
 		it("power", 9.0, "kW", baseTime.Add(50*time.Minute)))), testTerminalID); r.Accepted {
-		t.Fatalf("冻结后到达的数据应按迟到处理: %+v", r)
+		t.Fatalf("窗口外数据仍按迟到语义回报: %+v", r)
 	}
-	var num float64
+	// R-030：冻结概念作废——更晚的 value_time 会修正快照并 revision+1，且不产生第二行。
+	var (
+		num      float64
+		revision int
+	)
 	if err := e.pool.QueryRow(context.Background(), `
-		select value_num from hourly_snapshot where terminal_id = $1 and item_code = 'temp' and hour_start = $2`,
-		testTerminalID, hour).Scan(&num); err != nil {
+		select value_num, revision from hourly_snapshot
+		where terminal_id = $1 and item_code = 'temp' and hour_start = $2`,
+		testTerminalID, hour).Scan(&num, &revision); err != nil {
 		t.Fatalf("读取快照失败: %v", err)
 	}
-	if num != 12.5 {
-		t.Fatalf("冻结快照被改写: %v", num)
+	if num != 99.0 {
+		t.Fatalf("更晚的窗口外值应修正快照，实际 %v", num)
+	}
+	if revision != 1 {
+		t.Fatalf("修正后 revision = %d，期望 1", revision)
+	}
+	if n := e.snapshotCount(); n != 2 {
+		t.Fatalf("修正不应新增行，快照行数 = %d，期望 2", n)
 	}
 }
 
@@ -321,5 +351,81 @@ func TestSettleUpdatesExistingSnapshot(t *testing.T) {
 	}
 	if n := e.snapshotCount(); n != 1 {
 		t.Fatalf("快照行数 = %d，期望 1（不产生第二行）", n)
+	}
+}
+
+// R-030：同一批里"一个终端窗口内 + 一个终端窗口外" → 一次事务内分别落 staging / snapshot。
+func TestTwoPhaseWriteMixedBatch(t *testing.T) {
+	e := newEnv(t)
+	now := baseTime.Add(5 * time.Minute)
+	e.clock.Set(now)
+	inWindowAt := baseTime.Add(3 * time.Minute)
+	outWindowAt := baseTime.Add(-3 * time.Hour) // 同一个月的已关闭小时，分区已存在
+
+	res := e.handle(batch(testGatewayID,
+		termOf(testTerminalID, it("temp", 21.0, "C", inWindowAt), it("power", 1.5, "kW", inWindowAt)),
+		termOf(testTerminalB, it("temp", 22.0, "C", outWindowAt), it("power", 2.5, "kW", outWindowAt)),
+	))
+	r1 := resultOf(t, res, testTerminalID)
+	if !r1.Accepted || r1.Written != 2 || !r1.Published {
+		t.Fatalf("窗口内终端应正常入库并发布: %+v", r1)
+	}
+	r2 := resultOf(t, res, testTerminalB)
+	if r2.Accepted || r2.Reason != string(exception.LateData) {
+		t.Fatalf("窗口外终端仍按迟到语义回报: %+v", r2)
+	}
+	if r2.Published {
+		t.Fatalf("窗口外终端不应发布: %+v", r2)
+	}
+
+	if n := e.count(`select count(*) from hourly_staging where terminal_id = $1`, testTerminalID); n != 2 {
+		t.Fatalf("窗口内终端暂存行数 = %d，期望 2", n)
+	}
+	if n := e.count(`select count(*) from hourly_staging where terminal_id = $1`, testTerminalB); n != 0 {
+		t.Fatalf("窗口外终端不应进暂存，实际 %d 行", n)
+	}
+	if n := e.count(`select count(*) from hourly_snapshot where terminal_id = $1`, testTerminalB); n != 2 {
+		t.Fatalf("窗口外终端快照行数 = %d，期望 2", n)
+	}
+	if n := e.count(`select count(*) from hourly_snapshot where terminal_id = $1`, testTerminalID); n != 0 {
+		t.Fatalf("窗口内终端不应提前落快照，实际 %d 行", n)
+	}
+	// 窗口外数据 latest_value 照常写（回拨守卫允许，因为是新格）。
+	if n := e.count(`select count(*) from latest_value where terminal_id = $1`, testTerminalB); n != 2 {
+		t.Fatalf("窗口外终端 latest 行数 = %d，期望 2", n)
+	}
+	if n := e.pub.count(); n != 1 {
+		t.Fatalf("发布条数 = %d，期望 1（只有窗口内终端）", n)
+	}
+}
+
+// R-031：late_data 的 detail 带接入来源与 msgType（仅来源标记，不参与路径判定）。
+func TestLateDataDetailCarriesSourceAndMsgType(t *testing.T) {
+	e := newEnv(t)
+	hour := hourOf(baseTime)
+	at := baseTime.Add(30 * time.Minute)
+	e.clock.Set(closeOf(hour).Add(time.Second))
+
+	payload := batchWithMsgType("2", testGatewayID, termOf(testTerminalID,
+		it("temp", 30.0, "C", at), it("power", 1.0, "kW", at)))
+	res, err := e.proc.HandleSource(context.Background(), "mqtt", testGatewayID, payload)
+	if err != nil {
+		t.Fatalf("处理失败: %v", err)
+	}
+	if r := resultOf(t, res, testTerminalID); r.Accepted || r.Reason != string(exception.LateData) {
+		t.Fatalf("窗口外数据应记 late_data: %+v", r)
+	}
+	digest := e.digestOf(testTerminalID, exception.LateData)
+	for _, want := range []string{"source=mqtt", "msgType=2(补传)", "item=temp"} {
+		if !strings.Contains(digest, want) {
+			t.Fatalf("detail 应包含 %q，实际 %q", want, digest)
+		}
+	}
+	// msgType 不参与路径判定：同一份数据换 msgType 仍走同一条路（写快照、不发布）。
+	if n := e.snapshotCount(); n != 2 {
+		t.Fatalf("快照行数 = %d，期望 2", n)
+	}
+	if n := e.pub.count(); n != 0 {
+		t.Fatalf("不应发布，实际 %d 条", n)
 	}
 }
