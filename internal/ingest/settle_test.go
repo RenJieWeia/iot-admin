@@ -2,6 +2,7 @@ package ingest_test
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -24,8 +25,9 @@ func TestWindowBoundaryIsClosedAtCloseTime(t *testing.T) {
 	e.clock.Set(closeAt)
 	res := e.handle(single(testTerminalID,
 		it("temp", 30.0, "C", at), it("power", 1.0, "kW", at)))
-	if r := resultOf(t, res, testTerminalID); r.Accepted || r.Reason != validateReasonLateData() {
-		t.Fatalf("恰好关闭时刻应判迟到（闭区间）: %+v", r)
+	// R-035：窗口外数据现在会直写快照，对外回到 accepted=true / reason=""。
+	if r := resultOf(t, res, testTerminalID); !r.Accepted || r.Reason != "" {
+		t.Fatalf("关闭时刻的数据应被受理（窗口外直写快照）: %+v", r)
 	}
 	if n := e.stagingCount(); n != 0 {
 		t.Fatalf("关闭时刻的数据不应入暂存，实际 %d 行", n)
@@ -58,8 +60,12 @@ func TestLateDataOutsideWindow(t *testing.T) {
 	res := e.handle(single(testTerminalID,
 		it("temp", 30.0, "C", at), it("power", 1.0, "kW", at)))
 	r := resultOf(t, res, testTerminalID)
-	if r.Accepted || r.Reason != string(exception.LateData) {
-		t.Fatalf("窗口外数据应记 late_data: %+v", r)
+	// R-035：数据已落 latest + 快照，对外不再报迟到；late_data 仍以事件形式保留。
+	if !r.Accepted || r.Reason != "" {
+		t.Fatalf("窗口外数据应被受理（accepted=true / reason=\"\"）: %+v", r)
+	}
+	if r.Written != 2 {
+		t.Fatalf("written = %d，期望 2（staging+snapshot 都算实际写入）", r.Written)
 	}
 	// 两段模型：latest_value 与 hourly_snapshot 都写入（后者 revision=0），
 	// 但 hourly_staging 必须为空（不参与后续结算）。
@@ -143,8 +149,8 @@ func TestRepeatedSettleProducesNoSecondRow(t *testing.T) {
 	e.clock.Set(closeOf(hour).Add(2 * time.Minute))
 	if r := resultOf(t, e.handle(single(testTerminalID,
 		it("temp", 99.0, "C", baseTime.Add(50*time.Minute)),
-		it("power", 9.0, "kW", baseTime.Add(50*time.Minute)))), testTerminalID); r.Accepted {
-		t.Fatalf("窗口外数据仍按迟到语义回报: %+v", r)
+		it("power", 9.0, "kW", baseTime.Add(50*time.Minute)))), testTerminalID); !r.Accepted {
+		t.Fatalf("窗口外数据应被受理（R-035）: %+v", r)
 	}
 	// R-030：冻结概念作废——更晚的 value_time 会修正快照并 revision+1，且不产生第二行。
 	var (
@@ -371,8 +377,8 @@ func TestTwoPhaseWriteMixedBatch(t *testing.T) {
 		t.Fatalf("窗口内终端应正常入库并发布: %+v", r1)
 	}
 	r2 := resultOf(t, res, testTerminalB)
-	if r2.Accepted || r2.Reason != string(exception.LateData) {
-		t.Fatalf("窗口外终端仍按迟到语义回报: %+v", r2)
+	if !r2.Accepted || r2.Reason != "" {
+		t.Fatalf("窗口外终端应被受理（R-035）: %+v", r2)
 	}
 	if r2.Published {
 		t.Fatalf("窗口外终端不应发布: %+v", r2)
@@ -412,8 +418,8 @@ func TestLateDataDetailCarriesSourceAndMsgType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("处理失败: %v", err)
 	}
-	if r := resultOf(t, res, testTerminalID); r.Accepted || r.Reason != string(exception.LateData) {
-		t.Fatalf("窗口外数据应记 late_data: %+v", r)
+	if r := resultOf(t, res, testTerminalID); !r.Accepted || r.Reason != "" {
+		t.Fatalf("窗口外数据应被受理（R-035）: %+v", r)
 	}
 	digest := e.digestOf(testTerminalID, exception.LateData)
 	for _, want := range []string{"source=mqtt", "msgType=2(补传)", "item=temp"} {
@@ -508,5 +514,36 @@ func TestDropExpiredRemovesOldVersions(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("清理后版本行 = %d，期望 1（只删过期那条）", n)
+	}
+}
+
+// R-035：补录旧值不报 protocol_error；窗口内回拨仍报。
+func TestBackfillOlderValueNoProtocolError(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	hour := hourOf(baseTime)
+	at := baseTime.Add(30 * time.Minute)
+	send := func(msgType int, items ...item) {
+		t.Helper()
+		payload := batchWithMsgType(strconv.Itoa(msgType), testGatewayID, termOf(testTerminalID, items...))
+		if _, err := e.proc.HandleSource(ctx, "mqtt", testGatewayID, payload); err != nil {
+			t.Fatalf("处理失败: %v", err)
+		}
+	}
+
+	// 窗口外：先补录，再用更早的 value_time 补一次 → 幂等跳过，不写 protocol_error。
+	e.clock.Set(closeOf(hour).Add(time.Minute))
+	send(2, it("temp", 5.0, "C", at), it("power", 1.0, "kW", at))
+	send(2, it("temp", 4.0, "C", at.Add(-5*time.Minute)), it("power", 0.5, "kW", at.Add(-5*time.Minute)))
+	if n := e.eventCount(testTerminalID, exception.ProtocolError, hour); n != 0 {
+		t.Fatalf("窗口外旧值不应产生 protocol_error，实际 %d", n)
+	}
+
+	// 窗口内：先写新值再写旧值 → 回拨仍记 protocol_error。
+	e.clock.Set(baseTime.Add(5 * time.Minute))
+	send(1, it("temp", 6.0, "C", at.Add(10*time.Minute)), it("power", 2.0, "kW", at.Add(10*time.Minute)))
+	send(1, it("temp", 7.0, "C", at), it("power", 3.0, "kW", at))
+	if n := e.eventCount(testTerminalID, exception.ProtocolError, hour); n == 0 {
+		t.Fatal("窗口内回拨应产生 protocol_error")
 	}
 }

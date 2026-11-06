@@ -225,7 +225,7 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 	//   - 窗口外：latest_value 照常写 + 直接修正 hourly_snapshot（revision++），不发布实时。
 	// 窗口判定只走 staging.InWindow/CloseAt 这一处口径。
 	var inWindow, outWindow []clean.Out
-	lateCount := 0
+	lateCount := 0 // 仅用于事件统计；口径判定已改为按实际写入行数
 	for _, o := range cleaned {
 		hour := staging.HourStart(o.Time)
 		if !staging.InWindow(hour, window, now) {
@@ -279,12 +279,10 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 	}
 	// 整条消息全部落在窗口外时，仍按迟到语义回报（accepted=false + reason=late_data），
 	// 但数据已经直写快照、latest_value 也写入了 —— R-030 只取消了"丢弃"，没有改对外结果口径。
-	if res.Written == 0 || (len(cleaned) > 0 && lateCount == len(cleaned)) {
-		if len(cleaned) > 0 && lateCount == len(cleaned) {
-			res.Accepted = false
-			res.Reason = string(exception.LateData)
-		}
-	}
+	// R-035 口径：窗口外数据已落快照 → accepted=true、reason=""。
+	// 幂等重发（value_time 相等被守卫跳过，Written=0）同样属于"已受理"，不再回 late_data；
+	// 迟到信息仍由 late_data 事件承载（R-026）。真正的写入失败在 write() 里已返回
+	// internal_error（HTTP 整包 503），不会被这里的 accepted=true 掩盖。
 	return res
 }
 
@@ -378,12 +376,22 @@ func (p *Processor) write(ctx context.Context, terminalID string, inWindow, outW
 			return nil, nil, err
 		}
 	}
-	for _, o := range all {
+	snapshotWritten := make(map[string]struct{}, len(cells))
+	for _, c := range cells {
+		snapshotWritten[c.ItemCode] = struct{}{}
+	}
+	for _, o := range inWindow {
 		if _, ok := writtenSet[o.Code]; ok {
 			written = append(written, o)
 		} else {
 			regressed = append(regressed, o)
 		}
+	}
+	for _, o := range outWindow {
+		if _, ok := snapshotWritten[o.Code]; ok {
+			written = append(written, o)
+		}
+		// 窗口外被 value_time 守卫跳过：属于幂等跳过，不记为回拨。
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, err
