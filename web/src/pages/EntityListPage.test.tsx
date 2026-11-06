@@ -107,6 +107,44 @@ describe('实体列表页（服务端驱动）', () => {
     await waitFor(() => expect(bodyRows()).toHaveLength(10));
   });
 
+  it('页码越界自动回到第一页（replace，只跳一次，筛选保留）', async () => {
+    const view = renderApp('/terminals?page=99&filter.enabled.eq=true&sort=name');
+    // 回到第一页：URL 里 page 不再出现，但筛选与排序保留。
+    await waitFor(() => expect(view.location()).not.toContain('page='));
+    expect(view.location()).toContain('filter.enabled.eq=true');
+    expect(view.location()).toContain('sort=name');
+    expect(
+      await screen.findByText('当前页无数据，已回到第一页（筛选条件保留）。'),
+    ).toBeInTheDocument();
+    await waitFor(() => expect(bodyRows()).toHaveLength(10));
+
+    // 不震荡：等一拍后 URL 与行数都不再变化。
+    const settled = view.location();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(view.location()).toBe(settled);
+    expect(bodyRows()).toHaveLength(10);
+  });
+
+  it('修正后第一页仍为空时按「无匹配」展示，不再跳转', async () => {
+    // 模拟数据在翻页期间被删空：总数仍 > 0，但任何页都取不到行。
+    server.use(
+      http.get('/admin/v1/terminals', () =>
+        HttpResponse.json({
+          code: 0,
+          message: 'ok',
+          data: [],
+          meta: { total: 5, page: 1, pageSize: 10, sort: 'id', order: 'desc' },
+        }),
+      ),
+    );
+    const view = renderApp('/terminals?page=99');
+    await waitFor(() => expect(view.location()).not.toContain('page='));
+    expect(await screen.findByText('没有匹配的记录')).toBeInTheDocument();
+    const settled = view.location();
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(view.location()).toBe(settled);
+  });
+
   it('翻页写 URL 并请求下一页，不重置筛选', async () => {
     const user = userEvent.setup();
     const view = renderApp('/terminals');

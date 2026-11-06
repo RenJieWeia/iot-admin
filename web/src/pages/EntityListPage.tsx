@@ -118,6 +118,8 @@ export function EntityListPage() {
   const [toast, setToast] = useState<ToastMessage | null>(null);
   const [pendingDelete, setPendingDelete] = useState<RowData | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
+  /** 越界自动修正只做一次：回到第一页后置位，避免反复跳转。 */
+  const correctedRef = useRef(false);
 
   const setQuery = useCallback(
     (next: QueryState, replace = false) => {
@@ -199,6 +201,24 @@ export function EntityListPage() {
     document.title = entity ? `${entity.title} · IoT 管理后台` : 'IoT 管理后台';
   }, [entity]);
 
+  // F2：页码越界（当前页无行、但总数 > 0）时用 replace 回到第一页，筛选条件全部保留。
+  // 用 ref 去重：回到第一页后不再触发；第一页仍为空则按「无匹配」态展示。
+  useEffect(() => {
+    if (!entity || list.isPending || list.isError) return;
+    if (query.page === 1) {
+      correctedRef.current = false;
+      return;
+    }
+    if (correctedRef.current) return;
+    const empty = rows.length === 0;
+    if (empty && listMeta.total > 0 && query.page > 1) {
+      correctedRef.current = true;
+      // replace：历史里不留下"无数据的页"这一跳；page=1 不落 URL。
+      setSearchParams(toSearchParams(patchQuery(query, { page: 1 })), { replace: true });
+      setToast({ kind: 'ok', text: '当前页无数据，已回到第一页（筛选条件保留）。' });
+    }
+  }, [entity, list, query, rows.length, listMeta.total, setSearchParams]);
+
   // 滚动位置：按「列表地址」记忆，返回/刷新后恢复阅读位置（§8 状态保持）。
   const scrollKey = `${window.location.pathname}?${listParams.toString()}`;
   useEffect(() => {
@@ -238,7 +258,9 @@ export function EntityListPage() {
     : list.isPending
       ? 'loading'
       : rows.length === 0
-        ? activeFilters
+        ? // 空页但总数 > 0 说明数据在变化（或刚被自动修正回第一页仍为空），按「无匹配」处理，
+          // 不再继续跳转，避免与 F2 的自动修正形成循环。
+          activeFilters || listMeta.total > 0
           ? 'nomatch'
           : 'empty'
         : 'ready';
