@@ -181,7 +181,6 @@ export function ReadonlySlotPage({ source }: Props) {
       ) : (
         <>
           <DataTable
-            title={holder.title}
             fields={fields}
             rows={rows}
             state={listState === 'loading' ? 'loading' : 'ready'}
@@ -192,6 +191,13 @@ export function ReadonlySlotPage({ source }: Props) {
             writable={isWritable(holder)}
             sortable={!isCursor}
             skeletonRows={isCursor ? 10 : query.pageSize}
+            caption={
+              isCursor
+                ? `当前页 ${rows.length} 条`
+                : listMeta.total === 0
+                  ? '共 0 条'
+                  : `共 ${listMeta.total} 条，第 ${listMeta.page} 页`
+            }
           />
           {isCursor ? (
             <CursorPager

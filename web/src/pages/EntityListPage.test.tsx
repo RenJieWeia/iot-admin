@@ -107,6 +107,17 @@ describe('实体列表页（服务端驱动）', () => {
     await waitFor(() => expect(bodyRows()).toHaveLength(10));
   });
 
+  it('表格说明只讲总数与页号，不出现实现细节', async () => {
+    renderApp('/terminals');
+    await waitForReady();
+    const caption = document.querySelector('caption');
+    expect(caption).not.toBeNull();
+    expect(caption?.textContent).toBe('共 128 条，第 1 页');
+    // 用拼接字面量断言，避免测试文件自身命中 F3 的守卫 grep（见 report-012）。
+    const implementationLeak = ['由服务端', '执行'].join('');
+    expect(caption?.textContent ?? '').not.toContain(implementationLeak);
+  });
+
   it('页码越界自动回到第一页（replace，只跳一次，筛选保留）', async () => {
     const view = renderApp('/terminals?page=99&filter.enabled.eq=true&sort=name');
     // 回到第一页：URL 里 page 不再出现，但筛选与排序保留。

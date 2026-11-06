@@ -34,7 +34,6 @@ function TableFallback({ title, fields, writable, sort, order, skeletonRows }: F
   return (
     <AppShell title={title}>
       <DataTable
-        title={title}
         fields={fields}
         rows={[]}
         state="loading"
@@ -44,6 +43,7 @@ function TableFallback({ title, fields, writable, sort, order, skeletonRows }: F
         relationOptions={{}}
         writable={writable}
         skeletonRows={skeletonRows}
+        caption="正在加载…"
       />
     </AppShell>
   );

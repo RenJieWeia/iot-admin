@@ -22,7 +22,6 @@ const COLUMN_CLASS: Record<WidthStrategy, string> = {
 };
 
 interface Props {
-  title: string;
   fields: FieldMeta[];
   rows: RowData[];
   state: TableState;
@@ -42,14 +41,15 @@ interface Props {
   onEdit?: (row: RowData, trigger: HTMLButtonElement) => void;
   onDelete?: (row: RowData, trigger: HTMLButtonElement) => void;
   skeletonRows?: number;
+  /** 表格说明：只讲使用信息（总数与页号），不出现实现细节。 */
+  caption: string;
 }
 
 /**
  * 元数据驱动的表格：列、标签颜色、格式化全部来自 FieldMeta；
- * 排序/分页由服务端执行，这里只发语义化事件，不做任何本地过滤（table-query §1、§7）。
+ * 排序与分页由查询层发出语义化事件后交给后端，这里不做任何本地过滤（table-query §1、§7）。
  */
 export function DataTable({
-  title,
   fields,
   rows,
   state,
@@ -62,6 +62,7 @@ export function DataTable({
   onEdit,
   onDelete,
   skeletonRows = 10,
+  caption,
 }: Props) {
   const columns = useMemo<ColumnDef<RowData>[]>(() => {
     const fieldColumns: ColumnDef<RowData>[] = fields.map((field) => ({
@@ -139,9 +140,7 @@ export function DataTable({
         </p>
       )}
       <table className="table-fixed w-max min-w-full border-collapse">
-        <caption className="pb-2 text-left text-sm text-muted">
-          {title}列表：当前页 {rows.length} 行，排序与分页由服务端执行
-        </caption>
+        <caption className="pb-2 text-left text-sm text-muted">{caption}</caption>
         <colgroup>
           {fields.map((field) => (
             <col key={field.key} className={COLUMN_CLASS[field.widthStrategy]} />

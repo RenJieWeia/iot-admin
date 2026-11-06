@@ -343,7 +343,6 @@ export function EntityListPage() {
       ) : (
         <>
           <DataTable
-            title={entity.title}
             fields={fields}
             rows={rows}
             state={listState === 'loading' ? 'loading' : 'ready'}
@@ -361,6 +360,9 @@ export function EntityListPage() {
               setPendingDelete(row);
             }}
             skeletonRows={query.pageSize}
+            caption={
+              listMeta.total === 0 ? '共 0 条' : `共 ${listMeta.total} 条，第 ${listMeta.page} 页`
+            }
           />
           <Pagination
             meta={listMeta}
