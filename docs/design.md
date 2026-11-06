@@ -41,8 +41,10 @@
 5. **网关三方一致**：接入网关（header/topic）== 报文 `gatewayId` == 注册表 `terminal.gateway_id`，任一不一致该终端拒收，异常摘要同时记录接入网关与注册网关。
 6. **终端未注册/停用** → `terminal_unknown`（事件型，本轮新增）；`auth_failed` 只留给真正的凭证/认证失败，本期无业务写入路径。
 7. **单位闭集**：只有 C↔F、W↔kW、Pa↔kPa、Wh↔kWh 四组，闭集外透传原单位 + `clean_failed`，不拒收。
-8. **窗口**：关闭时刻 `H + 1h + window`，闭区间（接收时刻 `>= close` 即迟到）；结算扫描镜像条件 `<= now`。
-9. **结算**：窗口解析只有一个实现（`settle.WindowConfig`），SQL 侧不再内联 CTE；按窗口分组批量 INSERT ... ON CONFLICT DO NOTHING + DELETE 暂存。
+8. **窗口**：关闭时刻 `H + 1h + window`，闭区间（接收时刻 `>= close` 即窗口外）；判定只走 `staging.InWindow` / `staging.CloseAt` 一处口径，结算扫描镜像条件 `<= now`。
+9. **结算**：窗口解析只有一个实现（`settle.WindowConfig`）；快照写入只有一个实现（`settle.UpsertSnapshot`，结算与窗口外分流共用），结算按窗口分组"读待结算暂存 → UPSERT 快照 → 删暂存"。
+15. **两段写入模型（R-030）**：`冻结`概念作废，任何时间到达的数据都落库，按归属小时是否已关闭分两段——窗口内写 `latest_value` + `hourly_staging` 等结算；窗口外 `latest_value` 照常写，并直接 UPSERT `hourly_snapshot`（不发布实时主题、仍记 `late_data`，detail 带 `source=mqtt|api` 与 `msgType`）。窗口内路径行为与两段模型之前完全一致。
+16. **快照版本化（R-030）**：`hourly_snapshot` 带 `revision int not null default 0` 与 `settled_at timestamptz not null default now()`。同一格只有 `value_time` **更大**时才覆盖，且 `revision = revision + 1`、`settled_at = now()` 在 SQL 内原子完成；相等/更早的写入整行跳过（幂等）。历史改写通过 `GET /admin/v1/snapshot/changes?since=&limit=&cursor=` 查询：返回 `settled_at > since` 的行，按 `(settled_at, terminal_id, item_code, hour_start)` 升序游标分页（`limit` 默认 200、上限 1000），`revision > 0` 即被修正过的格子。
 10. **区间异常**：`exception_interval` 的写入机制（`OpenInterval` / `CloseInterval` / 抖动合并 / `upper_inf`）完整保留，但**本期没有任何生产写入路径**——见下条。
 11. **本期区间表无生产写入路径**（能力具备、平台侧未实现）：BroMQ 侧已具备网关离线观测能力——`tracking` hook 维护 `mqtt_clients` 连接状态（`/api/mqtt/clients` 与 `/metrics` 可读），且支持 MQTT 遗嘱（LWT，仅当网关自己在 CONNECT 里声明 `WillTopic` 时才可用，正常 DISCONNECT 不触发）。**平台侧写入路径仍未实现**：`gateway_disconnected` 只能由 Broker 侧信号判定，把"平台到 Broker 的客户端连接断开"记为网关断连仍会产生 100% 假阳性 + 100% 假阴性，因此当前不得用平台连接状态冒充。写入路径随网关离线观测任务排期（证据：`docs/review/RESEARCH-002.md` §5/§6）。
 12. **平台故障与数据问题分离**：DB 等平台侧故障时逐终端标 `internal_error`，HTTP 整包 503（body 仍带完整 `results`）；数据问题仍是 200 + 逐终端 `results`。网关按状态码决定是否整批重传。写路径失败（`latest.Upsert`/`staging.Upsert` 事务失败）同属平台侧故障：异常仍记 `cache_write_failed` 保可观测，但逐终端返回 `internal_error`、整包 503。
@@ -147,7 +149,9 @@ IOT_TEST_DSN=... IOT_CAPACITY=1 go test ./internal/ingest -run TestCapacity -v
 7. **异常表无清理策略**：`exception_count` 长期累积，需按保留期归档。
 8. **元数据缓存的一致性代价**：四类元数据已进程内缓存（TTL 30s + 管理 API 写时失效，见 §三之三）。代价有三：单实例前提，多实例各自持有副本；绕过管理 API 直接改库最长脏 30s；缓存命中期间 DB 不可用不再整包 503，故障推迟到写路径（`cache_write_failed` + 200）。
 9. **本期不产出区间型异常**：`gateway_disconnected` / `item_silent` / `auth_failed` 三类只有枚举与写入机制，没有任何生产写入路径。网关离线**在 Broker 侧可观测**：BroMQ 具备 `mqtt_clients` 客户端跟踪与 MQTT 遗嘱能力（`RESEARCH-002` §5/§6），缺的是平台侧写入路径，随网关离线观测任务排期。
-10. **503 会触发整批重传**：平台故障恢复后网关会重发整批，可能重复发布实时消息与重复计数（已明确允许，不做幂等）。读元数据失败与写路径失败（`cache_write_failed`）都归入这一条：重传由 `value_time` 相等不覆盖兜底，重复发布属已接受行为。
+10. **快照 UPSERT 带来的 UPDATE 膨胀（R-030）**：被修正的格子会产生新版本行版本（revision++），依赖 autovacuum 回收；历史回填集中写入时会放大 WAL 与表膨胀，保留期仍靠按月 DROP 分区兜底。
+11. **窗口外写入依赖分区已存在**：补传跨度超出已建月度分区时写入失败（按设计不自动建分区，由 `EnsurePartitions` 负责），表现为整包 503 而非静默丢数据。
+12. **503 会触发整批重传**：平台故障恢复后网关会重发整批，可能重复发布实时消息与重复计数（已明确允许，不做幂等）。读元数据失败与写路径失败（`cache_write_failed`）都归入这一条：重传由 `value_time` 相等不覆盖兜底，重复发布属已接受行为。
 
 ## 六、未完成项与建议
 

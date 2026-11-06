@@ -70,6 +70,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/v1/_meta", a.meta)
 	mux.HandleFunc("GET /admin/v1/exceptions/{slot}", a.exceptionList)
 	mux.HandleFunc("GET /admin/v1/options/{entity}", a.options)
+	// 快照变更查询（R-032）：只读、游标分页，不进 Entities。
+	mux.HandleFunc("GET /admin/v1/snapshot/changes", a.changes)
 	mux.HandleFunc("GET /admin/v1/{entity}", a.list)
 	mux.HandleFunc("POST /admin/v1/{entity}", a.create)
 	mux.HandleFunc("GET /admin/v1/{entity}/{id}", a.get)
