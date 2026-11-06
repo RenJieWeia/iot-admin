@@ -18,6 +18,19 @@ interface Props {
   relationOptions: Record<string, Record<string, string>>;
   /** replace=true 时不写浏览器历史（关键词连续输入用）。 */
   onChange: (next: QueryState, replace?: boolean) => void;
+  /** 关联选项加载失败（table-query §5：保留已选条件，局部提示重试，不阻塞表格）。 */
+  optionsError?: boolean;
+  onRetryOptions?: () => void;
+}
+
+/** 范围非法提示：数值比大小，日期按 ISO 字典序（YYYY-MM-DD 可直接比较）；空值表示不限。 */
+function rangeProblem(filterType: string, gte: string, lte: string): string | null {
+  if (!gte || !lte) return null;
+  const invalid = filterType === 'numberRange' ? Number(gte) > Number(lte) : gte > lte;
+  if (!invalid) return null;
+  return filterType === 'numberRange'
+    ? `最小值不能大于最大值（${gte} > ${lte}），已保留输入但未提交查询`
+    : `开始日期不能晚于结束日期（${gte} > ${lte}），已保留输入但未提交查询`;
 }
 
 function relationOptionList(labels: Record<string, string> | undefined): Option[] {
@@ -104,11 +117,15 @@ function FilterControl({
   query,
   relationOptions,
   onChange,
+  optionsError,
+  onRetryOptions,
 }: {
   field: FieldMeta;
   query: QueryState;
   relationOptions: Record<string, Record<string, string>>;
   onChange: (next: QueryState) => void;
+  optionsError?: boolean;
+  onRetryOptions?: () => void;
 }) {
   const options = optionList(field, relationOptions);
   const inputId = `filter-${field.key}`;
@@ -137,6 +154,8 @@ function FilterControl({
   const textCommit = useDebouncedCommit(commitText);
 
   const commitRange = (nextGte: string, nextLte: string) => {
+    // 非法范围（min>max / 起>止）不发请求：保留用户输入，只在控件下给提示。
+    if (rangeProblem(field.filterType, nextGte, nextLte)) return;
     if (nextGte === gte && nextLte === lte) return;
     gteDraft.noteWritten(nextGte);
     lteDraft.noteWritten(nextLte);
@@ -195,15 +214,28 @@ function FilterControl({
             ))}
           </select>
         )}
+        {optionsError && options.length === 0 && (
+          <p className="m-0 text-sm text-negative-text">
+            选项加载失败，已选条件仍生效。
+            <button type="button" className="btn btn-link" onClick={onRetryOptions}>
+              重试
+            </button>
+          </p>
+        )}
       </div>
     );
   }
 
   if (field.filterType === 'numberRange' || field.filterType === 'dateRange') {
     const isNumber = field.filterType === 'numberRange';
+    const problem = rangeProblem(field.filterType, gteDraft.draft, lteDraft.draft);
+    const errorId = `${inputId}-error`;
     return (
-      <div className="field">
-        <label htmlFor={`${inputId}-gte`}>{field.label}（范围）</label>
+      <div className={problem ? 'field field-error' : 'field'}>
+        <label htmlFor={`${inputId}-gte`}>
+          {/* 日期是纯日期区间，后端按 +08:00 cast timestamptz，时区必须写清楚（table-query §4）。 */}
+          {field.label}（范围{isNumber ? '' : '，+08:00'}）
+        </label>
         <div className="flex min-h-9 flex-wrap items-center gap-2 rounded-sm border border-border p-2">
           <input
             id={`${inputId}-gte`}
@@ -212,9 +244,11 @@ function FilterControl({
                 ? 'input option-group-field number-input h-8'
                 : 'input option-group-field date-input h-8'
             }
-            type={isNumber ? 'number' : 'text'}
-            placeholder={isNumber ? '最小值' : 'YYYY-MM-DD'}
+            type={isNumber ? 'number' : 'date'}
+            placeholder={isNumber ? '最小值' : undefined}
             aria-label={`${field.label} 下限`}
+            aria-invalid={Boolean(problem)}
+            aria-describedby={problem ? errorId : undefined}
             value={gteDraft.draft}
             onChange={(event) => gteDraft.setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -229,9 +263,11 @@ function FilterControl({
                 ? 'input option-group-field number-input h-8'
                 : 'input option-group-field date-input h-8'
             }
-            type={isNumber ? 'number' : 'text'}
-            placeholder={isNumber ? '最大值' : 'YYYY-MM-DD'}
+            type={isNumber ? 'number' : 'date'}
+            placeholder={isNumber ? '最大值' : undefined}
             aria-label={`${field.label} 上限`}
+            aria-invalid={Boolean(problem)}
+            aria-describedby={problem ? errorId : undefined}
             value={lteDraft.draft}
             onChange={(event) => lteDraft.setDraft(event.target.value)}
             onKeyDown={(event) => {
@@ -240,6 +276,15 @@ function FilterControl({
             onBlur={(event) => commitRange(gteDraft.draft, event.currentTarget.value)}
           />
         </div>
+        {problem && (
+          <p
+            id={errorId}
+            className="m-0 rounded-sm border border-negative-text bg-negative-bg px-3 py-2 text-negative-text"
+            role="alert"
+          >
+            {problem}
+          </p>
+        )}
       </div>
     );
   }
@@ -334,7 +379,14 @@ export function ActiveFilterChips({ entity, query, relationOptions, onChange }: 
   );
 }
 
-export function FilterBar({ entity, query, relationOptions, onChange }: Props) {
+export function FilterBar({
+  entity,
+  query,
+  relationOptions,
+  onChange,
+  optionsError,
+  onRetryOptions,
+}: Props) {
   const quick = useMemo(() => quickFilters(entity), [entity]);
   const advanced = useMemo(() => advancedFilters(entity), [entity]);
   const [keyword, setKeyword] = useState(query.q);
@@ -382,6 +434,8 @@ export function FilterBar({ entity, query, relationOptions, onChange }: Props) {
               query={query}
               relationOptions={relationOptions}
               onChange={onChange}
+              optionsError={optionsError}
+              onRetryOptions={onRetryOptions}
             />
           ))}
         </div>
@@ -419,12 +473,14 @@ export function FilterBar({ entity, query, relationOptions, onChange }: Props) {
                   query={query}
                   relationOptions={relationOptions}
                   onChange={onChange}
+                  optionsError={optionsError}
+                  onRetryOptions={onRetryOptions}
                 />
               ))}
             </div>
             <div className="mt-2 flex justify-end gap-2">
               <button type="button" className="btn" onClick={() => setDialogOpen(false)}>
-                关闭
+                完成
               </button>
             </div>
           </Dialog.Content>

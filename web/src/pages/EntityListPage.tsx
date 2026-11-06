@@ -295,7 +295,7 @@ export function EntityListPage() {
             新建
           </button>
         ) : (
-          <span className="muted">只读页面：不提供新建、编辑或删除入口。</span>
+          <span className="text-muted">只读页面：不提供新建、编辑或删除入口。</span>
         )
       }
     >
@@ -304,6 +304,8 @@ export function EntityListPage() {
         query={query}
         relationOptions={relationOptions}
         onChange={setQuery}
+        optionsError={optionsQuery.isError}
+        onRetryOptions={() => void optionsQuery.refetch()}
       />
 
       {staleRefreshError && (
