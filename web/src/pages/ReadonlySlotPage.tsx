@@ -1,17 +1,18 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useParams, useSearchParams } from 'react-router';
 import { ApiError } from '../api/client';
-import { useSlotList, type SlotSource } from '../api/exceptions';
+import { useSlotCursorList, useSlotList, type SlotSource } from '../api/exceptions';
 import { useMeta } from '../api/meta';
-import type { FieldMeta, ListMeta, ReadonlyMeta } from '../api/types';
-import type { ActiveFilter } from '../lib/queryState';
+import type { CursorMeta, ListMeta, ReadonlyMeta } from '../api/types';
 import { AppShell } from '../components/AppShell';
+import { CursorPager } from '../components/CursorPager';
 import { DataTable } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { FilterBar } from '../components/FilterBar';
 import { Pagination } from '../components/Pagination';
-import { defaultSort, isWritable } from '../lib/fieldMeta';
+import { defaultSort, isWritable, visibleFields } from '../lib/fieldMeta';
+import { isPresetActive, presetsFor, togglePreset } from '../lib/presets';
 import {
   clearFilters,
   hasActiveConditions,
@@ -36,35 +37,19 @@ function errorDetail(error: unknown): string | null {
   return String(error);
 }
 
-/**
- * 「仅看有问题」的语义来自 task-009 §2：`filter.quality.gte=1`（不新增 SQL 操作符）。
- * 只有当前只读页确实下发了 `quality` 数值字段（且支持 gte）时才渲染该开关，
- * 其余只读页不受影响；文案与阈值是本批固定的产品语义，不来自 _meta。
- */
-const QUALITY_FIELD_KEY = 'quality';
-const TROUBLE_THRESHOLD = '1';
-
-function qualityPresetField(fields: FieldMeta[]): FieldMeta | undefined {
-  return fields.find(
-    (field) => field.key === QUALITY_FIELD_KEY && field.filterable && field.operators.includes('gte'),
-  );
-}
-
-function isTroubleOnly(query: QueryState): boolean {
-  return (
-    query.filters.find((f) => f.field === QUALITY_FIELD_KEY && f.op === 'gte')?.values.includes(
-      TROUBLE_THRESHOLD,
-    ) ?? false
-  );
-}
-
 interface Props {
   /** exceptions 与 readonly 两个只读源共用同一实现，仅切换数据源前缀。 */
   source: SlotSource;
 }
 
 /**
- * 通用只读页（异常两页 + task-009 的最新值）：列、中文、枚举色调全部来自 `_meta`。
+ * 通用只读页（异常两页 / 最新值 / 小时暂存 / 小时快照）：列、中文、枚举色调全部来自 `_meta`。
+ *
+ * 分页形态由 `_meta.readonly[].pagination` 决定：
+ * - `offset`：页码 + 总数；
+ * - `cursor`：「加载更多」，只认 `hasMore`，不显示总数（分区表 count(*) 会随月退化），
+ *   游标写进 URL，刷新/后退可以复原同一页。
+ *
  * 刻意不提供任何写入口：没有新建/编辑/删除、不解析 drawer、不发写请求。
  */
 export function ReadonlySlotPage({ source }: Props) {
@@ -78,7 +63,16 @@ export function ReadonlySlotPage({ source }: Props) {
       : metaQuery.data?.readonly?.find((item) => item.slot === slot);
   const query = useMemo(() => parseQueryState(searchParams), [searchParams]);
 
-  const list = useSlotList(source, slot, toListQuery(query), Boolean(holder));
+  const isCursor = (holder?.pagination ?? 'offset') === 'cursor';
+
+  const offsetList = useSlotList(source, slot, toListQuery(query), Boolean(holder) && !isCursor);
+  const cursorList = useSlotCursorList(
+    source,
+    slot,
+    { q: query.q, filters: toListQuery(query).filters, cursor: query.cursor },
+    Boolean(holder) && isCursor,
+  );
+  const activeList = isCursor ? cursorList : offsetList;
 
   const setQuery = useCallback(
     (next: QueryState, replace = false) => {
@@ -105,9 +99,14 @@ export function ReadonlySlotPage({ source }: Props) {
     );
   }
 
-  const fields = holder.fields.filter((field) => field.visible);
-  const rows = list.data?.rows ?? [];
-  const listMeta: ListMeta = list.data?.meta ?? {
+  const fields = visibleFields(holder);
+  const rows = (isCursor ? cursorList.data?.rows : offsetList.data?.rows) ?? [];
+  const cursorMeta: CursorMeta = cursorList.data?.meta ?? {
+    hasMore: false,
+    nextCursor: null,
+    limit: 0,
+  };
+  const listMeta: ListMeta = offsetList.data?.meta ?? {
     total: 0,
     page: query.page,
     pageSize: query.pageSize,
@@ -116,10 +115,10 @@ export function ReadonlySlotPage({ source }: Props) {
   };
   const fallbackSort = holder.defaultSort || defaultSort(holder);
   const activeFilters = hasActiveConditions(query);
-  const outOfRange = listMeta.total > 0 && rows.length === 0;
-  const listState = list.isError
+  const outOfRange = !isCursor && listMeta.total > 0 && rows.length === 0;
+  const listState = activeList.isError
     ? 'error'
-    : list.isPending
+    : activeList.isPending && rows.length === 0
       ? 'loading'
       : rows.length === 0
         ? activeFilters
@@ -127,47 +126,35 @@ export function ReadonlySlotPage({ source }: Props) {
           : 'empty'
         : 'ready';
 
-  const presetField = qualityPresetField(holder.fields);
-  const troubleOnly = isTroubleOnly(query);
-
-  const toggleTroubleOnly = (checked: boolean) => {
-    const rest = query.filters.filter((f) => f.field !== QUALITY_FIELD_KEY);
-    const next: ActiveFilter[] = checked
-      ? [...rest, { field: QUALITY_FIELD_KEY, op: 'gte', values: [TROUBLE_THRESHOLD] }]
-      : rest;
-    setQuery(patchQuery(query, { filters: next }));
-  };
+  const presets = presetsFor(holder.fields);
 
   return (
     <AppShell
       title={holder.title}
       actions={<span className="muted">只读页面：不提供新建、编辑或删除入口。</span>}
     >
-      {presetField && (
+      {presets.length > 0 && (
         <div className="preset-row">
-          <label>
-            <input
-              type="checkbox"
-              checked={troubleOnly}
-              onChange={(event) => toggleTroubleOnly(event.target.checked)}
-            />{' '}
-            仅看有问题（{presetField.label} ≥ {TROUBLE_THRESHOLD}）
-          </label>
+          {presets.map((preset) => (
+            <label key={preset.field}>
+              <input
+                type="checkbox"
+                checked={isPresetActive(query, preset)}
+                onChange={(event) => setQuery(togglePreset(query, preset, event.target.checked))}
+              />{' '}
+              {preset.label}（{preset.hint}）
+            </label>
+          ))}
         </div>
       )}
 
-      <FilterBar
-        entity={holder}
-        query={query}
-        relationOptions={{}}
-        onChange={setQuery}
-      />
+      <FilterBar entity={holder} query={query} relationOptions={{}} onChange={setQuery} />
 
       {listState === 'error' ? (
         <ErrorState
           title="列表加载失败"
-          text={`${errorDetail(list.error) ?? '未知错误'}。数据未丢失，可重试；若筛选条件非法，清除筛选后重试。`}
-          onRetry={() => void list.refetch()}
+          text={`${errorDetail(activeList.error) ?? '未知错误'}。数据未丢失，可重试；若筛选条件非法，清除筛选后重试。`}
+          onRetry={() => void activeList.refetch()}
           extra={
             activeFilters ? (
               <button type="button" className="btn" onClick={() => setQuery(clearFilters(query))}>
@@ -179,7 +166,7 @@ export function ReadonlySlotPage({ source }: Props) {
       ) : listState === 'empty' ? (
         <EmptyState
           title={`暂无${holder.title}`}
-          text="这个数据源当前没有任何记录。接入端上报后会自动出现在这里，可稍后刷新再看。"
+          text="这个数据源当前没有任何记录。数据写入后会自动出现在这里，可稍后刷新再看。"
         />
       ) : listState === 'nomatch' ? (
         <EmptyState
@@ -203,16 +190,27 @@ export function ReadonlySlotPage({ source }: Props) {
             onSort={(field) => setQuery(setSort(query, field))}
             relationOptions={{}}
             writable={isWritable(holder)}
-            skeletonRows={query.pageSize}
+            sortable={!isCursor}
+            skeletonRows={isCursor ? 10 : query.pageSize}
           />
-          <Pagination
-            meta={listMeta}
-            rangeText={rangeText(listMeta, rows.length)}
-            outOfRange={outOfRange}
-            pageSizeOptions={metaQuery.data?.pagination?.options ?? [10, 20, 50]}
-            onPage={(page) => setQuery(patchQuery(query, { page }))}
-            onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
-          />
+          {isCursor ? (
+            <CursorPager
+              hasMore={cursorMeta.hasMore}
+              loading={cursorList.isFetching}
+              limit={cursorMeta.limit}
+              loaded={rows.length}
+              onMore={() => setQuery(patchQuery(query, { cursor: cursorMeta.nextCursor ?? '' }))}
+            />
+          ) : (
+            <Pagination
+              meta={listMeta}
+              rangeText={rangeText(listMeta, rows.length)}
+              outOfRange={outOfRange}
+              pageSizeOptions={metaQuery.data?.pagination?.options ?? [10, 20, 50]}
+              onPage={(page) => setQuery(patchQuery(query, { page }))}
+              onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
+            />
+          )}
         </>
       )}
     </AppShell>

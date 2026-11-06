@@ -33,7 +33,85 @@ export const qualityOptions = [
   { value: '7', label: '越界+规则+单位', tone: 'warning' as const },
 ];
 
-/** `_meta.readonly`（task-009 §2 A3）：本批只有 latest-values 一项。 */
+/** 运行时只读页共用的 8 列（task-010 §3.2）。 */
+function runtimeFields(): FieldMeta[] {
+  return [
+    field({ key: 'terminal_id', label: '终端', type: 'text', operators: ['contains', 'eq'], widthStrategy: 'min' }),
+    field({ key: 'item_code', label: '数据项编码', type: 'text', widthStrategy: 'min' }),
+    field({
+      key: 'value_num',
+      label: '数值',
+      type: 'number',
+      filterType: 'numberRange',
+      operators: ['gte', 'lte'],
+      advancedOnly: true,
+      widthStrategy: 'fixed',
+    }),
+    field({ key: 'value_text', label: '文本值', type: 'text', advancedOnly: true, widthStrategy: 'min' }),
+    field({ key: 'unit', label: '单位', type: 'text', advancedOnly: true, widthStrategy: 'fixed' }),
+    field({
+      key: 'value_time',
+      label: '取值时间',
+      type: 'datetime',
+      filterType: 'dateRange',
+      operators: ['gte', 'lte'],
+      widthStrategy: 'min',
+    }),
+    field({
+      key: 'quality',
+      label: '质量',
+      type: 'number',
+      filterType: 'numberRange',
+      operators: ['gte', 'lte'],
+      optionsSource: 'static',
+      options: qualityOptions,
+      widthStrategy: 'fixed',
+    }),
+    field({
+      key: 'quality_reason',
+      label: '质量原因',
+      type: 'text',
+      sortable: false,
+      advancedOnly: true,
+      widthStrategy: 'flex',
+    }),
+  ];
+}
+
+function settledAtField(): FieldMeta {
+  return field({
+    key: 'settled_at',
+    label: '结算时间',
+    type: 'datetime',
+    filterType: 'dateRange',
+    operators: ['gte', 'lte'],
+    widthStrategy: 'min',
+  });
+}
+
+function revisionField(): FieldMeta {
+  return field({
+    key: 'revision',
+    label: '修正次数',
+    type: 'number',
+    filterType: 'numberRange',
+    operators: ['gte', 'lte'],
+    widthStrategy: 'fixed',
+  });
+}
+
+function hourStart(): FieldMeta {
+  return field({
+    key: 'hour_start',
+    label: '归属小时',
+    type: 'datetime',
+    filterType: 'dateRange',
+    operators: ['gte', 'lte'],
+    widthStrategy: 'min',
+  });
+}
+
+/** `_meta.readonly`：最新值（offset）、小时暂存（offset）、小时快照（cursor）。 */
 export const readonlyFixture: ReadonlyMeta[] = [
   {
     slot: 'latest-values',
@@ -43,6 +121,7 @@ export const readonlyFixture: ReadonlyMeta[] = [
     readOnly: true,
     defaultSort: 'value_time',
     defaultOrder: 'desc',
+    pagination: 'offset',
     fields: [
       field({ key: 'terminal_id', label: '终端', type: 'text', operators: ['contains', 'eq'], widthStrategy: 'min' }),
       field({ key: 'item_code', label: '数据项编码', type: 'text', widthStrategy: 'min' }),
@@ -96,6 +175,30 @@ export const readonlyFixture: ReadonlyMeta[] = [
         widthStrategy: 'flex',
       }),
     ],
+  },
+  {
+    slot: 'hourly-staging',
+    name: 'hourly-staging',
+    title: '小时暂存',
+    route: '/admin/v1/readonly/hourly-staging',
+    readOnly: true,
+    defaultSort: 'hour_start',
+    defaultOrder: 'desc',
+    pagination: 'offset',
+    fields: [hourStart(), ...runtimeFields()],
+  },
+  {
+    slot: 'hourly-snapshot',
+    name: 'hourly-snapshot',
+    title: '小时快照',
+    route: '/admin/v1/readonly/hourly-snapshot',
+    readOnly: true,
+    // 默认排序命中 hourly_snapshot_settled_idx（task-010 §2）。
+    defaultSort: 'settled_at',
+    defaultOrder: 'desc',
+    pagination: 'cursor',
+    // 字段顺序与后端实测一致：hour_start 打头，revision 在 settled_at 之前。
+    fields: [hourStart(), ...runtimeFields(), revisionField(), settledAtField()],
   },
 ];
 
@@ -403,6 +506,33 @@ export const latestValues = Array.from({ length: 128 }).map((_, index) => {
     quality_reason: quality === 0 ? null : `原因-${quality}`,
   };
 });
+
+const runtimeRow = (index: number, quality: number) => ({
+  terminal_id: `t-${String((index % 20) + 1).padStart(3, '0')}`,
+  item_code: `item-${(index % 6) + 1}`,
+  value_num: (index * 5) % 100,
+  value_text: null,
+  unit: index % 5 === 0 ? 'kW' : '℃',
+  value_time: new Date(Date.UTC(2026, 10, 5, 12, 0, index % 60)).toISOString(),
+  quality: String(quality),
+  quality_reason: quality === 0 ? null : `原因-${quality}`,
+});
+
+/** 小时暂存 25 行（offset 分页：10/页 → 3 页）。 */
+export const stagingValues = Array.from({ length: 25 }).map((_, index) => ({
+  id: index + 1,
+  ...runtimeRow(index, index % 8),
+  hour_start: new Date(Date.UTC(2026, 10, 5, index % 24)).toISOString(),
+}));
+
+/** 小时快照 45 行；每 4 行有 1 行被修正过（revision>0），用于「仅看被修正过」。 */
+export const snapshotValues = Array.from({ length: 45 }).map((_, index) => ({
+  id: index + 1,
+  ...runtimeRow(index, index % 8),
+  hour_start: new Date(Date.UTC(2026, 10, 5, index % 24)).toISOString(),
+  settled_at: new Date(Date.UTC(2026, 10, 5, 1, index % 60)).toISOString(),
+  revision: index % 4 === 0 ? (index % 3) + 1 : 0,
+}));
 
 export const exceptionEvents = [
   { terminal_id: 't-001', error_type: 'upload_timeout', count: 3 },

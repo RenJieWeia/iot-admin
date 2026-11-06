@@ -33,6 +33,11 @@ interface Props {
   relationOptions: Record<string, Record<string, string>>;
   /** 只读表（异常两页）不渲染操作列。 */
   writable: boolean;
+  /**
+   * 是否提供排序入口。游标分页页（快照）后端固定排序，传 sort/order 会 400，
+   * 因此不渲染排序按钮，只保留默认排序列的静态方向标识。
+   */
+  sortable?: boolean;
   /** 第二个参数是触发按钮：抽屉关闭后焦点要回到它。 */
   onEdit?: (row: RowData, trigger: HTMLButtonElement) => void;
   onDelete?: (row: RowData, trigger: HTMLButtonElement) => void;
@@ -53,6 +58,7 @@ export function DataTable({
   onSort,
   relationOptions,
   writable,
+  sortable = true,
   onEdit,
   onDelete,
   skeletonRows = 10,
@@ -148,7 +154,7 @@ export function DataTable({
             <tr key={group.id}>
               {group.headers.map((header) => {
                 const field = fields.find((f) => f.key === header.id);
-                const sortable = Boolean(field?.sortable);
+                const canSort = sortable && Boolean(field?.sortable);
                 const active = field?.key === sort;
                 const ariaSort = active ? (order === 'asc' ? 'ascending' : 'descending') : 'none';
                 return (
@@ -156,9 +162,9 @@ export function DataTable({
                     key={header.id}
                     scope="col"
                     className={styles.th}
-                    aria-sort={sortable ? ariaSort : undefined}
+                    aria-sort={active ? ariaSort : canSort ? 'none' : undefined}
                   >
-                    {sortable && field ? (
+                    {canSort && field ? (
                       <button
                         type="button"
                         className={styles.sortButton}
@@ -171,7 +177,15 @@ export function DataTable({
                         </span>
                       </button>
                     ) : (
-                      flexRender(header.column.columnDef.header, header.getContext())
+                      <>
+                        {flexRender(header.column.columnDef.header, header.getContext())}
+                        {active && (
+                          // 服务端固定排序：只给方向标识，不做可点击入口。
+                          <span className={styles.sortMark} aria-hidden="true">
+                            {order === 'asc' ? ' ↑' : ' ↓'}
+                          </span>
+                        )}
+                      </>
                     )}
                   </th>
                 );

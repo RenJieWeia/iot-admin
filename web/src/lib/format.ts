@@ -12,6 +12,8 @@ export interface CellView {
 }
 
 const TIME_ZONE = 'Asia/Shanghai';
+/** 快照页的修正次数列（task-010 §4.3）。 */
+const REVISION_FIELD_KEY = 'revision';
 const OFFSET_SUFFIX = '+08:00';
 const EMPTY = '—';
 
@@ -74,6 +76,20 @@ export function formatCell(
   relationLabels: Record<string, string> = {},
 ): CellView {
   const raw = value === null || value === undefined ? '' : value;
+  // revision 是快照页的「修正次数」：0/空显示 —，>0 显示数字并把完整说明放进 title。
+  // 字段键是本批固定的契约（task-010 §4.3），与 quality 的 preset 一样集中一处。
+  if (field.key === REVISION_FIELD_KEY && field.type === 'number') {
+    if (raw === '') return { text: EMPTY, full: '', kind: 'muted', tone: 'neutral' };
+    const times = Number(raw);
+    if (!Number.isFinite(times)) return { text: String(raw), full: String(raw), kind: 'text', tone: 'neutral' };
+    return {
+      text: times === 0 ? EMPTY : String(times),
+      full: times === 0 ? '未修正' : `已修正 ${times} 次`,
+      kind: times === 0 ? 'muted' : 'text',
+      tone: 'neutral',
+    };
+  }
+
   // 带 options 的字段（枚举/布尔/带语义的数值，如 quality）一律渲染成「文字 + 颜色」标签，
   // 取值与色调全部来自 _meta，前端不硬编码文案。
   if (field.options && field.options.length > 0) {

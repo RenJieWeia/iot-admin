@@ -24,6 +24,8 @@ export interface QueryState {
   order: 'asc' | 'desc';
   page: number;
   pageSize: PageSize;
+  /** 游标分页的位置；offset 分页恒为空串。刷新/返回时用它复原同一页。 */
+  cursor: string;
 }
 
 export const DEFAULT_QUERY: QueryState = {
@@ -33,6 +35,7 @@ export const DEFAULT_QUERY: QueryState = {
   order: 'desc',
   page: 1,
   pageSize: 10,
+  cursor: '',
 };
 
 const OPS: ReadonlySet<string> = new Set(['contains', 'eq', 'prefix', 'in', 'gte', 'lte']);
@@ -72,6 +75,7 @@ export function parseQueryState(params: URLSearchParams): QueryState {
     order: params.get('order') === 'asc' ? 'asc' : 'desc',
     page: toInt(params.get('page'), 1),
     pageSize,
+    cursor: params.get('cursor') ?? '',
   };
 }
 
@@ -83,6 +87,7 @@ export function toSearchParams(state: QueryState): URLSearchParams {
   if (state.sort && state.order !== 'desc') params.set('order', state.order);
   if (state.page > 1) params.set('page', String(state.page));
   if (state.pageSize !== DEFAULT_QUERY.pageSize) params.set('pageSize', String(state.pageSize));
+  if (state.cursor) params.set('cursor', state.cursor);
   for (const filter of state.filters) {
     const key = filter.op ? `filter.${filter.field}.${filter.op}` : `filter.${filter.field}`;
     for (const value of filter.values) {
@@ -117,8 +122,10 @@ export function patchQuery(state: QueryState, patch: Partial<QueryState>): Query
     patch.sort !== undefined ||
     patch.order !== undefined ||
     patch.pageSize !== undefined;
-  if (resetsPage && patch.page === undefined) {
-    next.page = 1;
+  if (resetsPage) {
+    // 条件一变，游标位置立刻失效；页码也回第一页（table-query §2）。
+    if (patch.page === undefined) next.page = 1;
+    if (patch.cursor === undefined) next.cursor = '';
   }
   return next;
 }

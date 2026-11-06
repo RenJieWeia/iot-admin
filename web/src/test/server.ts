@@ -6,6 +6,8 @@ import {
   exceptionEvents,
   latestValues,
   metaFixture,
+  snapshotValues,
+  stagingValues,
 } from './fixtures';
 import type { RowData } from '../api/types';
 
@@ -60,13 +62,51 @@ export const server = setupServer(
     return ok([]);
   }),
 
-  // 通用只读源（task-009）：latest-values，支持 quality.gte 与 terminal_id 过滤。
+  // 小时快照（task-010）：游标分页，meta 只有 hasMore/nextCursor/limit。
+  http.get('/admin/v1/readonly/hourly-snapshot', ({ request }) => {
+    const url = new URL(request.url);
+    const cursor = url.searchParams.get('cursor') ?? '';
+    const limit = Math.min(Number(url.searchParams.get('limit') ?? '20') || 20, 1000);
+
+    let rows = [...snapshotValues] as RowData[];
+    const revisionGte = url.searchParams.getAll('filter.revision.gte');
+    if (revisionGte.length > 0) {
+      const threshold = Number(revisionGte[0] ?? '0');
+      rows = rows.filter((row) => Number(row.revision) >= threshold);
+    }
+    const qualityGte = url.searchParams.getAll('filter.quality.gte');
+    if (qualityGte.length > 0) {
+      const threshold = Number(qualityGte[0] ?? '0');
+      rows = rows.filter((row) => Number(row.quality) >= threshold);
+    }
+
+    let offset = 0;
+    if (cursor) {
+      const matched = /^off:(\d+)$/.exec(cursor);
+      if (!matched) {
+        return HttpResponse.json({ code: 400, message: 'invalid_cursor' }, { status: 400 });
+      }
+      offset = Number(matched[1]);
+    }
+
+    const slice = rows.slice(offset, offset + limit);
+    const nextOffset = offset + slice.length;
+    const hasMore = nextOffset < rows.length;
+    return HttpResponse.json({
+      code: 0,
+      message: 'ok',
+      data: slice,
+      meta: { hasMore, nextCursor: hasMore ? `off:${nextOffset}` : null, limit },
+    });
+  }),
+
+  // 通用只读源：latest-values（offset）、hourly-staging（offset）。
   http.get('/admin/v1/readonly/:slot', ({ params, request }) => {
     const url = new URL(request.url);
-    if (params.slot !== 'latest-values') {
+    if (params.slot !== 'latest-values' && params.slot !== 'hourly-staging') {
       return HttpResponse.json({ code: 404, message: 'unknown_slot' }, { status: 404 });
     }
-    let rows = [...latestValues] as RowData[];
+    let rows = (params.slot === 'latest-values' ? [...latestValues] : [...stagingValues]) as RowData[];
     const qualityGte = url.searchParams.getAll('filter.quality.gte');
     if (qualityGte.length > 0) {
       const threshold = Number(qualityGte[0] ?? '0');
