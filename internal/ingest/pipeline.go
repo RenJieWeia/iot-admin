@@ -245,7 +245,8 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 	var written, regressed []clean.Out
 	if len(cleaned) > 0 && (len(inWindow) > 0 || len(outWindow) > 0) {
 		var werr error
-		written, regressed, werr = p.write(ctx, term.ID, inWindow, outWindow, qualityBits, qualityNotes)
+		written, regressed, werr = p.write(ctx, term.ID, inWindow, outWindow, qualityBits, qualityNotes,
+			writeVersionMeta{source: versionSourceFor(env.MsgType), actor: ""})
 		if werr != nil {
 			p.Log.Error("写缓存/暂存失败", "terminal", term.ID, "err", werr)
 			// 写失败属平台侧故障：异常仍记 cache_write_failed 保可观测，但返回值必须是
@@ -287,10 +288,30 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 	return res
 }
 
-// write 在同一事务里串行化写入 latest_value 与 hourly_staging；返回写入项与回拨项。
-// 每条消息对每张表只发一条批量语句，避免逐项 round trip。
+// writeVersionMeta 决定这次写入是否要在版本表留痕（R-034）：
+// source=0 表示实时写入（不写版本行）；1=MQTT 补录；2=手工 API。actor 仅手工 API 用。
+type writeVersionMeta struct {
+	source int16
+	actor  string
+}
+
+// versionSourceFor 把 msgType 映射成版本来源：只有 msgType=2（补录）才留痕。
+func versionSourceFor(msgType int) int16 {
+	if msgType == 2 {
+		return settle.VersionSourceMQTTBackfill
+	}
+	return 0
+}
+
+// write 在同一事务里串行化写入 latest_value、hourly_staging 与（窗口外）hourly_snapshot；
+// 补录来源时在同一事务里追加 snapshot_cell_history 版本行。
+//
+// 返回值：
+//   - written：实际写入任一表的项（窗口内看 latest 守卫、窗口外看快照 returning）
+//   - regressed：**只有窗口内**的回拨项（窗口外旧值不更新是预期，不算回拨）
 func (p *Processor) write(ctx context.Context, terminalID string, inWindow, outWindow []clean.Out,
-	qualityBits map[string]int16, qualityNotes map[string][]string) (written, regressed []clean.Out, err error) {
+	qualityBits map[string]int16, qualityNotes map[string][]string,
+	ver writeVersionMeta) (written, regressed []clean.Out, err error) {
 	unlock := p.Locks.Lock(terminalID)
 	defer unlock()
 
@@ -329,8 +350,31 @@ func (p *Processor) write(ctx context.Context, terminalID string, inWindow, outW
 	if err := staging.Upsert(ctx, tx, rows); err != nil {
 		return nil, nil, err
 	}
+	var cells []settle.CellRevision
 	if len(snaps) > 0 {
-		if _, err := settle.UpsertSnapshot(ctx, tx, snaps); err != nil {
+		cells, err = settle.UpsertSnapshot(ctx, tx, snaps)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	// 版本留痕：只有补录来源、且本次确实写入了快照格（同一事务）。
+	if ver.source != 0 && len(cells) > 0 {
+		byCode := make(map[string]clean.Out, len(outWindow))
+		for _, o := range outWindow {
+			byCode[o.Code] = o
+		}
+		versions := make([]settle.VersionRow, 0, len(cells))
+		for _, c := range cells {
+			o, ok := byCode[c.ItemCode]
+			if !ok {
+				continue
+			}
+			versions = append(versions, settle.VersionRow{
+				TerminalID: c.TerminalID, ItemCode: c.ItemCode, HourStart: c.HourStart,
+				Revision: c.Revision, Source: ver.source, ValueTime: o.Time, Actor: ver.actor,
+			})
+		}
+		if err := settle.InsertVersions(ctx, tx, versions); err != nil {
 			return nil, nil, err
 		}
 	}

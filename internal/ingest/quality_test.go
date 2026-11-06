@@ -3,6 +3,7 @@ package ingest_test
 import (
 	"bytes"
 	"context"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -250,5 +251,90 @@ func TestQualityFlags(t *testing.T) {
 	}
 	if nonZero == 0 {
 		t.Fatal("结算样本里没有非 0 quality，无法验证传播")
+	}
+}
+
+// R-034：补录留痕 —— 只有补录来源且实际写入快照才写版本行；实时写入 0 行。
+func TestBackfillWritesCellHistory(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	// 两个都已关闭的小时：H1 用于实时对照，H2 用于补录序列（互不影响）。
+	h1 := hourOf(baseTime)
+	h2 := h1.Add(-3 * time.Hour)
+	e.clock.Set(h1.Add(2 * time.Hour)) // 两个小时都在窗口外
+	at1 := h1.Add(30 * time.Minute)
+	at2 := h2.Add(30 * time.Minute)
+
+	versionCount := func() int {
+		var n int
+		if err := e.pool.QueryRow(ctx, `select count(*) from snapshot_cell_history`).Scan(&n); err != nil {
+			t.Fatalf("统计版本行: %v", err)
+		}
+		return n
+	}
+	revisionOf := func(code string, hour time.Time) int {
+		var rev int
+		if err := e.pool.QueryRow(ctx, `
+			select revision from hourly_snapshot where terminal_id = $1 and item_code = $2 and hour_start = $3`,
+			testTerminalID, code, hour).Scan(&rev); err != nil {
+			t.Fatalf("读 revision(%s): %v", code, err)
+		}
+		return rev
+	}
+	send := func(msgType int, items ...item) {
+		t.Helper()
+		payload := batchWithMsgType(strconv.Itoa(msgType), testGatewayID, termOf(testTerminalID, items...))
+		if _, err := e.proc.HandleSource(ctx, "mqtt", testGatewayID, payload); err != nil {
+			t.Fatalf("处理失败: %v", err)
+		}
+	}
+
+	// 1) 实时（msgType=1）→ 快照写入但版本表 0 行。
+	send(1, it("temp", 1.0, "C", at1), it("power", 1.0, "kW", at1))
+	if rev := revisionOf("temp", h1); rev != 0 {
+		t.Fatalf("实时首写 revision = %d，期望 0", rev)
+	}
+	if n := versionCount(); n != 0 {
+		t.Fatalf("实时写入不得产生版本行，实际 %d 行", n)
+	}
+
+	// 2) 补录（msgType=2）另一个已关闭小时 → 每格 1 行版本，revision=0。
+	send(2, it("temp", 2.0, "C", at2), it("power", 2.0, "kW", at2))
+	if n := versionCount(); n != 2 {
+		t.Fatalf("首写补录应产生 2 行版本（每格 1 行），实际 %d", n)
+	}
+	if rev := revisionOf("temp", h2); rev != 0 {
+		t.Fatalf("补录首写 revision = %d，期望 0", rev)
+	}
+
+	// 3) 更晚的 value_time → revision=1，版本行 +2。
+	send(2, it("temp", 3.0, "C", at2.Add(time.Minute)), it("power", 3.0, "kW", at2.Add(time.Minute)))
+	if rev := revisionOf("temp", h2); rev != 1 {
+		t.Fatalf("修正后 revision = %d，期望 1", rev)
+	}
+	if n := versionCount(); n != 4 {
+		t.Fatalf("修正后版本行 = %d，期望 4", n)
+	}
+	var (
+		source int16
+		rev    int
+	)
+	if err := e.pool.QueryRow(ctx, `
+		select source, revision from snapshot_cell_history
+		where terminal_id = $1 and item_code = 'temp' order by id desc limit 1`,
+		testTerminalID).Scan(&source, &rev); err != nil {
+		t.Fatalf("读最新版本行: %v", err)
+	}
+	if source != 1 || rev != 1 {
+		t.Fatalf("最新版本行 source=%d revision=%d，期望 1/1", source, rev)
+	}
+
+	// 4) 更早的 value_time → 幂等跳过：版本行不增、revision 不变。
+	send(2, it("temp", 0.5, "C", at2), it("power", 0.5, "kW", at2))
+	if n := versionCount(); n != 4 {
+		t.Fatalf("幂等跳过后版本行 = %d，期望仍为 4", n)
+	}
+	if rev := revisionOf("temp", h2); rev != 1 {
+		t.Fatalf("幂等跳过后 revision = %d，期望仍为 1", rev)
 	}
 }

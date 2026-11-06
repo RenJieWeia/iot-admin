@@ -58,7 +58,7 @@ describe('关系字段远程搜索下拉（F4）', () => {
     const input = screen.getByPlaceholderText('输入关键词搜索');
 
     const before = optionQueries.length;
-    await user.type(input, '水表', { delay: 50 });
+    await user.type(input, '水表');
     await waitFor(() => expect(within(listbox).getAllByRole('option')).toHaveLength(1), {
       timeout: 2000,
     });
