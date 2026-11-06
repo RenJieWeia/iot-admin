@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -156,5 +158,141 @@ func TestOptionsWithDB(t *testing.T) {
 	bulk := options("data-domains")
 	if len(bulk) != MaxOptionRows {
 		t.Fatalf("选项行数 = %d，期望上限 %d", len(bulk), MaxOptionRows)
+	}
+}
+
+// manyIDs 生成 n 个互不相同的 id（逗号分隔），用于测个数上限。
+func manyIDs(n int) string {
+	ids := make([]string, 0, n)
+	for i := 0; i < n; i++ {
+		ids = append(ids, strconv.Itoa(i+1))
+	}
+	return strings.Join(ids, ",")
+}
+
+// F4 参数校验：ids 与 q 互斥、超限 400、未知实体 404（都在碰数据库之前/之外）。
+func TestOptionsQueryValidation(t *testing.T) {
+	handler := New(nil).Handler()
+	cases := []struct {
+		path   string
+		status int
+		want   string
+	}{
+		{"/admin/v1/options/terminals?ids=1&q=" + url.QueryEscape("T1"), http.StatusBadRequest, "互斥"},
+		{"/admin/v1/options/terminals?ids=" + manyIDs(201), http.StatusBadRequest, "最多 200 个"},
+		{"/admin/v1/options/terminals?q=" + url.QueryEscape(strings.Repeat("字", 201)), http.StatusBadRequest, "最多 200 个字符"},
+		{"/admin/v1/options/terminals?ids=,,", http.StatusBadRequest, "ids 不能为空"},
+		{"/admin/v1/options/nope", http.StatusNotFound, "unknown_entity"},
+	}
+	for _, c := range cases {
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, c.path, nil))
+		if rec.Code != c.status {
+			t.Fatalf("%s = %d，期望 %d: %s", c.path, rec.Code, c.status, rec.Body.String())
+		}
+		if !strings.Contains(rec.Body.String(), c.want) {
+			t.Fatalf("%s 的响应应包含 %q: %s", c.path, c.want, rec.Body.String())
+		}
+	}
+	// 恰好 200 个 id 不报错（不发请求到库：用 nil pool 会 panic，因此只验证参数解析层面）。
+	if _, err := parseOptionQuery(url.Values{"ids": {manyIDs(MaxOptionIDs)}}); err != nil {
+		t.Fatalf("200 个 id 应通过校验，实际 %v", err)
+	}
+	// q 空串等同无参：解析结果没有 Q、limit 回到全量上限。
+	q, err := parseOptionQuery(url.Values{"q": {""}})
+	if err != nil {
+		t.Fatalf("空 q 应通过: %v", err)
+	}
+	if q.Q != "" || len(q.IDs) != 0 || q.Limit != MaxOptionRows {
+		t.Fatalf("空 q 应等同无参，实际 %+v", q)
+	}
+	// limit 静默收敛到 1000。
+	q, err = parseOptionQuery(url.Values{"q": {"x"}, "limit": {"99999"}})
+	if err != nil {
+		t.Fatalf("limit 超限应静默收敛: %v", err)
+	}
+	if q.Limit != MaxOptionRows {
+		t.Fatalf("limit = %d，期望收敛到 %d", q.Limit, MaxOptionRows)
+	}
+}
+
+// F4 需 DSN：ids 顺序稳定 + 跳过不存在的 id；q 命中过滤；q 空串等同无参。
+func TestOptionsQueryWithDB(t *testing.T) {
+	dsn := os.Getenv("IOT_TEST_DSN")
+	if dsn == "" {
+		t.Skip("未设置 IOT_TEST_DSN，跳过需要 PostgreSQL 的用例")
+	}
+	ctx := context.Background()
+	pool, err := store.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("连接 PostgreSQL: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := store.Migrate(ctx, pool, migrations.FS); err != nil {
+		t.Fatalf("执行迁移: %v", err)
+	}
+	prefix := fmt.Sprintf("optq-%d-", os.Getpid())
+	cleanup := func() {
+		_, _ = pool.Exec(ctx, `delete from data_domain where code like $1`, prefix+"%")
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+
+	// 三个数据域：名字带前缀，便于 search 断言只命中自己。
+	ids := map[string]string{} // name → id
+	for _, name := range []string{"甲站", "乙站", "丙站"} {
+		var id int64
+		if err := pool.QueryRow(ctx,
+			`insert into data_domain (code, name) values ($1, $2) returning id`,
+			prefix+name, name).Scan(&id); err != nil {
+			t.Fatalf("建数据域: %v", err)
+		}
+		ids[name] = strconv.FormatInt(id, 10)
+	}
+
+	handler := New(pool).Handler()
+	fetch := func(rawQuery string) []OptionItem {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/options/data-domains?"+rawQuery, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s = %d: %s", rawQuery, rec.Code, rec.Body.String())
+		}
+		var resp struct {
+			Data []OptionItem `json:"data"`
+		}
+		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+			t.Fatalf("响应不是合法 JSON: %v", err)
+		}
+		return resp.Data
+	}
+
+	// 1) ids：顺序与请求一致，不存在的 id 跳过。
+	order := []string{ids["丙站"], "999999999", ids["甲站"]}
+	got := fetch("ids=" + strings.Join(order, ","))
+	if len(got) != 2 {
+		t.Fatalf("ids 返回 %d 项，期望 2（跳过不存在的）: %+v", len(got), got)
+	}
+	if got[0].Value != ids["丙站"] || got[1].Value != ids["甲站"] {
+		t.Fatalf("ids 顺序不稳定: %+v，期望 [%s %s]", got, ids["丙站"], ids["甲站"])
+	}
+	if got[0].Label != "丙站" || got[1].Label != "甲站" {
+		t.Fatalf("ids 的 label 不符: %+v", got)
+	}
+
+	// 2) q：只命中关键词，且不超过 limit。
+	got = fetch("q=" + url.QueryEscape("乙站"))
+	if len(got) != 1 || got[0].Value != ids["乙站"] {
+		t.Fatalf("q=乙站 返回 %+v，期望仅 %s", got, ids["乙站"])
+	}
+	got = fetch("q=" + url.QueryEscape("站") + "&limit=1")
+	if len(got) != 1 {
+		t.Fatalf("limit=1 应只返回 1 项，实际 %d 项", len(got))
+	}
+
+	// 3) q 空串等同无参：全量里能看到本次种入的三行。
+	got = fetch("q=")
+	if len(got) < 3 {
+		t.Fatalf("q 空串应返回全量（至少 3 项），实际 %d", len(got))
 	}
 }
