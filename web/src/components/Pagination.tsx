@@ -1,6 +1,5 @@
 import type { ListMeta } from '../api/types';
 import type { PageSize } from '../lib/queryState';
-import styles from './Toolbar.module.css';
 
 interface Props {
   meta: ListMeta;
@@ -13,14 +12,7 @@ interface Props {
 }
 
 /** 分页：范围 + 总数 + 上/下页 + 每页条数；变化一律回第一页（table-query §6）。 */
-export function Pagination({
-  meta,
-  rangeText,
-  outOfRange,
-  pageSizeOptions,
-  onPage,
-  onPageSize,
-}: Props) {
+export function Pagination({ meta, rangeText, outOfRange, pageSizeOptions, onPage, onPageSize }: Props) {
   const total = meta.total;
   const hasPrev = meta.page > 1 && total > 0;
   const hasNext = meta.page * meta.pageSize < total;
@@ -28,35 +20,28 @@ export function Pagination({
   return (
     <>
       {outOfRange && (
-        <p className={styles.outOfRange} role="status">
+        <p
+          className="my-2 rounded-sm border border-warning-text bg-warning-bg px-3 py-2 text-warning-text"
+          role="status"
+        >
           当前页超出范围：第 {meta.page} 页已无数据，共 {total} 条。筛选条件已保留，请返回有效页或清除筛选。
         </p>
       )}
-      <div className={styles.pagination}>
-        <span className={styles.rangeText}>{rangeText}</span>
-        <button
-          type="button"
-          className="btn"
-          disabled={!hasPrev}
-          onClick={() => onPage(meta.page - 1)}
-        >
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <span className="range-text text-muted">{rangeText}</span>
+        <button type="button" className="btn" disabled={!hasPrev} onClick={() => onPage(meta.page - 1)}>
           上一页
         </button>
-        <span aria-current="page" className={styles.rangeText}>
+        <span aria-current="page" className="range-text text-muted">
           第 {meta.page} 页
         </span>
-        <button
-          type="button"
-          className="btn"
-          disabled={!hasNext}
-          onClick={() => onPage(meta.page + 1)}
-        >
+        <button type="button" className="btn" disabled={!hasNext} onClick={() => onPage(meta.page + 1)}>
           下一页
         </button>
-        <label className={styles.pageSizeLabel}>
+        <label className="inline-flex items-center gap-2 text-muted">
           每页
           <select
-            className={styles.pageSizeSelect}
+            className="h-9 rounded-sm border border-border bg-surface px-2"
             value={meta.pageSize}
             onChange={(event) => onPageSize(Number(event.target.value) as PageSize)}
           >

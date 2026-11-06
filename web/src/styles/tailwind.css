@@ -54,3 +54,23 @@
   --width-nav: var(--nav-width);
   --width-drawer: var(--drawer-width);
 }
+
+/*
+ * 少量精确尺寸的组件级工具类：值一律取自已登记的令牌或既有像素常量，
+ * 避免在 TSX 里出现 `p-[13px]` / `w-[37%]` 这类 arbitrary value。
+ */
+@utility state-text {
+  max-width: 45rem; /* 720px，与迁移前的 .stateText 一致 */
+}
+
+@utility range-text {
+  min-width: 12.5rem; /* 200px */
+  font-variant-numeric: tabular-nums;
+}
+
+@utility toast-box {
+  z-index: var(--z-toast);
+  min-width: 15rem; /* 240px */
+  max-width: 30rem; /* 480px */
+  box-shadow: 0 var(--space-1) var(--space-3) var(--color-overlay);
+}

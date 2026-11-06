@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import styles from './Panel.module.css';
+import { cn } from '../lib/cn';
 
 interface Props {
   title: string;
@@ -11,10 +11,13 @@ interface Props {
 
 export function StatePanel({ title, text, actions, tone = 'neutral' }: Props) {
   return (
-    <div className={styles.state} role={tone === 'error' ? 'alert' : 'status'}>
-      <h2 className={styles.stateTitle}>{title}</h2>
-      <p className={styles.stateText}>{text}</p>
-      {actions && <div className={styles.stateActions}>{actions}</div>}
+    <div
+      className="flex flex-col items-start gap-2 rounded-md border border-border bg-surface p-6"
+      role={tone === 'error' ? 'alert' : 'status'}
+    >
+      <h2 className="m-0 text-lg font-semibold">{title}</h2>
+      <p className={cn('m-0 text-muted state-text')}>{text}</p>
+      {actions && <div className="mt-2 flex gap-2">{actions}</div>}
     </div>
   );
 }

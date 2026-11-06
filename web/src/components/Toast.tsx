@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import styles from './Panel.module.css';
+import { cn } from '../lib/cn';
 
 export interface ToastMessage {
   kind: 'ok' | 'error';
@@ -22,9 +22,17 @@ export function Toast({ message, onDismiss }: Props) {
   if (!message) {
     return <div role="status" aria-live="polite" className="visually-hidden" />;
   }
-  const tone = message.kind === 'ok' ? styles.toastOk : styles.toastError;
   return (
-    <div role="status" aria-live="polite" className={`${styles.toast} ${tone}`}>
+    <div
+      role="status"
+      aria-live="polite"
+      className={cn(
+        'toast-box fixed right-6 top-6 rounded-sm border px-4 py-3',
+        message.kind === 'ok'
+          ? 'border-positive-text bg-positive-bg text-positive-text'
+          : 'border-negative-text bg-negative-bg text-negative-text',
+      )}
+    >
       {message.text}
     </div>
   );

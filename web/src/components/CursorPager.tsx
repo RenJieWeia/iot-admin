@@ -1,5 +1,3 @@
-import styles from './Toolbar.module.css';
-
 interface Props {
   hasMore: boolean;
   loading: boolean;
@@ -16,8 +14,8 @@ interface Props {
  */
 export function CursorPager({ hasMore, loading, limit, loaded, onMore }: Props) {
   return (
-    <div className={styles.pagination}>
-      <span className={styles.rangeText}>
+    <div className="mt-4 flex flex-wrap items-center gap-3">
+      <span className="range-text text-muted">
         已加载 {loaded} 条 · 每批 {limit || '—'} 条（游标分页，不显示总数）
       </span>
       {hasMore ? (
@@ -25,7 +23,7 @@ export function CursorPager({ hasMore, loading, limit, loaded, onMore }: Props) 
           {loading ? '加载中…' : '加载更多'}
         </button>
       ) : (
-        <span className={styles.rangeText}>已到末尾</span>
+        <span className="range-text text-muted">已到末尾</span>
       )}
     </div>
   );
