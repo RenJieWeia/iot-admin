@@ -49,6 +49,10 @@ func EnsurePartitions(ctx context.Context, pool *pgxpool.Pool, now time.Time) er
 
 func dropExpired(ctx context.Context, pool *pgxpool.Pool, now time.Time) error {
 	cutoff := monthStart(now).AddDate(0, -RetentionMonths, 0)
+	// 版本记录与快照同寿命（R-034）：先删过期版本行，再 DROP 过期分区。
+	if _, err := pool.Exec(ctx, `delete from snapshot_cell_history where changed_at < $1`, cutoff); err != nil {
+		return fmt.Errorf("清理过期版本行: %w", err)
+	}
 	rows, err := pool.Query(ctx, `
 		select c.relname from pg_inherits i
 		join pg_class c on c.oid = i.inhrelid

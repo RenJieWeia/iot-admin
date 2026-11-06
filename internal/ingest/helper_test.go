@@ -107,7 +107,7 @@ func newEnv(t *testing.T) *testEnv {
 		t.Fatalf("执行迁移: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `
-		truncate exception_count, exception_interval, latest_value, hourly_staging;
+		truncate exception_count, exception_interval, latest_value, hourly_staging, snapshot_cell_history;
 		truncate hourly_snapshot;
 		truncate quality_rule, settle_config, terminal, thing_model_property, device_type, data_domain
 			restart identity cascade`); err != nil {

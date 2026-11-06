@@ -22,6 +22,8 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		"quality_rule": true, "settle_config": true,
 		"latest_value": true, "hourly_staging": true, "hourly_snapshot": true,
 		"exception_interval": true, "exception_count": true, "schema_migrations": true,
+		// R-034（task-013）明确新增：补录留痕的版本记录表
+		"snapshot_cell_history": true,
 	}
 	forbiddenWords := []string{
 		"consumer", "whitelist", "quota", "audit", "command",
