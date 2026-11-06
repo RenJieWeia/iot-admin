@@ -146,6 +146,8 @@ func (e *testEnv) seed() {
 		testDomainCode).Scan(&e.domainID))
 	must(e.pool.QueryRow(ctx, `insert into device_type (code, name, domain_id) values ($1, '电表', $2) returning id`,
 		testTypeCode, e.domainID).Scan(&e.typeID))
+	// 默认只声明 temp/power：R-021 后"声明的全部字段必填"，收窄声明才能让只发两项的
+	// 用例仍然整包通过；需要更多点位的用例用 addProps 补声明。
 	props := []struct {
 		code      string
 		valueType string
@@ -155,9 +157,6 @@ func (e *testEnv) seed() {
 	}{
 		{"temp", "number", "C", 1, true},
 		{"power", "number", "kW", 2, true},
-		{"hum", "number", "", 0, false},
-		{"status", "string", "", 0, false},
-		{"online", "bool", "", 0, false},
 	}
 	for _, p := range props {
 		_, err := e.pool.Exec(ctx, `
@@ -180,6 +179,22 @@ func (e *testEnv) insertTerminal(id, gateway string, enabled bool) error {
 		`insert into terminal (id, type_id, gateway_id, name, enabled) values ($1, $2, $3, $1, $4)`,
 		id, e.typeID, gateway, enabled)
 	return err
+}
+
+// addStdProps 给该终端类型追加 hum/status/online 三个点位。
+// R-021 后"声明的全部字段必填"，追加声明即新增必填项——要用它们就必须在报文里发齐。
+func (e *testEnv) addStdProps() {
+	e.t.Helper()
+	ctx := context.Background()
+	for _, p := range []struct{ code, valueType string }{
+		{"hum", "number"}, {"status", "string"}, {"online", "bool"},
+	} {
+		if _, err := e.pool.Exec(ctx, `
+			insert into thing_model_property (type_id, item_code, name, value_type)
+			values ($1, $2, $2, $3)`, e.typeID, p.code, p.valueType); err != nil {
+			e.t.Fatalf("追加物模型属性 %s: %v", p.code, err)
+		}
+	}
 }
 
 func (e *testEnv) addRule(terminalID, code, kind, params string) {
@@ -206,6 +221,37 @@ func it(code string, v any, unit string, at time.Time) item {
 
 func rawIt(code string, v any, unit, rawAt string) item {
 	return item{Code: code, Value: v, Unit: unit, At: rawAt}
+}
+
+// allItems 返回 R-021 之后"一份完整正常报文"需要覆盖的全部点位（需先 addStdProps）。
+// 值取常见量级，不带质量违规，用于"只关心其它维度"的用例。
+func allItems(at time.Time) []item {
+	return []item{
+		it("temp", 25.0, "C", at),
+		it("power", 1.0, "kW", at),
+		it("hum", 55.0, "%", at),
+		it("status", "on", "", at),
+		it("online", true, "", at),
+	}
+}
+
+// withItems 以 base 为底，按 code 覆盖同名项、追加新项（保持 base 原有顺序）。
+func withItems(base []item, overrides ...item) []item {
+	out := make([]item, len(base), len(base)+len(overrides))
+	copy(out, base)
+	index := make(map[string]int, len(base))
+	for i, it := range out {
+		index[it.Code] = i
+	}
+	for _, o := range overrides {
+		if i, ok := index[o.Code]; ok {
+			out[i] = o
+			continue
+		}
+		index[o.Code] = len(out)
+		out = append(out, o)
+	}
+	return out
 }
 
 type term struct {

@@ -30,9 +30,11 @@ type Property struct {
 	ValueType string // number | string | bool
 	Unit      string
 	Precision *int
-	Required  bool
-	Min       *float64
-	Max       *float64
+	// Required 是 thing_model_property.required 列的透传值：R-021 后**不参与**接入校验
+	// （全部声明字段都必填），保留字段是为了元数据/前端提示使用。
+	Required bool
+	Min      *float64
+	Max      *float64
 }
 
 // Registry 按需从 PG 读取终端与物模型。
@@ -86,8 +88,11 @@ func (r *Registry) LoadProperties(ctx context.Context, typeID int64) ([]Property
 	return out, rows.Err()
 }
 
-// MissingRequired 返回未覆盖的 required 属性 code（最多 MaxMissingCodes 个）。
-// 完整消息 = 每个终端的 items 覆盖该终端类型全部 required 属性（R2）。
+// MissingRequired 返回未覆盖的属性 code（最多 MaxMissingCodes 个）。
+//
+// R-021：物模型声明的**全部** item_code 必须全覆盖，缺任一即 msg_incomplete；
+// thing_model_property.required 列不再参与校验（退化为前端提示），Property.Required
+// 因此只作为元数据透传，这里刻意不读它。
 func MissingRequired(props []Property, items []RawItem) []string {
 	have := make(map[string]struct{}, len(items))
 	for _, it := range items {
@@ -95,9 +100,6 @@ func MissingRequired(props []Property, items []RawItem) []string {
 	}
 	var missing []string
 	for _, p := range props {
-		if !p.Required {
-			continue
-		}
 		if _, ok := have[p.ItemCode]; !ok {
 			missing = append(missing, p.ItemCode)
 			if len(missing) == MaxMissingCodes {

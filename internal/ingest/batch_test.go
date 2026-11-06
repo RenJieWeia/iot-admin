@@ -2,6 +2,7 @@ package ingest_test
 
 import (
 	"bytes"
+	"context"
 	"testing"
 	"time"
 
@@ -124,6 +125,53 @@ func TestUnknownCodeIgnoredAndCounted(t *testing.T) {
 	}
 	if digest := e.digestOf(testTerminalID, exception.CleanFailed); !bytes.Contains([]byte(digest), []byte("bogus")) {
 		t.Fatalf("摘要应包含 code 名，实际 %q", digest)
+	}
+}
+
+// R-021 验收：物模型**声明的全部** item_code 必填；未声明项仍忽略并计 clean_failed。
+func TestAllDeclaredPropsRequired(t *testing.T) {
+	e := newEnv(t)
+	e.addStdProps() // temp/power/hum/status/online 全部声明
+	at := baseTime.Add(5 * time.Minute)
+	full := allItems(at)
+
+	// 1) 缺 hum 的 4 项报文 → msg_incomplete，missingCodes=[hum]。
+	withoutHum := make([]item, 0, len(full))
+	for _, it := range full {
+		if it.Code != "hum" {
+			withoutHum = append(withoutHum, it)
+		}
+	}
+	r := resultOf(t, e.handle(single(testTerminalID, withoutHum...)), testTerminalID)
+	if r.Accepted || r.Reason != validate.ReasonMsgIncomplete {
+		t.Fatalf("缺 hum 应判 msg_incomplete: %+v", r)
+	}
+	if len(r.MissingCodes) != 1 || r.MissingCodes[0] != "hum" {
+		t.Fatalf("缺失项 = %v，期望 [hum]", r.MissingCodes)
+	}
+
+	// 2) 5 项齐全 + 1 个未声明项 → 接受、写 5 行、clean_failed 计 1。
+	res := e.handle(single(testTerminalID, withItems(full, it("bogus", 9.9, "", at))...))
+	r = resultOf(t, res, testTerminalID)
+	if !r.Accepted || r.Written != len(full) {
+		t.Fatalf("全量报文应被接收且写入 %d 项: %+v", len(full), r)
+	}
+	if n := e.count(`select count(*) from latest_value where terminal_id = $1`, testTerminalID); n != len(full) {
+		t.Fatalf("latest_value 行数 = %d，期望 %d", n, len(full))
+	}
+	if n := e.eventCount(testTerminalID, exception.CleanFailed, e.clock.Now()); n != 1 {
+		t.Fatalf("未声明项应计 1 次 clean_failed，实际 %d", n)
+	}
+
+	// 3) required 列显式置 false 也照样必填（声明即必填）。
+	if _, err := e.pool.Exec(context.Background(),
+		`update thing_model_property set required = false where type_id = $1`, e.typeID); err != nil {
+		t.Fatalf("改 required 列: %v", err)
+	}
+	e.proc.Meta.Flush()
+	r = resultOf(t, e.handle(single(testTerminalID, withoutHum...)), testTerminalID)
+	if r.Accepted || r.Reason != validate.ReasonMsgIncomplete {
+		t.Fatalf("required=false 不应豁免必填: %+v", r)
 	}
 }
 

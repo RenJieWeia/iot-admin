@@ -7,7 +7,7 @@
 | --- | --- |
 | `cmd/server/` | 程序入口：迁移 → 预建分区 → 连 BroMQ（含断连/重连写异常区间）→ 订阅接入主题 → HTTP → 结算协程 |
 | `internal/ingest/` | HTTP `POST /ingest/v1/messages` 与 MQTT `iot/ingest/+` 双通道 + 唯一业务管道（信封校验 → 逐终端隔离处理） |
-| `internal/validate/` | v2 信封解析、逐终端结构与时间校验、物模型/终端加载、required 覆盖检查 |
+| `internal/validate/` | v2 信封解析、逐终端结构与时间校验、物模型/终端加载、声明字段全覆盖检查 |
 | `internal/clean/` | 类型转换、四组闭集单位换算、精度、5 类质量规则 |
 | `internal/latest/` | `latest_value` 批量 upsert（`value_time` 大者覆盖） |
 | `internal/staging/` | 小时归属、关闭时刻、窗口判定、`hourly_staging` 批量 upsert |
@@ -37,7 +37,7 @@
 1. **一种格式**：`{ver, messageId, gatewayId, terminals:[{terminalId, items:[{code,value,unit,collectedAt}]}]}`，顶层不再有 `terminalId`/`items`。
 2. **整包 vs 逐终端**：`ver != 1`、`terminals` 非数组/为空、缺 `gatewayId`、JSON 非法、body > 1MB 都是整包 400；其余问题只拒收该终端，`results` 里带 `reason` 与 `missingCodes`（最多 10 个）。
 3. **时间**：`collectedAt` 必填，接受 `+08:00`、`Z`（换算 UTC+8）、省略偏移（按 UTC+8）、毫秒，以及**纯数字时间戳**（R-029）。数字按**范围**判定而不是位数：`1_577_836_800 ≤ v ≤ 4_102_444_800` 视为秒、`1_577_836_800_000 ≤ v ≤ 4_102_444_800_000` 视为毫秒（即 2020-01-01T00:00:00Z ~ 2100-01-01T00:00:00Z 的闭区间）；低于下界报「数值早于可解释范围」，高于上界或落在两区间空档报「数值超出可解释范围」。仍拒收仅日期、空格分隔、空串。epoch 数值按 UTC 解释后统一 `In(staging.Zone)`；解析统一在 `validate.ParseCollectedAt`，`hasOffset` 只用于统计。
-4. **单终端约束**：`code` 重复 → `msg_incomplete`；`items` 内 `collectedAt` 跨度 > 1 小时 → `protocol_error`；required 未全覆盖 → `msg_incomplete` + `missingCodes`。
+4. **单终端约束**：`code` 重复 → `msg_incomplete`；`items` 内 `collectedAt` 跨度 > 1 小时 → `protocol_error`；**物模型声明的全部 `item_code` 必须全覆盖**（R-021：缺任一即 `msg_incomplete` + `missingCodes`；`thing_model_property.required` 列保留但不再参与校验，仅作前端提示）；未声明的 `item_code` 仍忽略并计 `clean_failed`。
 5. **网关三方一致**：接入网关（header/topic）== 报文 `gatewayId` == 注册表 `terminal.gateway_id`，任一不一致该终端拒收，异常摘要同时记录接入网关与注册网关。
 6. **终端未注册/停用** → `terminal_unknown`（事件型，本轮新增）；`auth_failed` 只留给真正的凭证/认证失败，本期无业务写入路径。
 7. **单位闭集**：只有 C↔F、W↔kW、Pa↔kPa、Wh↔kWh 四组，闭集外透传原单位 + `clean_failed`，不拒收。

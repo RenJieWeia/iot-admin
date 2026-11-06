@@ -50,6 +50,16 @@ func (c *countingLoader) total() int64 {
 	return c.terminal.Load() + c.props.Load() + c.rules.Load() + c.window.Load()
 }
 
+// adminPost 走管理 API 的 POST，成功返回。
+func adminPost(t *testing.T, handler http.Handler, path, body string) {
+	t.Helper()
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, path, strings.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("POST %s 返回 %d: %s", path, rec.Code, rec.Body.String())
+	}
+}
+
 // adminPut 走管理 API 的 PUT，成功返回。
 func adminPut(t *testing.T, handler http.Handler, path, body string) {
 	t.Helper()
@@ -58,17 +68,6 @@ func adminPut(t *testing.T, handler http.Handler, path, body string) {
 	if rec.Code != http.StatusOK {
 		t.Fatalf("PUT %s 返回 %d: %s", path, rec.Code, rec.Body.String())
 	}
-}
-
-func (e *testEnv) propertyID(itemCode string) int64 {
-	e.t.Helper()
-	var id int64
-	if err := e.pool.QueryRow(context.Background(),
-		`select id from thing_model_property where type_id = $1 and item_code = $2`,
-		e.typeID, itemCode).Scan(&id); err != nil {
-		e.t.Fatalf("读取物模型属性 id: %v", err)
-	}
-	return id
 }
 
 // 验收 §8：同一终端两条消息，第二条不新增元数据查询（首条 4 次、第二条 0 次）。
@@ -98,7 +97,8 @@ func TestCacheSkipsMetadataQueriesOnSecondMessage(t *testing.T) {
 	}
 }
 
-// 验收 §8：PUT 物模型改 required 后，下一条消息立即按新定义判 msg_incomplete。
+// 验收 §8：新增物模型声明后，下一条消息立即按新定义判 msg_incomplete。
+// R-021 后 required 列不再参与校验，所以用"新增一个声明"来验证管理写路径的即时失效。
 func TestAdminPropertyUpdateTakesEffectImmediately(t *testing.T) {
 	e := newEnv(t)
 	handler := admin.New(e.pool)
@@ -107,17 +107,16 @@ func TestAdminPropertyUpdateTakesEffectImmediately(t *testing.T) {
 	at := baseTime.Add(5 * time.Minute)
 	msg := single(testTerminalID, it("temp", 20.0, "C", at), it("power", 1.0, "kW", at))
 	if r := resultOf(t, e.handle(msg), testTerminalID); !r.Accepted {
-		t.Fatalf("hum 未设为 required 前应接收: %+v", r)
+		t.Fatalf("新增 hum 声明前应接收: %+v", r)
 	}
 
-	adminPut(t, handler.Handler(),
-		"/admin/v1/thing-model-properties/"+strconv.FormatInt(e.propertyID("hum"), 10),
-		`{"required":true}`)
+	adminPost(t, handler.Handler(), "/admin/v1/thing-model-properties",
+		`{"type_id":`+strconv.FormatInt(e.typeID, 10)+`,"item_code":"hum","name":"湿度","value_type":"number"}`)
 	e.clock.Add(5 * time.Second) // 远小于 TTL，只能靠 Flush 生效
 
 	r := resultOf(t, e.handle(msg), testTerminalID)
 	if r.Accepted || r.Reason != validate.ReasonMsgIncomplete {
-		t.Fatalf("改 required 后应判 msg_incomplete，实际 %+v", r)
+		t.Fatalf("新增声明后应判 msg_incomplete，实际 %+v", r)
 	}
 	if len(r.MissingCodes) != 1 || r.MissingCodes[0] != "hum" {
 		t.Fatalf("缺失项 = %v，期望 [hum]", r.MissingCodes)
@@ -164,10 +163,10 @@ func TestTTLFallsBackForDirectDBEdit(t *testing.T) {
 		t.Fatalf("改库前应接收: %+v", r)
 	}
 
-	// 直接改库，不走管理 API，因此不会 Flush。
+	// 直接改库（新增 hum 声明），不走管理 API，因此不会 Flush。
 	if _, err := e.pool.Exec(context.Background(),
-		`update thing_model_property set required = true where type_id = $1 and item_code = 'hum'`,
-		e.typeID); err != nil {
+		`insert into thing_model_property (type_id, item_code, name, value_type)
+		 values ($1, 'hum', '湿度', 'number')`, e.typeID); err != nil {
 		t.Fatalf("直接改物模型: %v", err)
 	}
 
