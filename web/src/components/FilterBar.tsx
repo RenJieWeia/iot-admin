@@ -41,6 +41,63 @@ function valuesOf(query: QueryState, field: string, op: string): string[] {
   return query.filters.find((f) => f.field === field && f.op === op)?.values ?? [];
 }
 
+/**
+ * 字段已生效的值，合并该字段任一 op：删标签/清除全部后控件必须跟着清空，
+ * 只认首个 op 会让「URL 里换了 op」的条件在控件里不可见（table-query §2、§10）。
+ */
+function mergedValues(query: QueryState, field: string): string[] {
+  return query.filters.filter((f) => f.field === field).flatMap((f) => f.values);
+}
+
+/**
+ * 受控草稿：本地输入优先，只有 URL 被外部改动（删标签、清除全部、浏览器后退）时才回灌。
+ * 判据是「我最后写进 URL 的值」——两者相同说明这次变化由自己引起，此时回灌会覆盖
+ * 正在输入的内容并让光标跳位；不同才说明是外部改的，必须回灌。
+ */
+function useQueryDraft(value: string) {
+  const [draft, setDraft] = useState(value);
+  const written = useRef(value);
+  useEffect(() => {
+    if (value === written.current) return;
+    written.current = value;
+    setDraft(value);
+  }, [value]);
+  /** 提交前登记即将写进 URL 的值，压掉这次自变的回灌。 */
+  const noteWritten = (next: string) => {
+    written.current = next;
+  };
+  return { draft, setDraft, noteWritten };
+}
+
+/** 文本筛选的提交时机：输入 300ms 后写 URL，回车/失焦立即提交（table-query §4，与关键词同实现）。 */
+function useDebouncedCommit(commit: (value: string) => void, delay = 300) {
+  const timer = useRef<number | null>(null);
+  // 回调里取最新一次渲染的 commit：防抖窗口内 query 变了，旧闭包会覆盖掉别的条件。
+  const latest = useRef(commit);
+  const cancel = () => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+  };
+  useEffect(() => {
+    latest.current = commit;
+  });
+  useEffect(
+    () => () => {
+      if (timer.current !== null) window.clearTimeout(timer.current);
+    },
+    [],
+  );
+  return {
+    schedule(value: string) {
+      cancel();
+      timer.current = window.setTimeout(() => latest.current(value), delay);
+    },
+    flush(value: string) {
+      cancel();
+      commit(value);
+    },
+  };
+}
+
 /** 单字段筛选控件：控件类型由 filterType 决定，取值后立即写回 URL（变化回第一页）。 */
 function FilterControl({
   field,
@@ -59,6 +116,34 @@ function FilterControl({
   const commit = (op: ActiveFilter['op'], values: string[]) => {
     const rest = query.filters.filter((f) => f.field !== field.key);
     const next: ActiveFilter[] = values.length ? [...rest, { field: field.key, op, values }] : rest;
+    onChange(patchQuery(query, { filters: next }));
+  };
+
+  // 草稿必须无条件建好：下面按 filterType 早返回，hooks 不能放进分支里。
+  const current = mergedValues(query, field.key).join('、');
+  const text = useQueryDraft(current);
+  const gte = valuesOf(query, field.key, 'gte')[0] ?? '';
+  const lte = valuesOf(query, field.key, 'lte')[0] ?? '';
+  const gteDraft = useQueryDraft(gte);
+  const lteDraft = useQueryDraft(lte);
+
+  const commitText = (raw: string) => {
+    const value = raw.trim();
+    // 空值不产生条件；和 URL 一致就不写历史（清除全部后失焦不能把旧值写回来）。
+    if (value === current) return;
+    text.noteWritten(value);
+    commit(field.operators[0] ?? 'contains', value ? [value] : []);
+  };
+  const textCommit = useDebouncedCommit(commitText);
+
+  const commitRange = (nextGte: string, nextLte: string) => {
+    if (nextGte === gte && nextLte === lte) return;
+    gteDraft.noteWritten(nextGte);
+    lteDraft.noteWritten(nextLte);
+    const rest = query.filters.filter((f) => f.field !== field.key);
+    const next: ActiveFilter[] = [...rest];
+    if (nextGte) next.push({ field: field.key, op: 'gte', values: [nextGte] });
+    if (nextLte) next.push({ field: field.key, op: 'lte', values: [nextLte] });
     onChange(patchQuery(query, { filters: next }));
   };
 
@@ -116,15 +201,6 @@ function FilterControl({
 
   if (field.filterType === 'numberRange' || field.filterType === 'dateRange') {
     const isNumber = field.filterType === 'numberRange';
-    const gte = valuesOf(query, field.key, 'gte')[0] ?? '';
-    const lte = valuesOf(query, field.key, 'lte')[0] ?? '';
-    const commitRange = (nextGte: string, nextLte: string) => {
-      const rest = query.filters.filter((f) => f.field !== field.key);
-      const next: ActiveFilter[] = [...rest];
-      if (nextGte) next.push({ field: field.key, op: 'gte', values: [nextGte] });
-      if (nextLte) next.push({ field: field.key, op: 'lte', values: [nextLte] });
-      onChange(patchQuery(query, { filters: next }));
-    };
     return (
       <div className="field">
         <label htmlFor={`${inputId}-gte`}>{field.label}（范围）</label>
@@ -139,11 +215,12 @@ function FilterControl({
             type={isNumber ? 'number' : 'text'}
             placeholder={isNumber ? '最小值' : 'YYYY-MM-DD'}
             aria-label={`${field.label} 下限`}
-            defaultValue={gte}
+            value={gteDraft.draft}
+            onChange={(event) => gteDraft.setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') commitRange(event.currentTarget.value, lte);
+              if (event.key === 'Enter') commitRange(event.currentTarget.value, lteDraft.draft);
             }}
-            onBlur={(event) => commitRange(event.currentTarget.value, lte)}
+            onBlur={(event) => commitRange(event.currentTarget.value, lteDraft.draft)}
           />
           <span aria-hidden="true">–</span>
           <input
@@ -155,18 +232,18 @@ function FilterControl({
             type={isNumber ? 'number' : 'text'}
             placeholder={isNumber ? '最大值' : 'YYYY-MM-DD'}
             aria-label={`${field.label} 上限`}
-            defaultValue={lte}
+            value={lteDraft.draft}
+            onChange={(event) => lteDraft.setDraft(event.target.value)}
             onKeyDown={(event) => {
-              if (event.key === 'Enter') commitRange(gte, event.currentTarget.value);
+              if (event.key === 'Enter') commitRange(gteDraft.draft, event.currentTarget.value);
             }}
-            onBlur={(event) => commitRange(gte, event.currentTarget.value)}
+            onBlur={(event) => commitRange(gteDraft.draft, event.currentTarget.value)}
           />
         </div>
       </div>
     );
   }
 
-  const current = valuesOf(query, field.key, field.operators[0] ?? '').join('、');
   return (
     <div className="field">
       <label htmlFor={inputId}>{field.label}</label>
@@ -174,18 +251,17 @@ function FilterControl({
         id={inputId}
         className="input h-8"
         type="search"
-        defaultValue={current}
+        value={text.draft}
         placeholder={`按${field.label}筛选`}
+        onChange={(event) => {
+          text.setDraft(event.target.value);
+          textCommit.schedule(event.target.value);
+        }}
         onKeyDown={(event) => {
           if (event.key !== 'Enter') return;
-          const value = event.currentTarget.value.trim();
-          commit(field.operators[0] ?? 'contains', value ? [value] : []);
+          textCommit.flush(event.currentTarget.value);
         }}
-        onBlur={(event) => {
-          const value = event.currentTarget.value.trim();
-          if (value === current) return;
-          commit(field.operators[0] ?? 'contains', value ? [value] : []);
-        }}
+        onBlur={(event) => textCommit.flush(event.currentTarget.value)}
       />
     </div>
   );
@@ -263,24 +339,18 @@ export function FilterBar({ entity, query, relationOptions, onChange }: Props) {
   const advanced = useMemo(() => advancedFilters(entity), [entity]);
   const [keyword, setKeyword] = useState(query.q);
   const [dialogOpen, setDialogOpen] = useState(false);
-  const debounceRef = useRef<number | null>(null);
 
   useEffect(() => {
     setKeyword(query.q);
   }, [query.q]);
-
-  useEffect(
-    () => () => {
-      if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
-    },
-    [],
-  );
 
   const commitKeyword = (value: string) => {
     if (value === query.q) return;
     // 关键词是连续输入，写历史会把返回键刷满；用 replace 只保留最新一次。
     onChange(patchQuery(query, { q: value }), true);
   };
+  // 与字段级文本筛选同一实现：输入 300ms 后写 URL，回车立即提交。
+  const keywordCommit = useDebouncedCommit(commitKeyword);
 
   return (
     <>
@@ -297,13 +367,11 @@ export function FilterBar({ entity, query, relationOptions, onChange }: Props) {
             onChange={(event) => {
               const value = event.target.value;
               setKeyword(value);
-              if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
-              debounceRef.current = window.setTimeout(() => commitKeyword(value.trim()), 300);
+              keywordCommit.schedule(value.trim());
             }}
             onKeyDown={(event) => {
               if (event.key !== 'Enter') return;
-              if (debounceRef.current !== null) window.clearTimeout(debounceRef.current);
-              commitKeyword(event.currentTarget.value.trim());
+              keywordCommit.flush(event.currentTarget.value.trim());
             }}
           />
         </div>
