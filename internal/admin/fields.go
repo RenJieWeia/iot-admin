@@ -89,6 +89,57 @@ var intervalTypeOptions = []Option{
 	{Value: "item_silent", Label: "数据项沉默", Tone: "warning"},
 }
 
+// hourStartField 是运行时两页的归属小时列（staging/snapshot 共用）。
+var hourStartField = FieldMeta{
+	Key: "hour_start", Label: "归属小时", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+	FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min",
+}
+
+// revisionField 是快照页的修正次数（R-030）：> 0 即"被改写过的格子"。
+var revisionField = FieldMeta{
+	Key: "revision", Label: "修正次数", Type: "number", Visible: true, Sortable: true, Filterable: true,
+	FilterType: "numberRange", Operators: []string{"gte", "lte"}, WidthStrategy: "fixed",
+}
+
+// settledAtField 是快照页的落库/修正时刻：游标分页的排序列，也是 changes 端点的 since 口径。
+var settledAtField = FieldMeta{
+	Key: "settled_at", Label: "落库时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+	FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min",
+}
+
+// runtimeCommonFields 返回运行时表（最新值/暂存/快照）共有的 8 列。
+// 每次调用返回独立切片：调用方可以放心 append 自己的列而不污染其它页。
+func runtimeCommonFields() []FieldMeta {
+	return []FieldMeta{
+		{Key: "terminal_id", Label: "终端", Type: "text", Visible: true, Sortable: true, Filterable: true,
+			FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
+		{Key: "item_code", Label: "数据项", Type: "text", Visible: true, Sortable: true, Filterable: true,
+			FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
+		{Key: "value_num", Label: "数值", Type: "number", Visible: true, Sortable: true, Filterable: true,
+			FilterType: "numberRange", Operators: []string{"gte", "lte"}, AdvancedOnly: true, WidthStrategy: "min"},
+		{Key: "value_text", Label: "文本值", Type: "text", Visible: true, Sortable: true, Filterable: true,
+			FilterType: "text", Operators: []string{"contains"}, AdvancedOnly: true, WidthStrategy: "min"},
+		{Key: "unit", Label: "单位", Type: "text", Visible: true, Sortable: true, Filterable: true,
+			FilterType: "text", Operators: []string{"contains"}, AdvancedOnly: true, WidthStrategy: "fixed"},
+		{Key: "value_time", Label: "采集时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+			FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
+		// quality 是位掩码：不新增 SQL 操作符，"仅看有问题"用 filter.quality.gte=1 表达。
+		{Key: "quality", Label: "质量", Type: "number", Visible: true, Sortable: true, Filterable: true,
+			FilterType: "numberRange", Operators: []string{"gte", "lte"}, OptionsSource: "static",
+			Options: qualityOptions, WidthStrategy: "fixed"},
+		{Key: "quality_reason", Label: "质量说明", Type: "text", Visible: true, Sortable: false, Filterable: true,
+			FilterType: "text", Operators: []string{"contains"}, AdvancedOnly: true, WidthStrategy: "flex"},
+	}
+}
+
+// prependFields 返回 lead + rest 的新切片（不用 append，避免共享底层数组）。
+func prependFields(lead, rest []FieldMeta) []FieldMeta {
+	out := make([]FieldMeta, 0, len(lead)+len(rest))
+	out = append(out, lead...)
+	out = append(out, rest...)
+	return out
+}
+
 type fieldSet struct {
 	fields []FieldMeta
 	// relations 记录关联字段的目标实体，供列表页做名称回填。
@@ -220,31 +271,15 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
 		},
 	},
-	// 只读数据源（R-022 读路径）：不在 admin.Entities 里，只服务 /admin/v1/readonly/{slot}。
-	// 只读页没有写路径，Editable/Required 一律 false（Editable 由 FieldMetas 推导，
-	// 该名字不在 Entities 内，因此天然为 false）。
-	"latest-values": {
-		fields: []FieldMeta{
-			{Key: "terminal_id", Label: "终端", Type: "text", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
-			{Key: "item_code", Label: "数据项", Type: "text", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
-			{Key: "value_num", Label: "数值", Type: "number", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "numberRange", Operators: []string{"gte", "lte"}, AdvancedOnly: true, WidthStrategy: "min"},
-			{Key: "value_text", Label: "文本值", Type: "text", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "text", Operators: []string{"contains"}, AdvancedOnly: true, WidthStrategy: "min"},
-			{Key: "unit", Label: "单位", Type: "text", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "text", Operators: []string{"contains"}, AdvancedOnly: true, WidthStrategy: "fixed"},
-			{Key: "value_time", Label: "采集时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
-			// quality 是位掩码：不新增 SQL 操作符，"仅看有问题"用 filter.quality.gte=1 表达。
-			{Key: "quality", Label: "质量", Type: "number", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "numberRange", Operators: []string{"gte", "lte"}, OptionsSource: "static",
-				Options: qualityOptions, WidthStrategy: "fixed"},
-			{Key: "quality_reason", Label: "质量说明", Type: "text", Visible: true, Sortable: false, Filterable: true,
-				FilterType: "text", Operators: []string{"contains"}, AdvancedOnly: true, WidthStrategy: "flex"},
-		},
-	},
+	// 只读数据源（R-022 读路径 / R-030 可见面）：不在 admin.Entities 里，只服务
+	// /admin/v1/readonly/{slot}。只读页没有写路径，Editable/Required 一律 false
+	// （Editable 由 FieldMetas 推导，这些名字不在 Entities 内，因此天然为 false）。
+	//
+	// 三项共用同一组 8 个公共列（runtimeCommonFields），暂存/快照再追加各自的列。
+	"latest-values":  {fields: runtimeCommonFields()},
+	"hourly-staging": {fields: prependFields([]FieldMeta{hourStartField}, runtimeCommonFields())},
+	"hourly-snapshot": {fields: prependFields([]FieldMeta{hourStartField},
+		append(runtimeCommonFields(), revisionField, settledAtField))},
 	"settle-configs": {
 		fields: []FieldMeta{
 			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},

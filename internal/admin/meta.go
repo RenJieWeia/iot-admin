@@ -28,6 +28,8 @@ var entityLabels = map[string]string{
 	"exception-events":       "异常事件",
 	"exception-intervals":    "异常区间",
 	"latest-values":          "最新值",
+	"hourly-staging":         "小时暂存",
+	"hourly-snapshot":        "小时快照",
 }
 
 // EntityLabel 返回实体或只读页的中文名；未知名字原样返回，不吞掉新实体。
@@ -94,14 +96,16 @@ type MetaEntity struct {
 // 说明：`exceptions` 段是 `readonly` 的特例（异常页也走 readonlyPages 那套机制），
 // 但契约上保留两个独立键，前端已在用 `exceptions`，本期不动、后续可合并。
 type MetaReadonly struct {
-	Slot         string      `json:"slot"`
-	Name         string      `json:"name"`
-	Title        string      `json:"title"`
-	Route        string      `json:"route"`
-	ReadOnly     bool        `json:"readOnly"`
-	DefaultSort  string      `json:"defaultSort"`
-	DefaultOrder string      `json:"defaultOrder"`
-	Fields       []MetaField `json:"fields"`
+	Slot         string `json:"slot"`
+	Name         string `json:"name"`
+	Title        string `json:"title"`
+	Route        string `json:"route"`
+	ReadOnly     bool   `json:"readOnly"`
+	DefaultSort  string `json:"defaultSort"`
+	DefaultOrder string `json:"defaultOrder"`
+	// Pagination 是只读页的分页方式（offset|cursor），前端据此选择分页器。
+	Pagination string      `json:"pagination,omitempty"`
+	Fields     []MetaField `json:"fields"`
 }
 
 // MetaException 是 MetaReadonly 的别名（历史键名保持可读，JSON 形状一致）。
@@ -152,14 +156,19 @@ func BuildMeta() MetaPayload {
 		})
 	}
 	for _, page := range readonlyPages {
+		sort := defaultSortOf(page.Entity.Name)
+		if page.DefaultSort != "" {
+			sort = page.DefaultSort
+		}
 		payload.Readonly = append(payload.Readonly, MetaReadonly{
 			Slot:         page.Slot,
 			Name:         page.Entity.Name,
 			Title:        EntityLabel(page.Entity.Name),
 			Route:        "/admin/v1/readonly/" + page.Slot,
 			ReadOnly:     true,
-			DefaultSort:  defaultSortOf(page.Entity.Name),
+			DefaultSort:  sort,
 			DefaultOrder: "desc",
+			Pagination:   page.Pagination,
 			Fields:       metaFields(page.Entity.Name),
 		})
 	}
