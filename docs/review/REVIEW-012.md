@@ -42,7 +42,7 @@ $ go build ./... && go test ./...（无 DSN）→ 8 包全绿
 | `table` | x=225 / w=1190 | **x=225 / w=1190** |
 | 行高 | 48 | **48** |
 | terminals 列宽 | `[180,180,180,370,120,160]` | **完全一致** |
-| 抽屉 | select ×5、3 个必填 | **Radix `combobox` ×1 + 3 个必填**（布尔字段仍用三态 Select，未用 Checkbox） |
+| 抽屉 | select ×5、3 个必填 | **Radix `combobox` ×1 + `[role=checkbox]` ×1 + 3 个必填**（布尔字段用 Radix Checkbox，`indeterminate` 表「未设置」） |
 | 只读快照页 | 11 列 / 0 排序 / 0 写入口 | **一致**；零写请求、CSP 0、console error 0 |
 
 几何零漂移，与对方“整页 AE 1–2% 仅文字抗锯齿”的说法互相印证。
@@ -65,8 +65,17 @@ $ go build ./... && go test ./...（无 DSN）→ 8 包全绿
 | 1 | 声明但未使用：`@radix-ui/react-popover`、`@radix-ui/react-label`、`@radix-ui/react-tooltip`（各 0 处引用） | 下一轮删除，或明确保留为“预留”；树摇后不进产物，但属死依赖 |
 | 2 | `tailwindcss` / `@tailwindcss/vite` 放在 `dependencies` 而非 `devDependencies` | 构建期依赖，移到 devDependencies 更准确 |
 | 3 | 首屏 gzip +16% | 已如实记录；下一步可考虑把抽屉（含 zod + Radix Select）整体 lazy，让实体页首屏只带 `vendor-react` + 表格 |
-| 4 | 布尔字段仍用三态 Select（未用 Checkbox） | 与“未设置/启用/停用”语义一致，**采纳实现**，不算偏离 |
+| 4 | ~~布尔字段仍用三态 Select~~ **已更正**：实为 Radix Checkbox（`indeterminate` 表「未设置」） | **采纳实现**（与 task-011 §3 的「Checkbox + Label」一致）。已知限制：点过一次后回不到「未设置」；当前布尔列均 NOT NULL + 有默认值，暂不受影响。若将来出现可空布尔列，需换成三态 Select 或加「清除」动作 |
 
 ## 7. 结论
 
 迁移目标达成：样式载体换成 Tailwind v4 + `cn()`/CVA，令牌仍是唯一颜色来源，lint 从“扫 CSS”正确迁到“扫 TSX 与 CSS”并能自证。**打 `rv-16`**，唯一需要跟进的实质项是 bundle 增长（§6.3）。
+
+## 8. 更正（2026-11-06，经执行者指出）
+
+**撤回 REVIEW-012 §4 与 §6.4 的原判断**「布尔字段仍用三态 Select」。
+
+- 原值：布尔字段渲染为三态 `Select`（`?drawer=new` 探针只数了 `input[type=checkbox]` = 0，据此误判）
+- 新值：**Radix `Checkbox`**（`[role=checkbox]`，`data-state`/`aria-checked` 三态，`indeterminate` = 未设置），与 task-011 §3 书里写的「Checkbox + Label」一致
+- 原因：我的 CDP 探针选择器错误——Radix Checkbox 渲染的是 `<button role="checkbox">`，不是 `<input type=checkbox>`；重新探针实测 `roleCheckbox=1 / inputCheckbox=0 / combobox=1 / state=checked`
+- 结论：**代码无需改**（执行者未偏离任务书，是我的记录错）。已知限制「点过一次回不到未设置」作为下一轮候选改进登记，见 §6.4
