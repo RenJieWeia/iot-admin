@@ -10,7 +10,7 @@ interface Props {
   footer?: ReactNode;
   onClose: () => void;
   onOpenChange?: (open: boolean) => void;
-  /** Radix Dialog 提供的 aria-describedby 目标；没有说明时显式置空，避免读屏念出无关文本。 */
+  /** Radix Dialog 提供的 aria-describedby 目标；没有说明时传 undefined（DOM 上不出现该属性），避免读屏念出无关文本。 */
   description?: string;
 }
 

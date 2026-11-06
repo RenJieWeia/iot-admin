@@ -127,3 +127,29 @@ describe('关系字段远程搜索下拉（F4）', () => {
     await waitFor(() => expect(trigger.textContent).toContain('未设置'));
   });
 });
+
+describe('关系字段组合框可访问性（§17）', () => {
+  it('触发按钮关闭态 aria-expanded=false（护栏）', async () => {
+    renderApp('/terminals');
+    const { user, dialog } = await openDrawer();
+
+    const trigger = within(dialog).getByRole('combobox', { name: '终端类型' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(trigger);
+    await screen.findByRole('listbox', { name: '终端类型选项' });
+    expect(trigger).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('弹层搜索框有可区分名称，并反映真实展开态', async () => {
+    renderApp('/terminals');
+    const { user, dialog } = await openDrawer();
+    await openCombobox(user, dialog);
+
+    // 同屏两个 combobox：触发按钮叫「终端类型」，搜索框必须自带字段名。
+    const search = screen.getByRole('combobox', { name: '搜索终端类型选项' });
+    expect(search).toHaveAttribute('aria-expanded', 'true');
+    expect(search).toHaveAttribute('aria-controls');
+    expect(document.activeElement).toBe(search);
+  });
+});

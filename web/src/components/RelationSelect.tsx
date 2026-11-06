@@ -151,7 +151,8 @@ export function RelationSelect({
               onChange={(event) => setKeyword(event.target.value)}
               onKeyDown={handleKeyDown}
               role="combobox"
-              aria-expanded
+              aria-label={`搜索${field.label}选项`}
+              aria-expanded={open}
               aria-controls={listboxId}
               aria-autocomplete="list"
               aria-activedescendant={activeOption ? optionId(activeOption.value) : undefined}
