@@ -7,18 +7,18 @@ import {
 } from '@tanstack/react-table';
 import type { FieldMeta, RowData } from '../api/types';
 import type { WidthStrategy } from '../api/types';
+import { cn } from '../lib/cn';
 import { formatCell } from '../lib/format';
 import { SkeletonCell } from './Skeleton';
 import { StatusTag } from './StatusTag';
-import styles from './DataTable.module.css';
 
 export type TableState = 'loading' | 'ready';
 
-/** widthStrategy → 列宽类名：宽度写死在 CSS 里，避免内联 style（CSP 不允许）。 */
+/** widthStrategy → 列宽类名：宽度集中在 tailwind.css 的 @utility，TSX 不出现 arbitrary value。 */
 const COLUMN_CLASS: Record<WidthStrategy, string> = {
-  fixed: styles.colFixed ?? '',
-  min: styles.colMin ?? '',
-  flex: styles.colFlex ?? '',
+  fixed: 'col-fixed',
+  min: 'col-min',
+  flex: 'col-flex',
 };
 
 interface Props {
@@ -74,12 +74,11 @@ export function DataTable({
           return <StatusTag label={view.text} tone={view.tone} title={view.full} />;
         }
         // 单行截断靠 CSS，完整值放 title；单元格永不换行，行高稳定（§6）。
-        const className =
-          view.kind === 'mono'
-            ? `${styles.cell} ${styles.mono}`
-            : view.kind === 'muted'
-              ? `${styles.cell} ${styles.muted}`
-              : styles.cell;
+        const className = cn(
+          'block overflow-hidden text-ellipsis whitespace-nowrap',
+          view.kind === 'mono' && 'font-mono text-sm',
+          view.kind === 'muted' && 'text-muted',
+        );
         return (
           <span className={className} title={view.full}>
             {view.text}
@@ -95,7 +94,7 @@ export function DataTable({
         header: '操作',
         enableSorting: false,
         cell: ({ row }) => (
-          <span className={styles.actions}>
+          <span className="inline-flex items-center justify-end gap-2">
             <button
               type="button"
               className="btn"
@@ -132,22 +131,22 @@ export function DataTable({
   const skeletonCount = Math.min(skeletonRows, 10);
 
   return (
-    <div className={styles.container}>
+    <div className="overflow-x-auto rounded-md border border-border bg-surface">
       {state === 'loading' && (
         // 加载态必须有可读文案（四态文案互不相同），视觉上仍是与真实行高一致的骨架。
         <p className="visually-hidden" role="status">
           正在加载列表…
         </p>
       )}
-      <table className={styles.table}>
-        <caption className={styles.captionText}>
+      <table className="table-fixed w-max min-w-full border-collapse">
+        <caption className="pb-2 text-left text-sm text-muted">
           {title}列表：当前页 {rows.length} 行，排序与分页由服务端执行
         </caption>
         <colgroup>
           {fields.map((field) => (
             <col key={field.key} className={COLUMN_CLASS[field.widthStrategy]} />
           ))}
-          {writable && <col className={styles.colActions} />}
+          {writable && <col className="col-actions" />}
         </colgroup>
         <thead>
           {headerGroups.map((group) => (
@@ -161,18 +160,18 @@ export function DataTable({
                   <th
                     key={header.id}
                     scope="col"
-                    className={styles.th}
+                    className="h-12 whitespace-nowrap border-b border-border bg-neutral-bg px-3 text-left text-sm font-semibold text-muted"
                     aria-sort={active ? ariaSort : canSort ? 'none' : undefined}
                   >
                     {canSort && field ? (
                       <button
                         type="button"
-                        className={styles.sortButton}
+                        className="inherit-font inline-flex min-h-11 cursor-pointer items-center gap-1 border-0 bg-transparent p-0"
                         onClick={() => onSort(field.key)}
                         aria-label={`按${field.label}排序`}
                       >
                         {field.label}
-                        <span className={styles.sortMark} aria-hidden="true">
+                        <span className="text-sm" aria-hidden="true">
                           {active ? (order === 'asc' ? '↑' : '↓') : '↕'}
                         </span>
                       </button>
@@ -181,7 +180,7 @@ export function DataTable({
                         {flexRender(header.column.columnDef.header, header.getContext())}
                         {active && (
                           // 服务端固定排序：只给方向标识，不做可点击入口。
-                          <span className={styles.sortMark} aria-hidden="true">
+                          <span className="text-sm" aria-hidden="true">
                             {order === 'asc' ? ' ↑' : ' ↓'}
                           </span>
                         )}
@@ -198,12 +197,15 @@ export function DataTable({
             ? Array.from({ length: skeletonCount }).map((_, rowIndex) => (
                 <tr key={`skeleton-${rowIndex}`} aria-hidden="true">
                   {fields.map((field, cellIndex) => (
-                    <td key={field.key} className={styles.td}>
+                    <td
+                      key={field.key}
+                      className="h-12 overflow-hidden border-b border-border px-3 align-middle"
+                    >
                       <SkeletonCell short={cellIndex % 3 === 2} />
                     </td>
                   ))}
                   {writable && (
-                    <td className={styles.td}>
+                    <td className="h-12 overflow-hidden border-b border-border px-3 align-middle">
                       <SkeletonCell />
                     </td>
                   )}
@@ -214,11 +216,10 @@ export function DataTable({
                   {row.getVisibleCells().map((cell) => (
                     <td
                       key={cell.id}
-                      className={
-                        cell.column.id === '__actions'
-                          ? `${styles.td} ${styles.tdActions}`
-                          : styles.td
-                      }
+                      className={cn(
+                        'h-12 overflow-hidden border-b border-border px-3 align-middle',
+                        cell.column.id === '__actions' && 'whitespace-nowrap text-right',
+                      )}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
                     </td>

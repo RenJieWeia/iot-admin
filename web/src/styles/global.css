@@ -1,162 +1,163 @@
 @import "./tokens.css";
 
-* {
-  box-sizing: border-box;
+/*
+ * 全局样式分层：base < components < utilities（顺序由 tailwind.css 的 @layer 声明固定）。
+ * 这样组件里的工具类能覆盖 .input 的 width:100%、nav 链接的默认颜色等；
+ * 颜色仍只来自 tokens.css 的 :root。
+ */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+  }
+
+  body {
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
+    font-size: var(--font-md);
+    line-height: var(--line-md);
+  }
+
+  a {
+    color: var(--color-primary);
+    text-decoration: none;
+  }
+
+  a:hover {
+    text-decoration: underline;
+  }
+
+  button {
+    font: inherit;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+
+  .visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
 }
 
-html,
-body {
-  margin: 0;
-  padding: 0;
-}
+@layer components {
+  /* 通用按钮：主次分明，触摸目标 44px。 */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--space-1);
+    min-height: var(--touch-target);
+    padding: 0 var(--space-4);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--color-border);
+    background: var(--color-surface);
+    color: var(--color-text);
+    cursor: pointer;
+  }
 
-body {
-  background: var(--color-bg);
-  color: var(--color-text);
-  font-family: -apple-system, "Segoe UI", "Noto Sans SC", sans-serif;
-  font-size: var(--font-md);
-  line-height: var(--line-md);
-}
+  .btn:hover {
+    background: var(--color-neutral-bg);
+  }
 
-a {
-  color: var(--color-primary);
-  text-decoration: none;
-}
+  .btn:disabled {
+    cursor: not-allowed;
+    color: var(--color-muted);
+    background: var(--color-neutral-bg);
+  }
 
-a:hover {
-  text-decoration: underline;
-}
+  .btn-primary {
+    border-color: var(--color-primary);
+    background: var(--color-primary);
+    color: var(--color-on-primary);
+  }
 
-button {
-  font: inherit;
-}
+  .btn-primary:hover {
+    background: var(--color-primary-hover);
+  }
 
-:focus-visible {
-  outline: 2px solid var(--color-primary);
-  outline-offset: 2px;
-}
+  .btn-danger {
+    border-color: var(--color-negative-text);
+    color: var(--color-negative-text);
+  }
 
-/* 通用按钮：主次分明，触摸目标不小于 44px 高度的一半（桌面端 36px + 内边距）。 */
-.btn {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-1);
-  min-height: var(--touch-target);
-  padding: 0 var(--space-4);
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  color: var(--color-text);
-  cursor: pointer;
-}
+  .btn-link {
+    border: none;
+    background: none;
+    color: var(--color-primary);
+    padding: 0 var(--space-1);
+    min-height: var(--touch-target);
+    cursor: pointer;
+  }
 
-.btn:hover {
-  background: var(--color-neutral-bg);
-}
+  /* 表单元素统一高度与边框，标签始终与控件显式关联（<label for>）。 */
+  .field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
 
-.btn:disabled {
-  cursor: not-allowed;
-  color: var(--color-muted);
-  background: var(--color-neutral-bg);
-}
+  .field > label {
+    font-size: var(--font-sm);
+    color: var(--color-muted);
+  }
 
-.btn-primary {
-  border-color: var(--color-primary);
-  background: var(--color-primary);
-  color: var(--color-on-primary);
-}
+  .input,
+  .select {
+    height: var(--control-height);
+    padding: 0 var(--space-2);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-sm);
+    background: var(--color-surface);
+    color: var(--color-text);
+    font: inherit;
+    width: 100%;
+  }
 
-.btn-primary:hover {
-  background: var(--color-primary-hover);
-}
+  .select[multiple] {
+    height: auto;
+    min-height: 96px;
+    padding: var(--space-1);
+  }
 
-.btn-danger {
-  border-color: var(--color-negative-text);
-  color: var(--color-negative-text);
-}
+  .input:invalid,
+  .field-error .input {
+    border-color: var(--color-negative-text);
+  }
 
-.btn-link {
-  border: none;
-  background: none;
-  color: var(--color-primary);
-  padding: 0 var(--space-1);
-  min-height: var(--touch-target);
-  cursor: pointer;
-}
+  .preset-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--touch-target);
+    margin-bottom: var(--space-2);
+  }
 
-/* 表单元素统一高度与边框，标签始终与控件显式关联（<label for>）。 */
-.field {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-}
+  .preset-row > label {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    cursor: pointer;
+  }
 
-.field > label {
-  font-size: var(--font-sm);
-  color: var(--color-muted);
-}
-
-.input,
-.select {
-  height: var(--control-height);
-  padding: 0 var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  background: var(--color-surface);
-  color: var(--color-text);
-  font: inherit;
-  width: 100%;
-}
-
-.select[multiple] {
-  height: auto;
-  min-height: 96px;
-  padding: var(--space-1);
-}
-
-.input:invalid,
-.field-error .input {
-  border-color: var(--color-negative-text);
-}
-
-.muted {
-  color: var(--color-muted);
-}
-
-.mono {
-  font-family: var(--font-mono);
-}
-
-.preset-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  min-height: var(--touch-target);
-  margin-bottom: var(--space-2);
-}
-
-.preset-row > label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-2);
-  cursor: pointer;
-}
-
-.preset-row input[type="checkbox"] {
-  width: var(--space-4);
-  height: var(--space-4);
-  margin: 0;
-}
-
-.visually-hidden {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  margin: -1px;
-  padding: 0;
-  overflow: hidden;
-  clip: rect(0 0 0 0);
-  white-space: nowrap;
-  border: 0;
+  .preset-row input[type="checkbox"] {
+    width: var(--space-4);
+    height: var(--space-4);
+    margin: 0;
+  }
 }

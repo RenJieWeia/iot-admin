@@ -10,8 +10,6 @@ import {
   type QueryState,
 } from '../lib/queryState';
 import { formatFilterValue, operatorLabel } from '../lib/format';
-import panel from './Panel.module.css';
-import styles from './Toolbar.module.css';
 
 interface Props {
   entity: FieldHolder;
@@ -73,7 +71,7 @@ function FilterControl({
     const selected = valuesOf(query, field.key, field.operators[0] ?? '');
     const multi = field.filterType !== 'boolean';
     return (
-      <div className={`field ${styles.toolbarItem}`}>
+      <div className="field min-w-40 basis-50">
         <label htmlFor={inputId}>{field.label}</label>
         {multi ? (
           <select
@@ -128,12 +126,12 @@ function FilterControl({
       onChange(patchQuery(query, { filters: next }));
     };
     return (
-      <div className={`field ${styles.toolbarItem} ${styles.toolbarItemWide}`}>
+      <div className="field min-w-40 basis-70">
         <label htmlFor={`${inputId}-gte`}>{field.label}（范围）</label>
-        <div className={styles.optionGroup}>
+        <div className="flex min-h-9 flex-wrap items-center gap-2 rounded-sm border border-border p-2">
           <input
             id={`${inputId}-gte`}
-            className="input"
+            className="input option-group-field"
             type={inputType}
             aria-label={`${field.label} 下限`}
             defaultValue={gte}
@@ -144,7 +142,7 @@ function FilterControl({
           />
           <span aria-hidden="true">–</span>
           <input
-            className="input"
+            className="input option-group-field"
             type={inputType}
             aria-label={`${field.label} 上限`}
             defaultValue={lte}
@@ -160,7 +158,7 @@ function FilterControl({
 
   const current = valuesOf(query, field.key, field.operators[0] ?? '').join('、');
   return (
-    <div className={`field ${styles.toolbarItem}`}>
+    <div className="field min-w-40 basis-50">
       <label htmlFor={inputId}>{field.label}</label>
       <input
         id={inputId}
@@ -204,19 +202,19 @@ export function ActiveFilterChips({ entity, query, relationOptions, onChange }: 
   if (chips.length === 0 && !query.q) return null;
 
   return (
-    <ul className={styles.chips} aria-label="已生效筛选条件">
-      <li className={styles.chipsLabel} aria-hidden="true">
+    <ul className="m-0 mb-3 flex list-none flex-wrap items-center gap-2 py-2" aria-label="已生效筛选条件">
+      <li className="text-sm text-muted" aria-hidden="true">
         筛选：
       </li>
       {query.q && (
-        <li className={styles.chip}>
-          <span className={styles.chipsLabel}>关键词</span>
-          <span className={styles.chipValue} title={query.q}>
+        <li className="inline-flex max-w-80 items-center gap-1 rounded-sm border border-border bg-surface px-2 py-1 text-sm">
+          <span className="text-sm text-muted">关键词</span>
+          <span className="overflow-hidden text-ellipsis whitespace-nowrap" title={query.q}>
             {query.q}
           </span>
           <button
             type="button"
-            className={styles.chipButton}
+            className="min-h-6 cursor-pointer border-0 bg-transparent px-1 leading-none text-muted hover:text-negative-text"
             aria-label={`移除关键词筛选 ${query.q}`}
             onClick={() => onChange(patchQuery(query, { q: '' }))}
           >
@@ -225,15 +223,15 @@ export function ActiveFilterChips({ entity, query, relationOptions, onChange }: 
         </li>
       )}
       {chips.map((chip) => (
-        <li key={chip.key} className={styles.chip}>
-          <span className={styles.chipsLabel}>{chip.label}</span>
-          <span className={styles.chipsLabel}>{chip.opLabel}</span>
-          <span className={styles.chipValue} title={chip.value}>
+        <li key={chip.key} className="inline-flex max-w-80 items-center gap-1 rounded-sm border border-border bg-surface px-2 py-1 text-sm">
+          <span className="text-sm text-muted">{chip.label}</span>
+          <span className="text-sm text-muted">{chip.opLabel}</span>
+          <span className="overflow-hidden text-ellipsis whitespace-nowrap" title={chip.value}>
             {chip.value}
           </span>
           <button
             type="button"
-            className={styles.chipButton}
+            className="min-h-6 cursor-pointer border-0 bg-transparent px-1 leading-none text-muted hover:text-negative-text"
             aria-label={`移除筛选 ${chip.label} ${chip.opLabel} ${chip.value}`}
             onClick={() => onChange(removeFilterAt(query, chip.field, chip.op))}
           >
@@ -276,8 +274,8 @@ export function FilterBar({ entity, query, relationOptions, onChange }: Props) {
 
   return (
     <>
-      <div className={styles.toolbar}>
-        <div className={`field ${styles.keyword}`}>
+      <div className="mb-3 flex flex-wrap items-start gap-3">
+        <div className="field min-w-50 flex-1 basis-60">
           <label htmlFor="filter-keyword">关键词</label>
           <input
             id="filter-keyword"
@@ -308,7 +306,7 @@ export function FilterBar({ entity, query, relationOptions, onChange }: Props) {
           />
         ))}
         {advanced.length > 0 && (
-          <div className={styles.toolbarItem}>
+          <div className="min-w-40 basis-50">
             <button type="button" className="btn" onClick={() => setDialogOpen(true)}>
               更多筛选
             </button>
@@ -325,10 +323,13 @@ export function FilterBar({ entity, query, relationOptions, onChange }: Props) {
 
       <Dialog.Root open={dialogOpen} onOpenChange={setDialogOpen}>
         <Dialog.Portal>
-          <Dialog.Overlay className={panel.overlay} />
-          <Dialog.Content className={panel.confirm} aria-describedby={undefined}>
-            <Dialog.Title className={panel.drawerTitle}>更多筛选</Dialog.Title>
-            <div className={styles.dialogBody}>
+          <Dialog.Overlay className="fixed inset-0 bg-overlay" />
+          <Dialog.Content
+            className="confirm-panel fixed left-1/2 top-1/2 flex -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-md bg-surface p-5"
+            aria-describedby={undefined}
+          >
+            <Dialog.Title className="m-0 text-lg">更多筛选</Dialog.Title>
+            <div className="grid grid-cols-2 gap-4">
               {advanced.map((field) => (
                 <FilterControl
                   key={field.key}
@@ -339,7 +340,7 @@ export function FilterBar({ entity, query, relationOptions, onChange }: Props) {
                 />
               ))}
             </div>
-            <div className={panel.confirmActions}>
+            <div className="mt-2 flex justify-end gap-2">
               <button type="button" className="btn" onClick={() => setDialogOpen(false)}>
                 关闭
               </button>
