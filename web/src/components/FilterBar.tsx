@@ -236,7 +236,9 @@ function FilterControl({
           {/* 日期是纯日期区间，后端按 +08:00 cast timestamptz，时区必须写清楚（table-query §4）。 */}
           {field.label}（范围{isNumber ? '' : '，+08:00'}）
         </label>
-        <div className="flex min-h-9 flex-wrap items-center gap-2 rounded-sm border border-border p-2">
+        {/* 范围组只做横排容器：外层的边框/内边距会把它撑到 control-h 以上，
+            导致同行 label 与 input 底边错位（两个 input 自己已有 .input 的边框）。 */}
+        <div className="flex flex-wrap items-center gap-2">
           <input
             id={`${inputId}-gte`}
             className={

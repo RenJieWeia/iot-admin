@@ -194,7 +194,9 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(200px, 100%), 1fr));
   gap: var(--space-3);
-  align-items: end;
+  /* 顶对齐：label 是阅读锚点，必须落在同一条基线上。行内项高度不一致时（例如控件多了
+     一个提示行），底对齐会把矮项整体下推，label 就会「悬在半空」。 */
+  align-items: start;
 }
 
 /* 跨列只在 ≥40rem 生效：窄屏若保留 span 2，auto-fit 会为它强开第二条轨道并溢出。 */
