@@ -330,32 +330,37 @@ var fieldSets = map[string]fieldSet{
 	"snapshot-coarse": {fields: snapshotFields(true)},
 	"snapshot-minute": {fields: snapshotFields(false)},
 	"snapshot-second": {fields: snapshotFields(false)},
-	// 快照计划：档位是列不是行。enabled_steps 是列表派生列（SQL 计算，不可排序/筛选）。
-	"snapshot-plans": {
+	// 全局六档配置：六行固定（主键 granularity），只能改 enabled / step。
+	// step 不挂枚举：白名单按档位不同（秒/分最多 30、时最多 12、日/年只有 1），
+	// 逐档选项由 Go 侧 Validate 兜底并给出可读原因；_meta.enums 里仍下发六档步长字典供前端复用。
+	"snapshot-slots": {
 		fields: []FieldMeta{
-			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
-			{Key: "device_type_id", Label: "终端类型", Type: "relation", Visible: true, Sortable: true, Filterable: true, Required: true,
-				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
-			{Key: "item_code", Label: "数据项编码", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
-				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
-			{Key: "enabled_steps", Label: "已启用档位", Type: "text", Visible: true, Sortable: false, Filterable: false,
-				FilterType: "none", WidthStrategy: "flex", Derived: true},
-			snapshotEnabledField("second_enabled", "秒档"),
-			snapshotStepField("second_step", "秒步长", secondStepOptions),
-			snapshotEnabledField("minute_enabled", "分档"),
-			snapshotStepField("minute_step", "分步长", minuteStepOptions),
-			snapshotEnabledField("hour_enabled", "时档"),
-			snapshotStepField("hour_step", "时步长", hourStepOptions),
-			snapshotEnabledField("day_enabled", "日档"),
-			snapshotStepField("day_step", "日步长", dayStepOptions),
-			snapshotEnabledField("month_enabled", "月档"),
-			snapshotStepField("month_step", "月步长", monthStepOptions),
-			snapshotEnabledField("year_enabled", "年档"),
-			snapshotStepField("year_step", "年步长", yearStepOptions),
+			{Key: "granularity", Label: "档位", Type: "enum", Visible: true, Sortable: true, Required: true,
+				Filterable: true, FilterType: "multiSelect", Operators: []string{"in"}, OptionsSource: "static",
+				Options: snapshotGranularityOptions, WidthStrategy: "min"},
+			{Key: "enabled", Label: "启用", Type: "boolean", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "boolean", Operators: []string{"eq"}, OptionsSource: "static", Options: enabledOptions,
+				WidthStrategy: "fixed"},
+			{Key: "step", Label: "步长", Type: "number", Visible: true, Sortable: true, Filterable: false,
+				FilterType: "numberRange", Operators: []string{"gte", "lte"}, WidthStrategy: "fixed"},
 			{Key: "updated_at", Label: "更新时间", Type: "datetime", Visible: false, Sortable: true, Filterable: false,
 				FilterType: "none", WidthStrategy: "min"},
 		},
-		relations: map[string]string{"device_type_id": "device-types"},
+	},
+	// 绑定：一条 = 一个数据项被纳入快照；作用域二选一（类型级或实例级）。
+	"snapshot-bindings": {
+		fields: []FieldMeta{
+			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
+			{Key: "device_type_id", Label: "终端类型（类型级）", Type: "relation", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
+			{Key: "terminal_id", Label: "终端（实例级）", Type: "relation", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
+			{Key: "item_code", Label: "数据项编码", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
+				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
+			{Key: "created_at", Label: "创建时间", Type: "datetime", Visible: true, Sortable: true, Filterable: false,
+				FilterType: "none", WidthStrategy: "min"},
+		},
+		relations: map[string]string{"device_type_id": "device-types", "terminal_id": "terminals"},
 	},
 	// 表级保留期：三行固定，只能改 retention_days；空值 = 永久保留。
 	"snapshot-settings": {

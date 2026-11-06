@@ -2,6 +2,8 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import {
   allDeviceTypes,
+  allSnapshotBindings,
+  allSnapshotSlots,
   snapshotCoarseRows,
   snapshotMinuteRows,
   snapshotSecondRows,
@@ -33,11 +35,15 @@ export const propertyQueries: string[] = [];
 /** 快照计划列表收到的查询串。 */
 export const snapshotPlanQueries: string[] = [];
 
+/** 绑定列表收到的查询串。 */
+export const bindingQueries: string[] = [];
+
 export function resetWriteCalls() {
   writeCalls.length = 0;
   optionQueries.length = 0;
   propertyQueries.length = 0;
   snapshotPlanQueries.length = 0;
+  bindingQueries.length = 0;
 }
 
 const ok = <T>(data: T, extra: Record<string, unknown> = {}) =>
@@ -58,7 +64,8 @@ function filterTerminals(url: URL) {
   let rows = [...allTerminals];
   const q = (url.searchParams.get('q') ?? '').trim();
   if (q) {
-    rows = rows.filter((row) => String(row.name).includes(q));
+    // 绑定表单的终端搜索按 ID 或名称匹配。
+    rows = rows.filter((row) => String(row.name).includes(q) || String(row.id).includes(q));
   }
   const enabled = url.searchParams.getAll('filter.enabled.eq');
   if (enabled.length > 0) {
@@ -259,6 +266,58 @@ export const server = setupServer(
   http.get('/admin/v1/snapshot-settings', () =>
     ok(allSnapshotSettings, { meta: { total: allSnapshotSettings.length, page: 1, pageSize: 50, sort: 'updated_at', order: 'desc' } }),
   ),
+
+  // 全局六档配置（六行固定，PKey=granularity）。
+  http.get('/admin/v1/snapshot-slots', () =>
+    ok(allSnapshotSlots, { meta: { total: allSnapshotSlots.length, page: 1, pageSize: 10, sort: 'granularity', order: 'asc' } }),
+  ),
+
+  http.put('/admin/v1/snapshot-slots/:granularity', async ({ params, request }) => {
+    const body = (await request.json()) as Record<string, unknown>;
+    writeCalls.push({ method: 'PUT', path: `snapshot-slots/${String(params.granularity)}`, body });
+    if (body.enabled === true && (body.step === null || body.step === undefined)) {
+      return HttpResponse.json({ code: 400, message: '启用档位必须给出步长' }, { status: 400 });
+    }
+    return ok({});
+  }),
+
+  // 绑定：一条 = 一个数据项；作用域二选一。
+  http.get('/admin/v1/snapshot-bindings', ({ request }) => {
+    const url = new URL(request.url);
+    bindingQueries.push(url.search);
+    const { slice, page, pageSize } = paginate(allSnapshotBindings as RowData[], url);
+    return HttpResponse.json({
+      code: 0,
+      message: 'ok',
+      data: slice,
+      ...envelopeMeta(allSnapshotBindings.length, page, pageSize, 'id', 'desc'),
+    });
+  }),
+
+  http.post('/admin/v1/snapshot-bindings', async ({ request }) => {
+    const body = (await request.json()) as RowData;
+    writeCalls.push({ method: 'POST', path: 'snapshot-bindings', body });
+    // 模拟后端校验：数据项必须属于目标类型（类型级看 device_type_id，实例级先查终端类型）。
+    const typeID =
+      body.device_type_id != null
+        ? String(body.device_type_id)
+        : String(allTerminals.find((t) => t.id === body.terminal_id)?.type_id ?? '');
+    const belongs = allProperties.some(
+      (row) => row.type_id === typeID && row.item_code === body.item_code,
+    );
+    if (!belongs) {
+      return HttpResponse.json(
+        { code: 400, message: `数据项 ${String(body.item_code)} 不属于该终端类型` },
+        { status: 400 },
+      );
+    }
+    return ok({});
+  }),
+
+  http.delete('/admin/v1/snapshot-bindings/:id', ({ params }) => {
+    writeCalls.push({ method: 'DELETE', path: `snapshot-bindings/${String(params.id)}`, body: null });
+    return ok(null);
+  }),
 
   http.get('/admin/v1/:entity', ({ params, request }) => {
     const url = new URL(request.url);

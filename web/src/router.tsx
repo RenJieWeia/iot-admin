@@ -6,6 +6,7 @@ import { ErrorState } from './components/ErrorState';
 import { StatePanel } from './components/StatePanel';
 import {
   LazyDeviceTypeDetailPage,
+  LazySnapshotConfigPage,
   LazyEntityPage,
   LazyExceptionPage,
   LazyReadonlyPage,
@@ -62,6 +63,10 @@ export function AppRoutes() {
       <Route path="/" element={<IndexRedirect />} />
       <Route path="/exceptions/:slot" element={<LazyExceptionPage />} />
       <Route path="/readonly/:slot" element={<LazyReadonlyPage />} />
+      {/* 快照计划：专用三段式页面，先于 /:entity 声明；实体名已改为 snapshot-slots。 */}
+      <Route path="/snapshot-slots" element={<LazySnapshotConfigPage />} />
+      {/* 老链接兼容：/ui/snapshot-plans 永久转到 /ui/snapshot-slots（replace，不进历史）。 */}
+      <Route path="/snapshot-plans" element={<Navigate to="/snapshot-slots" replace />} />
       {/* 终端类型详情页：两段路径，先于 /:entity 声明（/:entity 只吃一段）。 */}
       <Route path="/device-types/:id" element={<LazyDeviceTypeDetailPage />} />
       {/* 旧深链 → 终端类型列表（replace，不留无效历史）。 */}

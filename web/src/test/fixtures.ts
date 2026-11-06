@@ -346,22 +346,17 @@ export const metaFixture: MetaPayload = {
       ],
     },
     {
-      name: 'snapshot-plans',
+      // 六档全局配置：导航实体（标题仍是「快照计划」），六行固定、主键是 granularity。
+      name: 'snapshot-slots',
       title: '快照计划',
-      route: '/admin/v1/snapshot-plans',
+      route: '/admin/v1/snapshot-slots',
       readOnly: false,
-      defaultSort: 'id',
-      defaultOrder: 'desc',
+      defaultSort: 'granularity',
+      defaultOrder: 'asc',
       fields: [
-        field({ key: 'id', label: 'ID', type: 'id', filterable: false, filterType: 'none', operators: [], widthStrategy: 'fixed' }),
-        field({
-          key: 'device_type_id', label: '终端类型', type: 'relation', filterType: 'relation',
-          operators: ['in'], optionsSource: 'remote', editable: true, required: true, widthStrategy: 'min',
-          ref: { entity: 'device-types', valueKey: 'id', labelKey: 'name' },
-        }),
-        field({ key: 'item_code', label: '数据项编码', type: 'text', filterType: 'text', operators: ['contains', 'eq'], editable: true, required: true, widthStrategy: 'min' }),
-        field({ key: 'enabled_steps', label: '已启用档位', type: 'text', sortable: false, filterable: false, filterType: 'none', operators: [], widthStrategy: 'flex' }),
-        ...sixGranularityFields(),
+        field({ key: 'granularity', label: '档位', type: 'id', filterable: false, filterType: 'none', operators: [], required: true, widthStrategy: 'fixed' }),
+        field({ key: 'enabled', label: '启用', type: 'boolean', filterable: false, filterType: 'none', operators: [], editable: true, widthStrategy: 'fixed' }),
+        field({ key: 'step', label: '步长', type: 'number', sortable: false, filterable: false, filterType: 'none', operators: [], editable: true, widthStrategy: 'fixed' }),
         field({ key: 'updated_at', label: '更新时间', type: 'datetime', visible: false, filterable: false, filterType: 'none', operators: [], widthStrategy: 'min' }),
       ],
     },
@@ -402,6 +397,25 @@ export const metaFixture: MetaPayload = {
    * 「终端类型详情页」后，字段元数据由这里下发。
    */
   subresources: [
+    {
+      name: 'snapshot-bindings',
+      title: '快照绑定',
+      route: '/admin/v1/snapshot-bindings',
+      readOnly: false,
+      defaultSort: 'id',
+      defaultOrder: 'desc',
+      fields: [
+        field({ key: 'id', label: 'ID', type: 'id', filterable: false, filterType: 'none', operators: [], widthStrategy: 'fixed' }),
+        field({
+          key: 'device_type_id', label: '终端类型', type: 'relation', filterType: 'relation', operators: ['in'],
+          optionsSource: 'remote', editable: true, required: false, widthStrategy: 'min',
+          ref: { entity: 'device-types', valueKey: 'id', labelKey: 'name' },
+        }),
+        field({ key: 'terminal_id', label: '终端', type: 'text', filterType: 'text', operators: ['contains'], editable: true, required: false, widthStrategy: 'min' }),
+        field({ key: 'item_code', label: '数据项编码', type: 'text', editable: true, required: true, widthStrategy: 'min' }),
+        field({ key: 'created_at', label: '创建时间', type: 'datetime', filterable: false, filterType: 'none', operators: [], widthStrategy: 'min' }),
+      ],
+    },
     {
       name: 'snapshot-settings',
       title: '存储与保留',
@@ -530,6 +544,12 @@ export const metaFixture: MetaPayload = {
   ],
   // 枚举字典与布尔字典由后端下发，前端归一后渲染中文。
   enums: {
+    second_step: { '1': '1 秒', '5': '5 秒', '10': '10 秒', '15': '15 秒', '30': '30 秒（_meta）' },
+    minute_step: { '1': '1 分', '5': '5 分', '10': '10 分', '30': '30 分' },
+    hour_step: { '1': '1 时', '6': '6 时', '12': '12 时' },
+    day_step: { '1': '1 日' },
+    month_step: { '1': '1 月', '12': '12 月' },
+    year_step: { '1': '1 年' },
     error_type: { protocol_error: '协议错误', msg_incomplete: '报文不完整' },
   },
   booleans: { true: '是', false: '否' },
@@ -653,3 +673,18 @@ export const snapshotSecondRows = Array.from({ length: 25 }).map((_, index) => (
   unit: 'C',
 }));
 
+/** 全局六档配置：六行固定（顺序与迁移一致）。 */
+export const allSnapshotSlots = [
+  { granularity: 'second', enabled: 'false', step: null, updated_at: '2026-11-06T10:00:00+08:00' },
+  { granularity: 'minute', enabled: 'true', step: 5, updated_at: '2026-11-06T10:00:00+08:00' },
+  { granularity: 'hour', enabled: 'true', step: 1, updated_at: '2026-11-06T10:00:00+08:00' },
+  { granularity: 'day', enabled: 'false', step: 1, updated_at: '2026-11-06T10:00:00+08:00' },
+  { granularity: 'month', enabled: 'false', step: null, updated_at: '2026-11-06T10:00:00+08:00' },
+  { granularity: 'year', enabled: 'false', step: 1, updated_at: '2026-11-06T10:00:00+08:00' },
+];
+
+/** 绑定：类型级一条、实例级一条。 */
+export const allSnapshotBindings = [
+  { id: 1, device_type_id: '1', terminal_id: null, item_code: 'temp', created_at: '2026-11-06T10:00:00+08:00' },
+  { id: 2, device_type_id: null, terminal_id: 't-001', item_code: 'power', created_at: '2026-11-06T10:05:00+08:00' },
+];

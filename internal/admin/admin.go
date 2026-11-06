@@ -3,6 +3,7 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +17,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/RenJieWeia/iot-admin/internal/clean"
+	"github.com/RenJieWeia/iot-admin/internal/snapshot"
 )
 
 // Entity 描述一个可 CRUD 的数据源实体。id 一律用 id::text 匹配，兼容 bigint 与 text 主键。
@@ -58,23 +60,130 @@ func rejectFixedRows(w http.ResponseWriter, e Entity) bool {
 	return true
 }
 
-// validatePlanBody 只对快照计划生效：档位是列不是行，提交体里出现六档之外的键就是
-// 「想新增档位/写派生列」，直接 400；步长越界与「启用却没步长」由 0010 的 CHECK 兜底
-// （writeDBError 把 23xxx 映射成 400）。
-func validatePlanBody(e Entity, body map[string]any) error {
-	if e.Name != "snapshot-plans" {
+// validateSlotBody 只对六档配置生效：行集固定为六档，提交体里出现 enabled/step 之外的键
+// 就是「想新增档位/改主键」，直接 400，不静默丢字段。
+func validateSlotBody(e Entity, body map[string]any) error {
+	if e.Name != "snapshot-slots" {
 		return nil
 	}
-	allowed := make(map[string]struct{}, len(e.Cols))
-	for _, c := range e.Cols {
-		allowed[c] = struct{}{}
-	}
 	for key := range body {
-		if _, ok := allowed[key]; !ok {
-			return invalidQuery("未知字段 %q：快照档位固定为六档（秒/分/时/日/月/年），不能新增档位", key)
+		if key != "enabled" && key != "step" {
+			return invalidQuery("未知字段 %q：六档是固定行，只允许改 enabled / step（档位本身不可新增）", key)
 		}
 	}
 	return nil
+}
+
+// validateSlotStep 用 Go 侧白名单先拦一次非法步长，给出比 DB CHECK(23514) 更好读的原因。
+// 档位取自 URL 的 {id}（snapshot_slot_config 的主键就是 granularity）。
+func validateSlotStep(e Entity, granularity string, body map[string]any) error {
+	if e.Name != "snapshot-slots" {
+		return nil
+	}
+	raw, ok := body["step"]
+	if !ok || raw == nil {
+		return nil
+	}
+	step, ok := toInt(raw)
+	if !ok {
+		return invalidQuery("step 不是整数: %v", raw)
+	}
+	if err := snapshot.Validate(int(step), snapshot.Granularity(granularity)); err != nil {
+		return invalidQuery("%v", err)
+	}
+	return nil
+}
+
+// validateBindingBody 校验绑定：作用域二选一 + item_code 必须属于目标的物模型。
+//
+// 为什么要连库校验：绑定是"纳入快照"的唯一开关，存进一条指向不存在数据项的绑定，
+// 会让这台终端永远静默不产生快照——错误应该在被拒的那一次请求里说清楚。
+func (a *API) validateBindingBody(ctx context.Context, e Entity, body map[string]any) error {
+	if e.Name != "snapshot-bindings" {
+		return nil
+	}
+	typeID, hasType := body["device_type_id"]
+	terminalID, hasTerminal := body["terminal_id"]
+	typeSet := hasType && typeID != nil
+	terminalSet := hasTerminal && terminalID != nil
+	if typeSet == terminalSet {
+		return invalidQuery("绑定作用域二选一：device_type_id（类型级）与 terminal_id（实例级）必须且只能给一个")
+	}
+
+	var zone string
+	var target int64
+	if typeSet {
+		id, ok := toInt(typeID)
+		if !ok {
+			return invalidQuery("device_type_id 不是整数: %v", typeID)
+		}
+		target = id
+		zone = "设备类型"
+	} else {
+		id, ok := terminalID.(string)
+		if !ok || id == "" {
+			return invalidQuery("terminal_id 必须是非空字符串: %v", terminalID)
+		}
+		if err := a.Pool.QueryRow(ctx, `select type_id from terminal where id = $1`, id).Scan(&target); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				return invalidQuery("终端 %q 不存在，无法绑定", id)
+			}
+			return err
+		}
+		zone = "终端 " + id + " 所属类型"
+	}
+
+	code, ok := body["item_code"].(string)
+	if !ok || code == "" {
+		return invalidQuery("item_code 必须是非空字符串: %v", body["item_code"])
+	}
+	var typeCode string
+	if err := a.Pool.QueryRow(ctx, `select code from device_type where id = $1`, target).Scan(&typeCode); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return invalidQuery("设备类型 #%d 不存在，无法绑定", target)
+		}
+		return err
+	}
+	var exists bool
+	if err := a.Pool.QueryRow(ctx,
+		`select exists(select 1 from thing_model_property where type_id = $1 and item_code = $2)`,
+		target, code).Scan(&exists); err != nil {
+		return err
+	}
+	if !exists {
+		return invalidQuery("%s（%s）的物模型里没有数据项 %q，请先在该类型的物模型里声明它",
+			zone, typeCode, code)
+	}
+	return nil
+}
+
+// toInt 把 JSON 数字/字符串统一成 int64。
+func toInt(v any) (int64, bool) {
+	switch x := v.(type) {
+	case float64:
+		return int64(x), true
+	case int64:
+		return x, true
+	case int:
+		return int64(x), true
+	case string:
+		n, err := strconv.ParseInt(strings.TrimSpace(x), 10, 64)
+		if err != nil {
+			return 0, false
+		}
+		return n, true
+	}
+	return 0, false
+}
+
+// writeValidateError 把校验错误分流：QueryError → 400（原因写给前端），其余按平台故障。
+func writeValidateError(w http.ResponseWriter, err error) {
+	var qerr *QueryError
+	if errors.As(err, &qerr) {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeDBError(w, err)
 }
 
 // Entities 是本 API 对外暴露的全部实体，与"非目标"清单保持一致（无消费方/权限/命令/报表）。
@@ -86,28 +195,17 @@ var Entities = []Entity{
 	{Name: "terminals", Table: "terminal", Cols: []string{"id", "type_id", "gateway_id", "name", "enabled"}},
 	{Name: "quality-rules", Table: "quality_rule", Cols: []string{
 		"terminal_id", "item_code", "rule_type", "params", "enabled"}, JSONB: []string{"params"}},
-	// 快照计划：一行 = 一个序列（终端类型 + 数据项），六档各一组「启用 + 步长」。
-	// 档位是列不是行，所以 UI 没有「新增档位」入口；步长白名单与 DB CHECK 同源（见 fields.go）。
-	{Name: "snapshot-plans", Table: "snapshot_plan", Cols: []string{
-		"device_type_id", "item_code",
-		"second_enabled", "second_step", "minute_enabled", "minute_step",
-		"hour_enabled", "hour_step", "day_enabled", "day_step",
-		"month_enabled", "month_step", "year_enabled", "year_step"},
-		ExtraSelect: []string{enabledStepsSelect}},
+	// 全局六档配置：六行固定（granularity 主键），只允许改 enabled / step。
+	// 档位本身不可新增（行集固定），步长白名单与 0013 的 CHECK 同源。
+	{Name: "snapshot-slots", FixedRows: true, PKey: "granularity",
+		Table: "snapshot_slot_config", Cols: []string{"enabled", "step"}},
+	// 绑定：一条 = 一个数据项被纳入快照；作用域二选一（类型级或实例级）。
+	{Name: "snapshot-bindings", Hidden: true, Table: "snapshot_binding",
+		Cols: []string{"device_type_id", "terminal_id", "item_code"}},
 	// 表级保留期：三行由迁移预置，只允许改 retention_days（禁增删），不进导航。
 	{Name: "snapshot-settings", Hidden: true, FixedRows: true, PKey: "table_name",
 		Table: "snapshot_settings", Cols: []string{"retention_days"}},
 }
-
-// enabledStepsSelect 是快照计划列表的派生列：把六档启用情况拼成「秒30, 分5, 时1」。
-// 纯展示列，不可排序/筛选（见 FieldMeta）。
-const enabledStepsSelect = `concat_ws(', ',
-	case when second_enabled then concat('秒', second_step) end,
-	case when minute_enabled then concat('分', minute_step) end,
-	case when hour_enabled then concat('时', hour_step) end,
-	case when day_enabled then concat('日', day_step) end,
-	case when month_enabled then concat('月', month_step) end,
-	case when year_enabled then concat('年', year_step) end) as enabled_steps`
 
 // API 是管理接口集合。
 type API struct {
@@ -220,8 +318,13 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json: "+err.Error())
 		return
 	}
-	if err := validatePlanBody(e, body); err != nil {
+	if err := validateSlotBody(e, body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// 绑定的物模型校验要连库，放在建行之前：不合法就 400，不存进去等运行时静默失效。
+	if err := a.validateBindingBody(r.Context(), e, body); err != nil {
+		writeValidateError(w, err)
 		return
 	}
 	cols, vals, err := e.columns(body)
@@ -258,7 +361,12 @@ func (a *API) update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json: "+err.Error())
 		return
 	}
-	if err := validatePlanBody(e, body); err != nil {
+	if err := validateSlotBody(e, body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	// 步长白名单在 Go 侧先拦一次（DB CHECK 是最后一道，但报错信息不如这里好读）。
+	if err := validateSlotStep(e, r.PathValue("id"), body); err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

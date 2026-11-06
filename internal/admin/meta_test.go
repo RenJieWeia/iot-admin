@@ -97,9 +97,10 @@ func TestMetaSections(t *testing.T) {
 	for _, sub := range subresources {
 		subBy[sub.Name] = sub
 	}
-	// 两个子资源：属性（详情页用）+ 保留期（快照计划页顶部用），都不进导航。
-	if len(subresources) != 2 || subBy["thing-model-properties"].Name == "" || subBy["snapshot-settings"].Name == "" {
-		t.Fatalf("subresources = %v，期望 thing-model-properties + snapshot-settings", subBy)
+	// 三个子资源：属性（详情页用）+ 绑定（快照页第三段）+ 保留期（快照页顶部），都不进导航。
+	if len(subresources) != 3 || subBy["thing-model-properties"].Name == "" ||
+		subBy["snapshot-settings"].Name == "" || subBy["snapshot-bindings"].Name == "" {
+		t.Fatalf("subresources = %v，期望 thing-model-properties + snapshot-settings + snapshot-bindings", subBy)
 	}
 	if subBy["thing-model-properties"].Title != "终端属性" {
 		t.Fatalf("subresources 标题 = %q，期望 终端属性", subBy["thing-model-properties"].Title)
@@ -247,8 +248,8 @@ func TestMetaFieldShape(t *testing.T) {
 			sections = append(sections, item)
 		}
 	}
-	if len(sections) != 12 {
-		t.Fatalf("元数据段数 = %d，期望 5 导航实体 + 2 子资源 + 1 异常页 + 4 只读源（最新值 + 三张快照）", len(sections))
+	if len(sections) != 13 {
+		t.Fatalf("元数据段数 = %d，期望 5 导航实体 + 3 子资源 + 1 异常页 + 4 只读源（最新值 + 三张快照）", len(sections))
 	}
 }
 
@@ -469,9 +470,13 @@ func TestEditableRequiredAnchors(t *testing.T) {
 // required 与 DDL 直接对照：解析 migrations/0001 的 not null / primary key / default，
 // 逐列比对，避免手工抄写与迁移漂移。
 func TestRequiredMatchesDDL(t *testing.T) {
-	// 基础实体在 0001；六档快照的表在 0010（snapshot_plan / snapshot_settings）。
+	// 基础实体在 0001；快照只读表 + 保留期在 0010；全局六档与绑定在 0013。
 	table := map[string]map[string]ddlColumn{}
-	for _, name := range []string{"0001_datasource.sql", "0010_snapshot_six_granularities.sql"} {
+	for _, name := range []string{
+		"0001_datasource.sql",
+		"0010_snapshot_six_granularities.sql",
+		"0013_snapshot_slots_and_bindings.sql",
+	} {
 		for tbl, cols := range ddlColumns(t, string(mustReadMigrations(t, name))) {
 			table[tbl] = cols
 		}

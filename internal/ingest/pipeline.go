@@ -361,17 +361,22 @@ func (p *Processor) writeSnapshots(ctx context.Context, term validate.Terminal, 
 	if p.Snap == nil {
 		return nil
 	}
+	cfg, err := p.Snap.Config(ctx)
+	if err != nil {
+		return err
+	}
 	var rows []snapshot.Row
 	var dropped []snapshot.Dropped
 	for _, o := range outs {
-		plan, ok, err := p.Snap.Lookup(ctx, term.TypeID, o.Code)
-		if err != nil {
-			return err
+		// 绑定判定 = 类型级 OR 实例级（并集）；未绑定 → 该序列零写入。
+		bound, berr := p.Snap.Lookup(ctx, term.ID, term.TypeID, o.Code)
+		if berr != nil {
+			return berr
 		}
-		if !ok || !plan.Configured() {
+		if !bound {
 			continue
 		}
-		bandRows, bandDropped := plan.Rows(now, snapshot.Value{
+		bandRows, bandDropped := snapshot.Rows(cfg, bound, now, snapshot.Value{
 			TerminalID: term.ID, ItemCode: o.Code,
 			Num: o.Number, Text: o.Text, Unit: o.Unit, Time: o.Time,
 			Quality:       qualityBits[o.Code],

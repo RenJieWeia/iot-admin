@@ -1,86 +1,171 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { http, HttpResponse } from 'msw';
 import { describe, expect, it } from 'vitest';
 import { renderApp } from '../test/utils';
-import { snapshotPlanQueries, writeCalls } from '../test/server';
+import { metaFixture } from '../test/fixtures';
+import { server, writeCalls } from '../test/server';
 
-async function waitForRows(expected: number) {
-  await waitFor(
-    () => {
-      expect(screen.queryByText('正在加载列表…')).not.toBeInTheDocument();
-      expect(document.querySelectorAll('tbody tr')).toHaveLength(expected);
-    },
-    { timeout: 5000 },
-  );
+async function waitForPage() {
+  await screen.findByRole('region', { name: '六档配置' }, { timeout: 5000 });
+  await waitFor(() => expect(screen.queryByText('正在加载六档配置…')).not.toBeInTheDocument());
 }
 
-describe('快照计划实体（SnapshotPlansEntity）', () => {
-  it('列表展示派生列「已启用档位」，筛选不写死终端类型', async () => {
-    renderApp('/snapshot-plans');
-    await waitForRows(2);
+/** 打开绑定抽屉（专用表单，不是通用 RecordDrawer）。 */
+async function openBindingForm() {
+  const user = userEvent.setup();
+  await user.click(screen.getByRole('button', { name: '新建绑定' }));
+  return { user, dialog: await screen.findByRole('dialog') };
+}
 
-    // 派生列由服务端 SQL 算好（秒30, 分5, 时1 / 分1），前端只展示。
-    expect(screen.getByText('秒30, 分5, 时1')).toBeInTheDocument();
-    expect(screen.getByText('分1')).toBeInTheDocument();
-    // 列表请求不带任何硬编码过滤（导航/过滤都由用户与后端驱动）。
-    expect(snapshotPlanQueries.length).toBeGreaterThan(0);
-    expect(snapshotPlanQueries.at(-1) ?? '').not.toContain('filter.');
-  });
-
-  it('顶部渲染「存储与保留」三行，改值走 PUT，空值表示永久保留', async () => {
+describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
+  it('六档配置渲染六行固定档位，改开关+步长后发 PUT；没有「新增档位」入口', async () => {
     const user = userEvent.setup();
-    renderApp('/snapshot-plans');
-    await waitForRows(2);
+    renderApp('/snapshot-slots');
+    await waitForPage();
 
-    const section = screen.getByRole('region', { name: '存储与保留' });
-    // 三行固定：粗表 / 分表 / 秒表（行集不可增删）。
-    const seconds = within(section).getByLabelText('秒表（秒） 保留天数');
-    const coarse = within(section).getByLabelText('粗表（时 / 日 / 月 / 年） 保留天数');
-    expect(seconds).toHaveValue(7);
-    expect(coarse).toHaveValue(null); // 空 = 永久保留
+    const section = screen.getByRole('region', { name: '六档配置' });
+    for (const label of ['秒', '分', '时', '日', '月', '年']) {
+      expect(within(section).getByLabelText(`${label}档启用`)).toBeInTheDocument();
+    }
+    // 步长选项优先读 _meta.enums（夹具里 30 秒的文案带「（_meta）」后缀）。
+    expect(within(section).getByRole('option', { name: '30 秒（_meta）' })).toBeInTheDocument();
+    // 档位是固定六行：不给新增入口。
+    expect(within(section).queryByRole('button', { name: /新增档位/ })).not.toBeInTheDocument();
 
-    await user.clear(seconds);
-    await user.type(seconds, '30');
-    await user.click(within(section).getAllByRole('button', { name: '保存' })[2]!);
+    // 秒档默认关闭：打开并选 30 秒 → PUT snapshot-slots/second。
+    await user.click(within(section).getByLabelText('秒档启用'));
+    await user.selectOptions(within(section).getByLabelText('秒档步长'), '30');
+    await user.click(within(section).getAllByRole('button', { name: '保存' })[0]!);
 
     await waitFor(() => expect(writeCalls).toHaveLength(1));
     expect(writeCalls[0]?.method).toBe('PUT');
-    expect(writeCalls[0]?.path).toBe('snapshot-settings/snapshot_second');
-    expect(writeCalls[0]?.body).toMatchObject({ retention_days: 30 });
+    expect(writeCalls[0]?.path).toBe('snapshot-slots/second');
+    expect(writeCalls[0]?.body).toMatchObject({ enabled: true, step: 30 });
 
-    // 清空 = 永久保留：提交 null。
-    await user.clear(seconds);
-    await user.click(within(section).getAllByRole('button', { name: '保存' })[2]!);
+    // 分档已启用（步长 5）：改成 10 → PUT snapshot-slots/minute。
+    await user.selectOptions(within(section).getByLabelText('分档步长'), '10');
+    await user.click(within(section).getAllByRole('button', { name: '保存' })[1]!);
     await waitFor(() => expect(writeCalls).toHaveLength(2));
-    expect(writeCalls[1]?.body).toMatchObject({ retention_days: null });
+    expect(writeCalls[1]?.body).toMatchObject({ enabled: true, step: 10 });
   });
 
-  it('非法保留期本地拦下，不发请求', async () => {
+  it('_meta 未下发步长字典时回落到本地白名单', async () => {
+    server.use(
+      http.get('/admin/v1/_meta', () => {
+        const { enums: _dropped, ...rest } = metaFixture;
+        return HttpResponse.json({ code: 0, message: 'ok', data: { ...rest, enums: {} } });
+      }),
+    );
+    renderApp('/snapshot-slots');
+    await waitForPage();
+    const section = screen.getByRole('region', { name: '六档配置' });
+    // 兜底文案是「30 秒」（没有 _meta 后缀）。
+    expect(within(section).getByRole('option', { name: '30 秒' })).toBeInTheDocument();
+  });
+
+  it('老路由 /snapshot-plans 重定向到 /snapshot-slots（replace）', async () => {
+    const view = renderApp('/snapshot-plans');
+    await waitFor(() => expect(view.location()).toBe('/snapshot-slots'));
+    expect(await screen.findByRole('region', { name: '六档配置' })).toBeInTheDocument();
+  });
+
+  it('启用但没选步长时本地拦下，不发请求', async () => {
     const user = userEvent.setup();
-    renderApp('/snapshot-plans');
-    await waitForRows(2);
+    renderApp('/snapshot-slots');
+    await waitForPage();
 
-    const section = screen.getByRole('region', { name: '存储与保留' });
-    const minute = within(section).getByLabelText('分表（分） 保留天数');
-    await user.clear(minute);
-    await user.type(minute, '-1');
-    await user.click(within(section).getAllByRole('button', { name: '保存' })[1]!);
+    const section = screen.getByRole('region', { name: '六档配置' });
+    await user.click(within(section).getByLabelText('月档启用'));
+    await user.click(within(section).getAllByRole('button', { name: '保存' })[4]!);
 
-    expect(await within(section).findByText(/保留天数必须是正整数/)).toBeInTheDocument();
+    expect(await within(section).findByText(/启用时必须选择步长/)).toBeInTheDocument();
     expect(writeCalls).toHaveLength(0);
   });
 
-  it('计划抽屉提供六档「启用 + 步长」12 个字段（档位固定，无新增档位入口）', async () => {
-    const user = userEvent.setup();
-    renderApp('/snapshot-plans');
-    await waitForRows(2);
+  it('绑定列表渲染「作用域/目标/数据项/创建时间」，类型级与实例级各一行', async () => {
+    renderApp('/snapshot-slots');
+    await waitForPage();
 
-    await user.click(screen.getAllByRole('button', { name: '编辑' })[0]!);
-    const dialog = await screen.findByRole('dialog');
-    for (const label of ['秒档', '秒步长', '分档', '分步长', '时档', '时步长', '日档', '日步长', '月档', '月步长', '年档', '年步长']) {
-      expect(within(dialog).getByLabelText(new RegExp(`^${label}`))).toBeInTheDocument();
+    const bindings = await screen.findByRole('region', { name: '绑定' });
+    await waitFor(() => expect(document.querySelectorAll('tbody tr')).toHaveLength(2));
+
+    for (const head of ['作用域', '目标', '数据项', '创建时间', '操作']) {
+      expect(within(bindings).getByRole('columnheader', { name: head })).toBeInTheDocument();
     }
-    // 档位是列不是行：页面/抽屉都不存在「新增档位」入口。
-    expect(within(dialog).queryByRole('button', { name: /新增档位/ })).not.toBeInTheDocument();
+    const rows = Array.from(document.querySelectorAll('tbody tr')).map((row) => row.textContent ?? '');
+    // 类型级：作用域=终端类型，目标=类型名（泵站）；实例级：目标是终端 ID。
+    expect(rows[0]).toContain('终端类型');
+    expect(rows[0]).toContain('泵站');
+    expect(rows[0]).toContain('temp');
+    expect(rows[1]).toContain('终端');
+    expect(rows[1]).toContain('t-001');
+    expect(rows[1]).toContain('power');
+  });
+
+  it('绑定表单：切作用域换目标控件；选类型后数据项来自该类型的属性', async () => {
+    renderApp('/snapshot-slots');
+    await waitForPage();
+    const { user, dialog } = await openBindingForm();
+
+    // 默认类型级：先选类型（远程下拉），数据项候选随后来自该类型。
+    const typeTrigger = within(dialog).getByRole('combobox', { name: '终端类型' });
+    await user.click(typeTrigger);
+    const listbox = await screen.findByRole('listbox', { name: '终端类型选项' });
+    await user.click(within(listbox).getByRole('option', { name: '泵站' }));
+
+    const itemSelect = within(dialog).getByLabelText('数据项');
+    await waitFor(() => expect(itemSelect).toBeEnabled());
+    const values = Array.from((itemSelect as HTMLSelectElement).options).map((option) => option.value);
+    expect(values).toEqual(expect.arrayContaining(['temp', 'power', 'status', 'online']));
+
+    // 切到实例级：类型下拉消失，出现终端搜索。
+    await user.click(within(dialog).getByRole('radio', { name: /终端（单个）/ }));
+    expect(within(dialog).queryByRole('combobox', { name: '终端类型' })).not.toBeInTheDocument();
+    const search = within(dialog).getByLabelText('终端');
+    await user.type(search, 't-001');
+    await waitFor(async () => {
+      const candidate = await within(dialog).findByRole('button', { name: /t-001/ }, { timeout: 3000 });
+      expect(candidate).toBeInTheDocument();
+    }, { timeout: 5000 });
+    await user.click(within(dialog).getByRole('button', { name: /t-001/ }));
+    // 选终端后按该终端的 type_id（t-001 → 1）取候选。
+    await waitFor(() => {
+      const options = Array.from((within(dialog).getByLabelText('数据项') as HTMLSelectElement).options).map(
+        (option) => option.value,
+      );
+      expect(options).toEqual(expect.arrayContaining(['temp', 'power']));
+    });
+  });
+
+  it('后端 400（数据项不属于该类型）显示在表单内，抽屉不关', async () => {
+    server.use(
+      http.post('/admin/v1/snapshot-bindings', () =>
+        HttpResponse.json({ code: 400, message: '数据项 temp 不属于该终端类型' }, { status: 400 }),
+      ),
+    );
+    renderApp('/snapshot-slots');
+    await waitForPage();
+    const { user, dialog } = await openBindingForm();
+
+    await user.click(within(dialog).getByRole('combobox', { name: '终端类型' }));
+    const listbox = await screen.findByRole('listbox', { name: '终端类型选项' });
+    await user.click(within(listbox).getByRole('option', { name: '泵站' }));
+    await waitFor(() => expect(within(dialog).getByLabelText('数据项')).toBeEnabled());
+    await user.selectOptions(within(dialog).getByLabelText('数据项'), 'temp');
+    await user.click(within(dialog).getByRole('button', { name: '保存' }));
+
+    expect(await within(dialog).findByText(/数据项 temp 不属于该终端类型/)).toBeInTheDocument();
+    expect(screen.getByRole('dialog')).toBeInTheDocument();
+  });
+
+  it('存储与保留区块仍在，且说明最小清理粒度', async () => {
+    renderApp('/snapshot-slots');
+    await waitForPage();
+    const section = screen.getByRole('region', { name: '存储与保留' });
+    expect(within(section).getByLabelText('秒表（秒） 保留天数')).toBeInTheDocument();
+    expect(
+      within(section).getByText(/最小清理粒度 = 整月（粗表 \/ 分表）、整日（秒表），实际保留可能比设定值更长。/),
+    ).toBeInTheDocument();
   });
 });

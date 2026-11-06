@@ -82,9 +82,9 @@ func TestReadonlyPagesShape(t *testing.T) {
 	if _, ok := ReadonlyBySlot("nope"); ok {
 		t.Fatal("未知 slot 不应解析成功")
 	}
-	// 只读源不得混进管理实体（可 CRUD 5 / 可导航 4，见 nongoal_test）。
-	if len(Entities) != 7 {
-		t.Fatalf("admin.Entities = %d，期望 7", len(Entities))
+	// 只读源不得混进管理实体（可 CRUD 8 / 可导航 5，见 nongoal_test）。
+	if len(Entities) != 8 {
+		t.Fatalf("admin.Entities = %d，期望 8", len(Entities))
 	}
 	for _, e := range Entities {
 		if e.Name == "latest-values" {
@@ -353,11 +353,12 @@ func TestSnapshotReadonlyWithDB(t *testing.T) {
 	}
 
 	handler := New(pool).Handler()
+	// 游标页信封沿用全站约定：data 是行数组，分页信息进 meta{limit,hasMore,nextCursor}。
 	type page struct {
-		Rows    []map[string]any `json:"rows"`
-		Limit   int              `json:"limit"`
-		HasMore bool             `json:"hasMore"`
-		Cursor  string           `json:"cursor"`
+		Rows    []map[string]any
+		Limit   int
+		HasMore bool
+		Cursor  string
 	}
 	fetch := func(slot, raw string) page {
 		t.Helper()
@@ -368,15 +369,20 @@ func TestSnapshotReadonlyWithDB(t *testing.T) {
 			t.Fatalf("%s?%s = %d: %s", slot, raw, rec.Code, rec.Body.String())
 		}
 		var resp struct {
-			Data page `json:"data"`
+			Data []map[string]any `json:"data"`
+			Meta struct {
+				Limit      int    `json:"limit"`
+				HasMore    bool   `json:"hasMore"`
+				NextCursor string `json:"nextCursor"`
+			} `json:"meta"`
 		}
 		if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-			t.Fatalf("响应不是合法 JSON: %v", err)
+			t.Fatalf("响应不是合法 JSON: %v（body=%s）", err, rec.Body.String())
 		}
-		if resp.Data.Rows == nil {
-			t.Fatalf("rows 必须是空数组而不是 null: %s", rec.Body.String())
+		if resp.Data == nil {
+			t.Fatalf("data 必须是空数组而不是 null: %s", rec.Body.String())
 		}
-		return resp.Data
+		return page{Rows: resp.Data, Limit: resp.Meta.Limit, HasMore: resp.Meta.HasMore, Cursor: resp.Meta.NextCursor}
 	}
 	terminalFilter := "filter.terminal_id.eq=" + url.QueryEscape(prefix+"T1")
 

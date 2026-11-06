@@ -8,74 +8,89 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Loader 是计划表的读取来源（独立成接口便于单测替身）。
+// Loader 是全量配置的读取来源（独立成接口便于单测替身）。
 type Loader interface {
-	LoadPlans(ctx context.Context) ([]Plan, error)
+	Load(ctx context.Context) (Config, Bindings, error)
 }
 
-// PGLoader 从 snapshot_plan 全量读计划（行数 = 序列数，量级很小，整体缓存）。
+// PGLoader 从 snapshot_slot_config（六行固定）与 snapshot_binding（两级绑定）全量读取。
+// 两张表都很小（六行 + 绑定条数），整体缓存是划算的。
 type PGLoader struct {
 	Pool *pgxpool.Pool
 }
 
-// NewPGLoader 构造基于 PG 的计划加载器。
+// NewPGLoader 构造基于 PG 的加载器。
 func NewPGLoader(pool *pgxpool.Pool) *PGLoader { return &PGLoader{Pool: pool} }
 
-// LoadPlans 读全部序列的六档配置。
-func (l *PGLoader) LoadPlans(ctx context.Context) ([]Plan, error) {
-	rows, err := l.Pool.Query(ctx, `
-		select device_type_id, item_code,
-		       second_enabled, coalesce(second_step, 0),
-		       minute_enabled, coalesce(minute_step, 0),
-		       hour_enabled,   coalesce(hour_step, 0),
-		       day_enabled,    coalesce(day_step, 0),
-		       month_enabled,  coalesce(month_step, 0),
-		       year_enabled,   coalesce(year_step, 0)
-		from snapshot_plan`)
+// Load 读一次全量配置：全局六档 + 两级绑定。
+func (l *PGLoader) Load(ctx context.Context) (Config, Bindings, error) {
+	cfg := Config{}
+	rows, err := l.Pool.Query(ctx, `select granularity, enabled, coalesce(step, 0) from snapshot_slot_config`)
 	if err != nil {
-		return nil, err
+		return nil, Bindings{}, err
+	}
+	for rows.Next() {
+		var g string
+		var slot Slot
+		if err := rows.Scan(&g, &slot.Enabled, &slot.Step); err != nil {
+			rows.Close()
+			return nil, Bindings{}, err
+		}
+		cfg[Granularity(g)] = slot
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, Bindings{}, err
+	}
+
+	binds := Bindings{
+		Types:     map[int64]map[string]struct{}{},
+		Terminals: map[string]map[string]struct{}{},
+	}
+	rows, err = l.Pool.Query(ctx, `select device_type_id, terminal_id, item_code from snapshot_binding`)
+	if err != nil {
+		return nil, Bindings{}, err
 	}
 	defer rows.Close()
-
-	var out []Plan
 	for rows.Next() {
-		var p Plan
-		var secOn, minOn, hourOn, dayOn, monOn, yearOn bool
-		var secStep, minStep, hourStep, dayStep, monStep, yearStep int
-		if err := rows.Scan(&p.TypeID, &p.ItemCode,
-			&secOn, &secStep, &minOn, &minStep, &hourOn, &hourStep,
-			&dayOn, &dayStep, &monOn, &monStep, &yearOn, &yearStep); err != nil {
-			return nil, err
+		var typeID *int64
+		var terminalID *string
+		var itemCode string
+		if err := rows.Scan(&typeID, &terminalID, &itemCode); err != nil {
+			return nil, Bindings{}, err
 		}
-		p.Slots = map[Granularity]Slot{
-			Second: {Enabled: secOn, Step: secStep},
-			Minute: {Enabled: minOn, Step: minStep},
-			Hour:   {Enabled: hourOn, Step: hourStep},
-			Day:    {Enabled: dayOn, Step: dayStep},
-			Month:  {Enabled: monOn, Step: monStep},
-			Year:   {Enabled: yearOn, Step: yearStep},
+		switch {
+		case typeID != nil:
+			set := binds.Types[*typeID]
+			if set == nil {
+				set = map[string]struct{}{}
+				binds.Types[*typeID] = set
+			}
+			set[itemCode] = struct{}{}
+		case terminalID != nil:
+			set := binds.Terminals[*terminalID]
+			if set == nil {
+				set = map[string]struct{}{}
+				binds.Terminals[*terminalID] = set
+			}
+			set[itemCode] = struct{}{}
 		}
-		out = append(out, p)
 	}
-	return out, rows.Err()
+	return cfg, binds, rows.Err()
 }
 
-// DefaultTTL 是计划缓存的兜底过期时间：绕过管理 API 直接改库时，配置最多脏 30 秒。
+// DefaultTTL 是配置缓存的兜底过期时间：绕过管理 API 直接改库时，配置最多脏 30 秒。
 const DefaultTTL = 30 * time.Second
 
-type planKey struct {
-	typeID   int64
-	itemCode string
-}
-
-// Store 是计划表的进程内全量缓存（TTL + 显式失效），与 internal/meta 的缓存策略一致：
-// 只缓存成功结果；读失败直接返回错误，由调用方按平台故障处理（internal_error → 503）。
+// Store 是「全局六档 + 两级绑定」的进程内缓存（TTL + 显式失效）。
+// 读失败直接返回错误，由调用方按平台故障处理（internal_error → 503），不拿旧值硬撑。
 type Store struct {
 	loader   Loader
 	ttl      time.Duration
 	now      func() time.Time
 	mu       sync.RWMutex
-	plans    map[planKey]Plan
+	cfg      Config
+	binds    Bindings
 	loadedAt time.Time
 	valid    bool
 }
@@ -88,38 +103,59 @@ func NewStore(l Loader, ttl time.Duration, now func() time.Time) *Store {
 	if now == nil {
 		now = time.Now
 	}
-	return &Store{loader: l, ttl: ttl, now: now, plans: map[planKey]Plan{}}
+	return &Store{
+		loader: l, ttl: ttl, now: now,
+		cfg:   Config{},
+		binds: Bindings{Types: map[int64]map[string]struct{}{}, Terminals: map[string]map[string]struct{}{}},
+	}
 }
 
-// Lookup 取某序列的计划；第二个返回值表示「是否配置了快照」（未配置 = 零写入）。
-func (s *Store) Lookup(ctx context.Context, typeID int64, itemCode string) (Plan, bool, error) {
-	key := planKey{typeID: typeID, itemCode: itemCode}
-	s.mu.RLock()
-	fresh := s.valid && s.now().Before(s.loadedAt.Add(s.ttl))
-	plan, ok := s.plans[key]
-	s.mu.RUnlock()
-	if fresh {
-		return plan, ok, nil
-	}
-	if err := s.reload(ctx); err != nil {
-		return Plan{}, false, err
+// Config 返回全局六档配置（缓存快照的副本，调用方可以安全持有）。
+func (s *Store) Config(ctx context.Context) (Config, error) {
+	if err := s.ensure(ctx); err != nil {
+		return nil, err
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	plan, ok = s.plans[key]
-	return plan, ok, nil
+	out := make(Config, len(s.cfg))
+	for g, slot := range s.cfg {
+		out[g] = slot
+	}
+	return out, nil
 }
 
-// Invalidate 让下一次读取重新加载（管理 API 写完计划后调用）。
+// Lookup 判定某序列是否被纳入快照：类型级 OR 实例级（并集）。
+// 返回 false 时即使六档全开也零写入（未绑定 = 不纳入）。
+func (s *Store) Lookup(ctx context.Context, terminalID string, typeID int64, itemCode string) (bool, error) {
+	if err := s.ensure(ctx); err != nil {
+		return false, err
+	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.binds.Binds(terminalID, typeID, itemCode), nil
+}
+
+// Invalidate 让下一次读取重新加载（管理面写完 slot config / binding 后调用，验收 1 靠它）。
 func (s *Store) Invalidate() {
 	s.mu.Lock()
 	s.valid = false
 	s.mu.Unlock()
 }
 
-// reload 全量重载。双检只挡住「已经加载完」的后来者：TTL 到期的瞬间若有多个 Lookup 并发，
+// ensure 在 TTL 内直接返回；过期则重载。
+func (s *Store) ensure(ctx context.Context) error {
+	s.mu.RLock()
+	fresh := s.valid && s.now().Before(s.loadedAt.Add(s.ttl))
+	s.mu.RUnlock()
+	if fresh {
+		return nil
+	}
+	return s.reload(ctx)
+}
+
+// reload 全量重载。双检只挡住「已经加载完」的后来者：TTL 到期的瞬间若有多个调用并发，
 // 它们可能同时看到 valid=false 而各自加载一次（没有 singleflight 合并"飞行中"的加载）。
-// 计划表很小、TTL 30s，重复加载的代价可接受；读库在锁外进行，不阻塞其它 Lookup。
+// 两张表都很小、TTL 30s，重复加载的代价可接受；读库在锁外进行，不阻塞其它读。
 func (s *Store) reload(ctx context.Context) error {
 	s.mu.Lock()
 	if s.valid && s.now().Before(s.loadedAt.Add(s.ttl)) {
@@ -128,17 +164,14 @@ func (s *Store) reload(ctx context.Context) error {
 	}
 	s.mu.Unlock()
 
-	plans, err := s.loader.LoadPlans(ctx)
+	cfg, binds, err := s.loader.Load(ctx)
 	if err != nil {
 		return err
 	}
-	next := make(map[planKey]Plan, len(plans))
-	for _, p := range plans {
-		next[planKey{typeID: p.TypeID, itemCode: p.ItemCode}] = p
-	}
 
 	s.mu.Lock()
-	s.plans = next
+	s.cfg = cfg
+	s.binds = binds
 	s.loadedAt = s.now()
 	s.valid = true
 	s.mu.Unlock()

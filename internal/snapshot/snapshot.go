@@ -57,26 +57,47 @@ func Validate(step int, g Granularity) error {
 	return fmt.Errorf("%s 档的步长 %d 不在白名单 %v 内", g, step, allowed)
 }
 
-// Slot 是某一档的配置：是否启用 + 步长（步长的单位随档位：秒/分/时/日/月/年）。
+// Slot 是某一档的全局配置：是否启用 + 步长（单位随档位）。
 type Slot struct {
 	Enabled bool
 	Step    int
 }
 
-// Plan 是一个序列（设备类型 + 数据项）的六档配置。
-type Plan struct {
-	TypeID   int64
-	ItemCode string
-	Slots    map[Granularity]Slot
+// Config 是全局六档配置（snapshot_slot_config 的六行固定表）。
+// 与旧模型的关键差别：enabled/step 是**全局**的，不再按序列逐行配置；
+// 「哪些序列要快照」由 Bindings 决定，两者正交。
+type Config map[Granularity]Slot
+
+// Slot 取某档配置；缺行视为未启用。
+func (c Config) Slot(g Granularity) Slot { return c[g] }
+
+// Enabled 返回按 AllGranularities 顺序排列的已启用档位（稳定顺序，便于遍历与断言）。
+func (c Config) Enabled() []Granularity {
+	var out []Granularity
+	for _, g := range AllGranularities {
+		if s := c[g]; s.Enabled && s.Step > 0 {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
-// Slot 取某档配置；未配置视为未启用。
-func (p Plan) Slot(g Granularity) Slot { return p.Slots[g] }
+// Bindings 是两级绑定集合（snapshot_binding 的两种作用域）：
+// 类型级 = 该类型下所有终端，实例级 = 指定终端。
+type Bindings struct {
+	Types     map[int64]map[string]struct{}
+	Terminals map[string]map[string]struct{}
+}
 
-// Configured 表示该序列至少启用了一档（未配置的序列零写入）。
-func (p Plan) Configured() bool {
-	for _, g := range AllGranularities {
-		if s := p.Slots[g]; s.Enabled && s.Step > 0 {
+// Binds 判定并集命中：类型级 OR 实例级。同一序列被两级同时命中仍只算一次。
+func (b Bindings) Binds(terminalID string, typeID int64, itemCode string) bool {
+	if set, ok := b.Types[typeID]; ok {
+		if _, hit := set[itemCode]; hit {
+			return true
+		}
+	}
+	if set, ok := b.Terminals[terminalID]; ok {
+		if _, hit := set[itemCode]; hit {
 			return true
 		}
 	}
@@ -182,13 +203,19 @@ type Dropped struct {
 	Lateness     time.Duration
 }
 
-// Rows 按本序列的六档配置，把一条清洗结果展开成可写快照行：
-// 未启用的档不出行；迟到（段结束 + 15 分钟已过）的档跳过并单独返回，其余档照写。
-func (p Plan) Rows(now time.Time, v Value) ([]Row, []Dropped) {
+// Rows 把一条清洗结果展开成可写快照行：生效集合 = 全局六档中 enabled 的档 × 该序列是否被绑定命中。
+//
+//   - 未绑定（bound=false）→ 零行（即使六档全开，验收 7）；
+//   - 每档独立判迟到：跳过的档进 dropped，其余档照写；
+//   - 这里每档只会产出一行；类型级/实例级双命中的主键收敛由写入路径的 collapseRows 兜底。
+func Rows(cfg Config, bound bool, now time.Time, v Value) ([]Row, []Dropped) {
+	if !bound {
+		return nil, nil
+	}
 	var out []Row
 	var dropped []Dropped
 	for _, g := range AllGranularities {
-		slot := p.Slots[g]
+		slot := cfg[g]
 		if !slot.Enabled || slot.Step < 1 {
 			continue
 		}

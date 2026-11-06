@@ -22,9 +22,11 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		"data_domain": true, "device_type": true, "thing_model_property": true, "terminal": true,
 		"quality_rule": true, "settle_config": true,
 		"latest_value": true, "hourly_staging": true, "hourly_snapshot": true,
-		// B4 六档快照（迁移 0010）：三张快照表 + 白名单 + 表级保留期。
+		// B4 六档快照（迁移 0010）：三张快照表 + 表级保留期。
 		"snapshot_coarse": true, "snapshot_minute": true, "snapshot_second": true,
-		"snapshot_plan": true, "snapshot_settings": true,
+		"snapshot_settings": true,
+		// 0013：全局六档配置 + 两级绑定；snapshot_plan 由 0010 建、0013 drop（见 retiredTables）。
+		"snapshot_slot_config": true, "snapshot_binding": true, "snapshot_plan": true,
 		"exception_interval": true, "exception_count": true, "schema_migrations": true,
 		// R-034（task-013）曾新增，收敛后由 0008 删除：补录留痕的版本记录表
 		"snapshot_cell_history": true,
@@ -38,6 +40,7 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		"hourly_snapshot":       true,
 		"hourly_staging":        true,
 		"settle_config":         true,
+		"snapshot_plan":         true, // 0013 用「全局六档 + 绑定」取代了按序列的计划表
 	}
 	forbiddenWords := []string{
 		"consumer", "whitelist", "quota", "audit", "command",
@@ -89,7 +92,7 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 	// 管理 API 只暴露 5 个数据源实体（结算窗口随 0009 下线）；nil pool 即可验证 404 路径不碰数据库。
 	wantEntities := []string{
 		"data-domains", "device-types", "thing-model-properties",
-		"terminals", "quality-rules", "snapshot-plans", "snapshot-settings",
+		"terminals", "quality-rules", "snapshot-slots", "snapshot-bindings", "snapshot-settings",
 	}
 	if len(admin.Entities) != len(wantEntities) {
 		t.Fatalf("管理 API 实体数 = %d，期望 %d", len(admin.Entities), len(wantEntities))
@@ -104,7 +107,7 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		}
 	}
 
-	// 双口径：可 CRUD = 7（上面已断言）；可导航 = 5（属性与保留期都是子资源，不进导航）。
+	// 双口径：可 CRUD = 8（上面已断言）；可导航 = 5（属性 / 绑定 / 保留期都是子资源，不进导航）。
 	meta := admin.BuildMeta()
 	if len(meta.Entities) != 5 {
 		t.Fatalf("可导航实体 = %d，期望 5（可 CRUD 仍是 %d）", len(meta.Entities), len(admin.Entities))
@@ -122,8 +125,9 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 			t.Fatalf("subresources 里的 %s 没有字段元数据", sub.Name)
 		}
 	}
-	if len(meta.Subresources) != 2 || !subs["thing-model-properties"] || !subs["snapshot-settings"] {
-		t.Fatalf("subresources = %v，期望 thing-model-properties + snapshot-settings", subs)
+	if len(meta.Subresources) != 3 || !subs["thing-model-properties"] ||
+		!subs["snapshot-settings"] || !subs["snapshot-bindings"] {
+		t.Fatalf("subresources = %v，期望 thing-model-properties + snapshot-settings + snapshot-bindings", subs)
 	}
 	handler := admin.New(nil).Handler()
 	for _, bad := range []string{"consumers", "permissions", "commands", "reports",

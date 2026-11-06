@@ -15,6 +15,9 @@ const EntityListPage = lazy(() =>
 const ReadonlySlotPage = lazy(() =>
   import('./ReadonlySlotPage').then((module) => ({ default: module.ReadonlySlotPage })),
 );
+const SnapshotConfigPage = lazy(() =>
+  import('./SnapshotConfigPage').then((module) => ({ default: module.SnapshotConfigPage })),
+);
 const DeviceTypeDetailPage = lazy(() =>
   import('./DeviceTypeDetailPage').then((module) => ({ default: module.DeviceTypeDetailPage })),
 );
@@ -157,6 +160,23 @@ export function LazyDeviceTypeDetailPage() {
         }
       >
         <DeviceTypeDetailPage />
+      </Suspense>
+    </MetaGate>
+  );
+}
+
+/** 快照配置页（导航「快照计划」）：三段式，懒加载与页面骨架对齐。 */
+export function LazySnapshotConfigPage() {
+  return (
+    <MetaGate>
+      <Suspense
+        fallback={
+          <AppShell title="快照计划">
+            <PagePlaceholder status="正在加载快照配置…" />
+          </AppShell>
+        }
+      >
+        <SnapshotConfigPage />
       </Suspense>
     </MetaGate>
   );

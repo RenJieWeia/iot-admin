@@ -45,9 +45,9 @@ func TestExceptionPagesShape(t *testing.T) {
 		t.Fatal("ExceptionByEntity 不应接受普通实体")
 	}
 
-	// 实体集合收敛为 5 个（去掉结算窗口），异常表不得进 Entities。
-	if len(Entities) != 7 {
-		t.Fatalf("admin.Entities = %d，期望 7", len(Entities))
+	// 实体集合收敛为 8 个（含六档配置与绑定），异常表不得进 Entities。
+	if len(Entities) != 8 {
+		t.Fatalf("admin.Entities = %d，期望 8", len(Entities))
 	}
 	for _, e := range Entities {
 		if strings.HasPrefix(e.Name, "exception-") {
