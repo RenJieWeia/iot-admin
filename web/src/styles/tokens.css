@@ -1,26 +1,62 @@
-/* 设计令牌：颜色/间距/字号/圆角/行高只在这里出现，其余样式一律引用变量。
-   迁移自 SSR 版 internal/ui/static/app.css 的 :root（R-017 删除 SSR 资产后这里是唯一来源）。
-   stylelint 规则：tokens.css 之外禁止颜色字面量；间距只允许 4px 网格（见 src/styles/tokens.test.ts）。 */
+/* 设计令牌 v2（task-014 §2 步 1）：颜色/字号/形状的唯一来源。
+   页面与组件只允许引用变量，或引用 tailwind.css 里映射到这些变量的工具类。 */
 :root {
-  --color-bg: #f5f6f8;
+  /* 表面与层次 */
+  --color-bg: #f7f8fa;
   --color-surface: #ffffff;
-  --color-text: #1f2328;
-  --color-muted: #5b6472;
-  --color-border: #d8dee6;
-  --color-primary: #1a56db;
-  --color-primary-hover: #1746b0;
-  --color-on-primary: #ffffff;
-  --color-positive-bg: #e6f4ea;
-  --color-positive-text: #116329;
-  --color-negative-bg: #fde7e9;
-  --color-negative-text: #a40e26;
-  --color-warning-bg: #fff4e5;
-  --color-warning-text: #8a4b08;
-  --color-neutral-bg: #eef1f5;
-  --color-neutral-text: #39424f;
-  --color-skeleton: #e7eaef;
-  --color-overlay: rgba(20, 24, 31, 0.45);
+  --color-surface-2: #f1f3f6;
+  --color-border: #e5e7eb;
+  --color-border-strong: #d1d5db;
 
+  /* 文本三档 */
+  --color-text: #111827;
+  --color-muted: #6b7280;
+  --color-faint: #9ca3af;
+
+  /* 主色与语义色 */
+  --color-primary: #2563eb;
+  --color-primary-hover: #1d4ed8;
+  --color-primary-weak: #eff6ff;
+  --color-success: #15803d;
+  --color-success-weak: #f0fdf4;
+  --color-warning: #b45309;
+  --color-warning-weak: #fffbeb;
+  --color-danger: #b91c1c;
+  --color-danger-weak: #fef2f2;
+  --color-info: #1d4ed8;
+  --color-info-weak: #eff6ff;
+  --color-on-primary: #ffffff;
+  --color-skeleton: #e9edf2;
+  --color-overlay: rgba(16, 24, 40, 0.45);
+
+  /* 字号 / 行高 4 级 */
+  --text-page: 20px;
+  --lh-page: 28px;
+  --text-section: 16px;
+  --lh-section: 24px;
+  --text-body: 14px;
+  --lh-body: 22px;
+  --text-meta: 12px;
+  --lh-meta: 18px;
+  --font-mono: "SFMono-Regular", "Menlo", "Consolas", monospace;
+
+  /* 形状与阴影 */
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-pill: 999px;
+  --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.06);
+  --shadow-overlay: 0 8px 24px rgba(16, 24, 40, 0.18);
+
+  /* 尺寸 */
+  --control-h: 32px;
+  --control-h-lg: 36px;
+  --row-h: 44px;
+  --nav-width: 220px;
+  --header-h: 56px;
+  --drawer-width: 520px;
+  --touch-target: 44px;
+
+  /* 间距（4px 网格） */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -29,21 +65,28 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  --font-sm: 12px;
-  --font-md: 14px;
-  --font-lg: 16px;
-  --font-xl: 20px;
-  --line-md: 20px;
-  --line-lg: 24px;
-  --font-mono: "SFMono-Regular", "Menlo", "Consolas", monospace;
-
-  --radius-sm: 4px;
-  --radius-md: 8px;
-  --row-height: 48px;
-  --nav-width: 200px;
-  --control-height: 36px;
-  --touch-target: 44px;
-  --drawer-width: 480px;
   --z-drawer: 40;
   --z-toast: 60;
+
+  /* ---------- 迁移期别名（v1 → v2）----------
+     组件仍在用 v1 名字（font-sm / radius-sm / positive-* 等）；统一指向 v2，
+     避免一次性重写 23 个文件的类名。清理时只删这一段。 */
+  --font-sm: var(--text-meta);
+  --font-md: var(--text-body);
+  --font-lg: var(--text-section);
+  --font-xl: var(--text-page);
+  --line-md: var(--lh-body);
+  --line-lg: var(--lh-section);
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-card);
+  --row-height: var(--row-h);
+  --control-height: var(--control-h);
+  --color-positive-bg: var(--color-success-weak);
+  --color-positive-text: var(--color-success);
+  --color-negative-bg: var(--color-danger-weak);
+  --color-negative-text: var(--color-danger);
+  --color-warning-bg: var(--color-warning-weak);
+  --color-warning-text: var(--color-warning);
+  --color-neutral-bg: var(--color-surface-2);
+  --color-neutral-text: var(--color-muted);
 }

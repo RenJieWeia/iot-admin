@@ -33,23 +33,48 @@
   --color-neutral-text: var(--color-neutral-text);
   --color-skeleton: var(--color-skeleton);
   --color-overlay: var(--color-overlay);
+  --color-surface-2: var(--color-surface-2);
+  --color-border-strong: var(--color-border-strong);
+  --color-faint: var(--color-faint);
+  --color-primary-weak: var(--color-primary-weak);
+  --color-success: var(--color-success);
+  --color-success-weak: var(--color-success-weak);
+  --color-danger: var(--color-danger);
+  --color-danger-weak: var(--color-danger-weak);
+  --color-warning: var(--color-warning);
+  --color-warning-weak: var(--color-warning-weak);
+  --color-info: var(--color-info);
+  --color-info-weak: var(--color-info-weak);
 
   /* 字号与行高 */
-  --text-sm: var(--font-sm);
-  --text-base: var(--font-md);
-  --text-lg: var(--font-lg);
-  --text-xl: var(--font-xl);
-  --leading-md: var(--line-md);
-  --leading-lg: var(--line-lg);
+  --text-meta: var(--text-meta);
+  --text-body: var(--text-body);
+  --text-section: var(--text-section);
+  --text-page: var(--text-page);
+  --text-sm: var(--text-meta);
+  --text-base: var(--text-body);
+  --text-lg: var(--text-section);
+  --text-xl: var(--text-page);
+  --leading-meta: var(--lh-meta);
+  --leading-body: var(--lh-body);
+  --leading-section: var(--lh-section);
+  --leading-page: var(--lh-page);
+  --leading-md: var(--lh-body);
+  --leading-lg: var(--lh-section);
 
   /* 字体与圆角 */
   --font-mono: var(--font-mono);
-  --radius-sm: var(--radius-sm);
-  --radius-md: var(--radius-md);
+  --radius-control: var(--radius-control);
+  --radius-card: var(--radius-card);
+  --radius-pill: var(--radius-pill);
+  --radius-sm: var(--radius-control);
+  --radius-md: var(--radius-card);
+  --shadow-card: var(--shadow-card);
+  --shadow-overlay: var(--shadow-overlay);
 
   /* 组件尺寸令牌（供下方 @utility 使用） */
-  --height-row: var(--row-height);
-  --height-control: var(--control-height);
+  --height-row: var(--row-h);
+  --height-control: var(--control-h);
   --min-height-touch: var(--touch-target);
   --width-nav: var(--nav-width);
   --width-drawer: var(--drawer-width);
