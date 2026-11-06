@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import type { FieldMeta, Option } from '../api/types';
 import { advancedFilters, quickFilters, type FieldHolder } from '../lib/fieldMeta';
+import { NARROW_QUERY } from '../lib/breakpoint';
 import {
   clearFilters,
   patchQuery,
@@ -10,6 +11,8 @@ import {
   type QueryState,
 } from '../lib/queryState';
 import { formatFilterValue, operatorLabel } from '../lib/format';
+import { Drawer } from './Drawer';
+import { FilterMultiSelect } from './FilterMultiSelect';
 
 interface Props {
   entity: FieldHolder;
@@ -21,6 +24,30 @@ interface Props {
   /** 关联选项加载失败（table-query §5：保留已选条件，局部提示重试，不阻塞表格）。 */
   optionsError?: boolean;
   onRetryOptions?: () => void;
+}
+
+
+function useIsNarrow(): boolean {
+  const [narrow, setNarrow] = useState(
+    () => typeof window.matchMedia === 'function' && window.matchMedia(NARROW_QUERY).matches,
+  );
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const query = window.matchMedia(NARROW_QUERY);
+    const sync = () => setNarrow(query.matches);
+    sync();
+    query.addEventListener('change', sync);
+    return () => query.removeEventListener('change', sync);
+  }, []);
+  return narrow;
+}
+
+/**
+ * 「筛选（N）」的 N 口径：关键词算 1 条，每个已生效筛选条件（chips 上的每一条）算 1 条。
+ * 与 ActiveFilterChips 的条目一一对应，用户能把按钮上的数字和下面的标签对上。
+ */
+function activeConditionCount(query: QueryState): number {
+  return (query.q ? 1 : 0) + query.filters.length;
 }
 
 /** 范围非法提示：数值比大小，日期按 ISO 字典序（YYYY-MM-DD 可直接比较）；空值表示不限。 */
@@ -166,62 +193,59 @@ function FilterControl({
     onChange(patchQuery(query, { filters: next }));
   };
 
+  const optionErrorHint =
+    optionsError && options.length === 0 ? (
+      <p className="m-0 text-sm text-negative-text">
+        选项加载失败，已选条件仍生效。
+        <button type="button" className="btn btn-link" onClick={onRetryOptions}>
+          重试
+        </button>
+      </p>
+    ) : null;
+
+  if (field.filterType === 'boolean') {
+    // 布尔是两值单选，原生 select 最省事（不需要搜索），保持既有实现与既有用例。
+    const selected = valuesOf(query, field.key, field.operators[0] ?? '');
+    return (
+      <div className="field">
+        <label htmlFor={inputId}>{field.label}</label>
+        <select
+          id={inputId}
+          className="select h-8"
+          value={selected[0] ?? ''}
+          onChange={(event) =>
+            commit(field.operators[0] ?? 'eq', event.target.value ? [event.target.value] : [])
+          }
+        >
+          <option value="">全部</option>
+          {options.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
+        </select>
+        {optionErrorHint}
+      </div>
+    );
+  }
+
   if (
-    field.filterType === 'boolean' ||
     field.filterType === 'multiSelect' ||
     field.filterType === 'relation' ||
     field.filterType === 'remoteSelect'
   ) {
-    const selected = valuesOf(query, field.key, field.operators[0] ?? '');
-    const multi = field.filterType !== 'boolean';
+    // 多选/关联：可搜索组合框（§5.1/§14.1），替掉原生 <select multiple>。
     return (
       <div className="field">
         <label htmlFor={inputId}>{field.label}</label>
-        {multi ? (
-          <select
-            id={inputId}
-            className="select h-8"
-            multiple
-            size={3}
-            value={selected}
-            onChange={(event) =>
-              commit(
-                field.operators[0] ?? 'in',
-                Array.from(event.target.selectedOptions, (option) => option.value),
-              )
-            }
-          >
-            {options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <select
-            id={inputId}
-            className="select h-8"
-            value={selected[0] ?? ''}
-            onChange={(event) =>
-              commit(field.operators[0] ?? 'eq', event.target.value ? [event.target.value] : [])
-            }
-          >
-            <option value="">全部</option>
-            {options.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        )}
-        {optionsError && options.length === 0 && (
-          <p className="m-0 text-sm text-negative-text">
-            选项加载失败，已选条件仍生效。
-            <button type="button" className="btn btn-link" onClick={onRetryOptions}>
-              重试
-            </button>
-          </p>
-        )}
+        <FilterMultiSelect
+          id={inputId}
+          label={field.label}
+          options={options}
+          selected={mergedValues(query, field.key)}
+          onChange={(values) => commit(field.operators[0] ?? 'in', values)}
+        />
+        {optionErrorHint}
       </div>
     );
   }
@@ -406,40 +430,101 @@ export function FilterBar({
   // 与字段级文本筛选同一实现：输入 300ms 后写 URL，回车立即提交。
   const keywordCommit = useDebouncedCommit(commitKeyword);
 
+  const narrow = useIsNarrow();
+  const [panelOpen, setPanelOpen] = useState(false);
+  const activeCount = activeConditionCount(query);
+
+  const keywordField = (
+    <div className="field filter-span-2">
+      <label htmlFor="filter-keyword">关键词</label>
+      <input
+        id="filter-keyword"
+        className="input h-8"
+        type="search"
+        value={keyword}
+        placeholder="在可搜索的文本列中匹配"
+        onChange={(event) => {
+          const value = event.target.value;
+          setKeyword(value);
+          keywordCommit.schedule(value.trim());
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== 'Enter') return;
+          keywordCommit.flush(event.currentTarget.value.trim());
+        }}
+      />
+    </div>
+  );
+
+  const renderControl = (field: FieldMeta) => (
+    <FilterControl
+      key={field.key}
+      field={field}
+      query={query}
+      relationOptions={relationOptions}
+      onChange={onChange}
+      optionsError={optionsError}
+      onRetryOptions={onRetryOptions}
+    />
+  );
+
+  const chips = (
+    <ActiveFilterChips
+      entity={entity}
+      query={query}
+      relationOptions={relationOptions}
+      onChange={onChange}
+    />
+  );
+
+  if (narrow) {
+    // <1024px：筛选控件收进抽屉，页面上只留「筛选（N）」；已生效标签仍常驻页面外显（§14.1/§11.2）。
+    return (
+      <>
+        <div className="mb-3 flex items-end gap-3">
+          <button
+            type="button"
+            className="btn h-8"
+            aria-expanded={panelOpen}
+            aria-controls="filter-panel"
+            onClick={() => setPanelOpen(true)}
+          >
+            筛选（{activeCount}）
+          </button>
+        </div>
+        {chips}
+        <Drawer
+          open={panelOpen}
+          title="筛选"
+          description="修改即生效，完成后收起面板"
+          onClose={() => setPanelOpen(false)}
+          footer={
+            <button type="button" className="btn btn-primary" onClick={() => setPanelOpen(false)}>
+              完成
+            </button>
+          }
+        >
+          <div id="filter-panel" className="flex flex-col gap-3">
+            {keywordField}
+            {quick.map(renderControl)}
+            {advanced.length > 0 && (
+              <>
+                <p className="m-0 text-nav uppercase tracking-nav text-faint">更多筛选</p>
+                {advanced.map(renderControl)}
+              </>
+            )}
+          </div>
+        </Drawer>
+      </>
+    );
+  }
+
   return (
     <>
       <div className="mb-3 flex items-end gap-3">
         <div className="filter-grid flex-1">
-        <div className="field filter-span-2">
-          <label htmlFor="filter-keyword">关键词</label>
-          <input
-            id="filter-keyword"
-            className="input h-8"
-            type="search"
-            value={keyword}
-            placeholder="在可搜索的文本列中匹配"
-            onChange={(event) => {
-              const value = event.target.value;
-              setKeyword(value);
-              keywordCommit.schedule(value.trim());
-            }}
-            onKeyDown={(event) => {
-              if (event.key !== 'Enter') return;
-              keywordCommit.flush(event.currentTarget.value.trim());
-            }}
-          />
-        </div>
-          {quick.map((field) => (
-            <FilterControl
-              key={field.key}
-              field={field}
-              query={query}
-              relationOptions={relationOptions}
-              onChange={onChange}
-              optionsError={optionsError}
-              onRetryOptions={onRetryOptions}
-            />
-          ))}
+          {keywordField}
+          {quick.map(renderControl)}
         </div>
         {advanced.length > 0 && (
           <button
@@ -452,12 +537,7 @@ export function FilterBar({
         )}
       </div>
 
-      <ActiveFilterChips
-        entity={entity}
-        query={query}
-        relationOptions={relationOptions}
-        onChange={onChange}
-      />
+      {chips}
 
       <Dialog.Root open={dialogOpen} onOpenChange={setDialogOpen}>
         <Dialog.Portal>
@@ -467,23 +547,22 @@ export function FilterBar({
             aria-describedby={undefined}
           >
             <Dialog.Title className="m-0 text-lg">更多筛选</Dialog.Title>
-            <div className="grid grid-cols-2 gap-4">
-              {advanced.map((field) => (
-                <FilterControl
-                  key={field.key}
-                  field={field}
-                  query={query}
-                  relationOptions={relationOptions}
-                  onChange={onChange}
-                  optionsError={optionsError}
-                  onRetryOptions={onRetryOptions}
-                />
-              ))}
-            </div>
-            <div className="mt-2 flex justify-end gap-2">
-              <button type="button" className="btn" onClick={() => setDialogOpen(false)}>
-                完成
-              </button>
+            <div className="grid grid-cols-2 gap-4">{advanced.map(renderControl)}</div>
+            <div className="mt-2 flex items-center justify-between gap-2">
+              <span className="text-sm text-muted">修改即生效</span>
+              <div className="flex gap-2">
+                {/* 取消只关闭浮层：条件修改即生效，取消不撤销（§5.4，用例锁定这条）。 */}
+                <button type="button" className="btn" onClick={() => setDialogOpen(false)}>
+                  取消
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-primary"
+                  onClick={() => setDialogOpen(false)}
+                >
+                  完成
+                </button>
+              </div>
             </div>
           </Dialog.Content>
         </Dialog.Portal>

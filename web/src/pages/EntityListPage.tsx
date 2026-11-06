@@ -117,6 +117,8 @@ export function EntityListPage() {
     drawerMode === 'new' ? null : (rowFromPage ?? editRowQuery.data ?? null);
 
   const [toast, setToast] = useState<ToastMessage | null>(null);
+  /** 页码越界纠偏是"系统替你调了页"，不是成功事件：用嵌入式中性提示，不弹成功样式 toast（§16.4）。 */
+  const [pageNotice, setPageNotice] = useState<string | null>(null);
   const [pendingDelete, setPendingDelete] = useState<RowData | null>(null);
   const triggerRef = useRef<HTMLElement | null>(null);
   /** 越界自动修正只做一次：回到第一页后置位，避免反复跳转。 */
@@ -216,7 +218,7 @@ export function EntityListPage() {
       correctedRef.current = true;
       // replace：历史里不留下"无数据的页"这一跳；page=1 不落 URL。
       setSearchParams(toSearchParams(patchQuery(query, { page: 1 })), { replace: true });
-      setToast({ kind: 'ok', text: '当前页无数据，已回到第一页（筛选条件保留）。' });
+      setPageNotice('当前页无数据，已回到第一页（筛选条件保留）。');
     }
   }, [entity, list, query, rows.length, listMeta.total, setSearchParams]);
 
@@ -307,6 +309,22 @@ export function EntityListPage() {
         optionsError={optionsQuery.isError}
         onRetryOptions={() => void optionsQuery.refetch()}
       />
+
+      {pageNotice && (
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-control border border-border bg-neutral-bg px-3 py-2">
+          <span className="text-sm" role="status">
+            {pageNotice}
+          </span>
+          <button
+            type="button"
+            className="btn btn-link ml-auto"
+            aria-label="关闭纠偏提示"
+            onClick={() => setPageNotice(null)}
+          >
+            知道了
+          </button>
+        </div>
+      )}
 
       {staleRefreshError && (
         <div
@@ -399,9 +417,8 @@ export function EntityListPage() {
               setPendingDelete(row);
             }}
             skeletonRows={query.pageSize}
-            caption={
-              listMeta.total === 0 ? '共 0 条' : `共 ${listMeta.total} 条，第 ${listMeta.page} 页`
-            }
+            // §16.1：总数只在分页区报一次（「第 1–10 条，共 N 条」），这里用不含数字的表意文案。
+            caption="当前筛选结果"
           />
           <Pagination
             meta={listMeta}

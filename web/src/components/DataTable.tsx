@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import {
   flexRender,
   getCoreRowModel,
@@ -98,7 +98,7 @@ export function DataTable({
           <span className="inline-flex items-center justify-end gap-2">
             <button
               type="button"
-              className="inline-flex h-8 items-center rounded-control border border-border bg-surface px-3 text-body text-text hover:border-border-strong"
+              className="touch-hit inline-flex h-8 items-center rounded-control border border-border bg-surface px-3 text-body text-text hover:border-border-strong"
               data-action="edit"
               data-row-id={String(row.original.id ?? '')}
               onClick={(event) => onEdit?.(row.original, event.currentTarget)}
@@ -107,7 +107,7 @@ export function DataTable({
             </button>
             <button
               type="button"
-              className="inline-flex h-8 items-center rounded-control px-2 text-body text-muted hover:bg-danger-weak hover:text-danger"
+              className="touch-hit inline-flex h-8 items-center rounded-control px-2 text-body text-muted hover:bg-danger-weak hover:text-danger"
               data-action="delete"
               data-row-id={String(row.original.id ?? '')}
               onClick={(event) => onDelete?.(row.original, event.currentTarget)}
@@ -129,7 +129,16 @@ export function DataTable({
   });
 
   const headerGroups = table.getHeaderGroups();
-  const skeletonCount = skeletonRows;
+
+  // 骨架行数 = min(当前每页条数, 上一屏实际行数)，没有上一屏时用 10（§6.4）：
+  // 选 50 条但服务端只回 10 行时，骨架不会先撑出 50 行再骤降。
+  // 上一屏行数在组件内部用 ref 记录：DataTable 是纯展示组件，不为此改调用方签名
+  // （EntityListPage 也不在本批写作用域内）。
+  const lastRowCount = useRef(0);
+  useEffect(() => {
+    if (state === 'ready') lastRowCount.current = rows.length;
+  }, [state, rows.length]);
+  const skeletonCount = Math.max(1, Math.min(skeletonRows, lastRowCount.current || 10));
 
   return (
     <div className="overflow-x-auto rounded-md border border-border bg-surface">

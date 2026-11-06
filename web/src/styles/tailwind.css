@@ -218,6 +218,31 @@
   }
 }
 
+/* 触摸热区扩展（admin-ui-spec §14.1）：只在粗指针（触屏）环境把点击热区撑到 ≥44×44。
+ *
+ * 用绝对定位的伪元素实现：伪元素脱离文档流，按钮的边框、背景、内边距与行高一律不变，
+ * 因此表格行高（h-11）与分页条高度都不受影响 —— 视觉尺寸不变，只有可点区域变大。
+ *
+ * 与上方 touch-target 的关系（两者语义不同，不重复）：
+ *   - touch-target：按断点（<1024px）抬元素自身的 min-height/min-width，用于导航项（视觉确实变大）；
+ *   - touch-hit：按指针类型扩热区，视觉尺寸不变，用于表格行内按钮、分页与表单按钮。
+ */
+@utility touch-hit {
+  @media (pointer: coarse) {
+    position: relative;
+
+    &::after {
+      content: '';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      width: max(100%, var(--touch-target));
+      height: max(100%, var(--touch-target));
+      transform: translate(-50%, -50%);
+    }
+  }
+}
+
 /* 日期输入：去掉原生日历按钮与浏览器默认外观（C1）。 */
 @utility date-input {
   color-scheme: light;

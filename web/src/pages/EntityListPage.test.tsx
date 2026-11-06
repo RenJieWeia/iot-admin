@@ -108,18 +108,22 @@ describe('实体列表页（服务端驱动）', () => {
     await waitFor(() => expect(bodyRows()).toHaveLength(10));
   });
 
-  it('表格说明只讲总数与页号，不出现实现细节', async () => {
+  it('表格说明不再重复报数（数字只留在分页区）', async () => {
     renderApp('/terminals');
     await waitForReady();
     const caption = document.querySelector('caption');
     expect(caption).not.toBeNull();
-    expect(caption?.textContent).toBe('共 128 条，第 1 页');
+    expect(caption?.textContent).toBe('当前筛选结果');
+    // §16.1：两处不能都报数 —— 表格说明里不出现数字，总数只由分页区承担。
+    expect(caption?.textContent ?? '').not.toMatch(/\d/);
+    expect(screen.getByText('第 1–10 条，共 128 条')).toBeInTheDocument();
     // 用拼接字面量断言，避免测试文件自身命中 F3 的守卫 grep（见 report-012）。
     const implementationLeak = ['由服务端', '执行'].join('');
     expect(caption?.textContent ?? '').not.toContain(implementationLeak);
   });
 
   it('页码越界自动回到第一页（replace，只跳一次，筛选保留）', async () => {
+    const user = userEvent.setup();
     const view = renderApp('/terminals?page=99&filter.enabled.eq=true&sort=name');
     // 回到第一页：URL 里 page 不再出现，但筛选与排序保留。
     await waitFor(() => expect(view.location()).not.toContain('page='));
@@ -128,6 +132,10 @@ describe('实体列表页（服务端驱动）', () => {
     expect(
       await screen.findByText('当前页无数据，已回到第一页（筛选条件保留）。'),
     ).toBeInTheDocument();
+    // 中性嵌入提示而非成功 toast：带可关闭入口，点掉后不再占位。
+    const dismiss = screen.getByRole('button', { name: '关闭纠偏提示' });
+    await user.click(dismiss);
+    expect(screen.queryByText('当前页无数据，已回到第一页（筛选条件保留）。')).not.toBeInTheDocument();
     await waitFor(() => expect(bodyRows()).toHaveLength(10));
 
     // 不震荡：等一拍后 URL 与行数都不再变化。

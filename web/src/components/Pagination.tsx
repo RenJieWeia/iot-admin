@@ -29,13 +29,13 @@ export function Pagination({ meta, rangeText, outOfRange, pageSizeOptions, onPag
       )}
       <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
         <span className="range-text text-muted">{rangeText}</span>
-        <button type="button" className="btn h-8" disabled={!hasPrev} onClick={() => onPage(meta.page - 1)}>
+        <button type="button" className="btn touch-hit h-8" disabled={!hasPrev} onClick={() => onPage(meta.page - 1)}>
           上一页
         </button>
         <span aria-current="page" className="range-text text-muted">
           第 {meta.page} 页
         </span>
-        <button type="button" className="btn h-8" disabled={!hasNext} onClick={() => onPage(meta.page + 1)}>
+        <button type="button" className="btn touch-hit h-8" disabled={!hasNext} onClick={() => onPage(meta.page + 1)}>
           下一页
         </button>
         <label className="inline-flex items-center gap-2 text-muted">

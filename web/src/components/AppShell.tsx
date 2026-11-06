@@ -17,6 +17,7 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { NavLink } from 'react-router';
 import { useMeta } from '../api/meta';
 import { cn } from '../lib/cn';
+import { NARROW_QUERY } from '../lib/breakpoint';
 import { Drawer } from './Drawer';
 
 interface Props {
@@ -27,11 +28,6 @@ interface Props {
   children: ReactNode;
 }
 
-/**
- * 与 tailwind.css 里 `shell` 的断点一致：口径取 Tailwind `max-lg`（< 1024px，**不含 1024**），
- * 单列 + 侧栏收进抽屉；1024 起算桌面，侧栏常驻。
- */
-const NARROW_QUERY = '(max-width: 1023.98px)';
 
 /**
  * 窄屏判定：宽度是浏览器状态，只能问 matchMedia。

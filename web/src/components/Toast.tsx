@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { cn } from '../lib/cn';
 
 export interface ToastMessage {
@@ -16,12 +16,18 @@ interface Props {
  * 成功 4 秒自动消失；失败必须留在屏幕上等用户处理（§15：失败要给原因与恢复路径，不能消失）。
  */
 export function Toast({ message, onDismiss }: Props) {
-  // TODO: onDismiss 为内联箭头，父组件重渲染会重置 ok-toast 的 4s 计时；根治需调用方稳定引用（EntityListPage），本批未动。
+  // 用 ref 存最新回调：父组件重渲染会换 onDismiss 引用，但它不该成为计时依赖，
+  // 否则 4 秒会被反复重置。计时只锚定 message 对象本身（setToast 每次产生新对象）。
+  const dismissRef = useRef(onDismiss);
+  useEffect(() => {
+    dismissRef.current = onDismiss;
+  });
+
   useEffect(() => {
     if (!message || message.kind !== 'ok') return undefined;
-    const timer = window.setTimeout(onDismiss, 4000);
+    const timer = window.setTimeout(() => dismissRef.current(), 4000);
     return () => window.clearTimeout(timer);
-  }, [message, onDismiss]);
+  }, [message]);
 
   if (!message) {
     return <div role="status" aria-live="polite" className="visually-hidden" />;

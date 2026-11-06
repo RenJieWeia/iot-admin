@@ -204,18 +204,25 @@ export function RecordDrawer({
           {mode === 'edit' && writable && (
             <button
               type="button"
-              className="btn btn-danger mr-auto"
+              className="btn btn-danger touch-hit mr-auto"
               onClick={onDelete}
               disabled={saving || deleting}
             >
               删除
             </button>
           )}
-          <button type="button" className="btn" onClick={onClose} disabled={saving}>
+          <button type="button" className="btn touch-hit" onClick={onClose} disabled={saving}>
             取消
           </button>
-          <button type="button" className="btn btn-primary" onClick={submit} disabled={saving}>
-            {saving ? '保存中…' : '保存'}
+          {/* 文案固定「保存」，忙碌态只由 disabled + aria-busy 表达，宽度不跳动（§5.1）。 */}
+          <button
+            type="button"
+            className="btn btn-primary touch-hit"
+            onClick={submit}
+            disabled={saving}
+            aria-busy={saving}
+          >
+            保存
           </button>
         </>
       }

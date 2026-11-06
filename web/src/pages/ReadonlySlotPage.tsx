@@ -229,13 +229,10 @@ export function ReadonlySlotPage({ source }: Props) {
             writable={isWritable(holder)}
             sortable={!isCursor}
             skeletonRows={isCursor ? 10 : query.pageSize}
-            caption={
-              isCursor
-                ? `当前页 ${rows.length} 条`
-                : listMeta.total === 0
-                  ? '共 0 条'
-                  : `共 ${listMeta.total} 条，第 ${listMeta.page} 页`
-            }
+            // §16.1 同一信息只出现一处：表格说明不报数，条数只在分页区报一次
+            //（offset 用「第 a–b 条，共 N 条」，cursor 用「已加载 N 条」）。
+            // total=0 时也不在 caption 写「共 0 条」——那会与分页区重复。
+            caption="当前筛选结果"
           />
           {isCursor ? (
             <CursorPager

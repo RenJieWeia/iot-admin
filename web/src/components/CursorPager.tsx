@@ -16,11 +16,18 @@ export function CursorPager({ hasMore, loading, limit, loaded, onMore }: Props) 
   return (
     <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
       <span className="range-text text-muted">
-        已加载 {loaded} 条 · 每批 {limit || '—'} 条（游标分页，不显示总数）
+        已加载 {loaded} 条 · 每批 {limit || '—'} 条（游标分页，不显示总数；只能继续加载，不能回到指定页）
       </span>
       {hasMore ? (
-        <button type="button" className="btn h-8" onClick={onMore} disabled={loading}>
-          {loading ? '加载中…' : '加载更多'}
+        // 文案固定，避免「加载中…」让按钮变窄引起跳动；忙碌态只由 disabled + aria-busy 表达。
+        <button
+          type="button"
+          className="btn touch-hit h-8"
+          onClick={onMore}
+          disabled={loading}
+          aria-busy={loading}
+        >
+          加载更多
         </button>
       ) : (
         <span className="range-text text-muted">已到末尾</span>

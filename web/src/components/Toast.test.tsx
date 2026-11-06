@@ -53,4 +53,38 @@ describe('Toast 分档通知', () => {
     // 同一时刻只留一条播报路径，避免重复朗读。
     expect(screen.queryByRole('status')).not.toBeInTheDocument();
   });
+
+  it('父组件重渲染换掉 onDismiss 引用，也不会重置 4 秒计时', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const message: ToastMessage = { kind: 'ok', text: '已保存修改。' };
+    const { rerender } = render(<Toast message={message} onDismiss={first} />);
+
+    act(() => {
+      vi.advanceTimersByTime(3_000);
+    });
+    // 父组件重渲染：同一个 message 对象、新的 onDismiss 引用。
+    rerender(<Toast message={message} onDismiss={second} />);
+    act(() => {
+      vi.advanceTimersByTime(1_000);
+    });
+    // 计时从挂载算起满 4 秒就消失，不因重渲染重新计时。
+    expect(second).toHaveBeenCalledTimes(1);
+    expect(first).not.toHaveBeenCalled();
+  });
+
+  it('失败提示在多次重渲染后 10 秒仍在，且不调用 onDismiss', () => {
+    const first = vi.fn();
+    const second = vi.fn();
+    const message: ToastMessage = { kind: 'error', text: '删除失败：db_unavailable' };
+    const { rerender } = render(<Toast message={message} onDismiss={first} />);
+    rerender(<Toast message={message} onDismiss={second} />);
+
+    act(() => {
+      vi.advanceTimersByTime(10_000);
+    });
+    expect(first).not.toHaveBeenCalled();
+    expect(second).not.toHaveBeenCalled();
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+  });
 });

@@ -25,6 +25,12 @@ describe('最新值只读页（task-009 Part B）', () => {
     await waitForReady();
     expect(screen.getByText('第 1–10 条，共 128 条')).toBeInTheDocument();
 
+    // §16.1 同一信息只出现一处：表格说明不报数，总数只出现在分页区。
+    const caption = document.querySelector('caption');
+    expect(caption?.textContent).toBe('当前筛选结果');
+    expect(caption?.textContent ?? '').not.toMatch(/\d/);
+    expect(screen.getAllByText(/共 128 条/)).toHaveLength(1);
+
     const table = screen.getByRole('table');
     // options 的 label 直接来自 _meta，前端零硬编码；首 10 行 quality 依次是 0..7,0,1。
     for (const label of ['正常', '越界', '规则命中', '越界+规则', '单位闭集外', '越界+单位', '规则+单位', '越界+规则+单位']) {
@@ -178,6 +184,10 @@ describe('最新值只读页（task-009 Part B）', () => {
 
     expect(await screen.findByText('暂无最新值')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '刷新' })).toBeInTheDocument();
+    // §16.1 同一信息只出现一处：total=0 走空态面板，表格整体不渲染 → 没有 caption，
+    // 也就不存在「caption 与分页区各报一次 0 条」的重复。
+    expect(document.querySelector('caption')).toBeNull();
+    expect(screen.queryByText(/共 0 条/)).toBeNull();
   });
 
   it('总数 > 0 但没有筛选：按「数据在变化」提示，不判「无匹配」（§11.3）', async () => {

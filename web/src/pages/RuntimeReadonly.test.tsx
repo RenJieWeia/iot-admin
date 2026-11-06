@@ -28,6 +28,8 @@ describe('小时暂存（offset 分页）', () => {
     expect(screen.getByText('第 1–10 条，共 25 条')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '加载更多' })).not.toBeInTheDocument();
 
+    // 页码分页按钮带 touch-hit（触屏下热区 ≥44，视觉高度仍是 h-8）。
+    expect(screen.getByRole('button', { name: '下一页' }).className).toContain('touch-hit');
     await user.click(screen.getByRole('button', { name: '下一页' }));
     await waitFor(() => expect(screen.getByText('第 11–20 条，共 25 条')).toBeInTheDocument());
     expect(view.location()).toContain('page=2');
@@ -39,8 +41,12 @@ describe('小时快照（cursor 分页）', () => {
     renderApp('/readonly/hourly-snapshot');
     await waitForRows(20);
 
-    expect(screen.getByText(/已加载 20 条 · 每批 20 条（游标分页，不显示总数）/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/已加载 20 条 · 每批 20 条（游标分页，不显示总数；只能继续加载，不能回到指定页）/),
+    ).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '加载更多' })).toBeInTheDocument();
+    // 表格说明同样不报数（§16.1）：条数只在游标分页区出现。
+    expect(document.querySelector('caption')?.textContent).toBe('当前筛选结果');
     // 分区表上不显示 total：整页不应出现「共 N 条」。
     expect(screen.queryByText(/共 \d+ 条/)).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '下一页' })).not.toBeInTheDocument();
