@@ -5,9 +5,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5"
+
 	"github.com/RenJieWeia/iot-admin/internal/exception"
 	"github.com/RenJieWeia/iot-admin/internal/settle"
 	"github.com/RenJieWeia/iot-admin/internal/staging"
+	"github.com/RenJieWeia/iot-admin/internal/store"
 )
 
 // 用例 18：窗口边界 —— 恰好等于关闭时刻判迟到；关闭前 1 秒在窗口内；关闭时刻可结算。
@@ -184,3 +187,139 @@ func TestMonthlyPartitionsAndMonthBoundaryRows(t *testing.T) {
 }
 
 func validateReasonLateData() string { return string(exception.LateData) }
+
+// R-030：快照版本化 —— 同格只有 value_time 更大才覆盖并 revision+1；相等/更早跳过（幂等）。
+func TestSnapshotRevisionUpsert(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	hour := hourOf(baseTime)
+	num := func(v float64) *float64 { return &v }
+	row := func(minute int, v float64) staging.Row {
+		return staging.Row{
+			Value:     store.Value{TerminalID: testTerminalID, ItemCode: "temp", ValueNum: num(v), Unit: "C", ValueTime: hour.Add(time.Duration(minute) * time.Minute)},
+			HourStart: hour,
+		}
+	}
+	apply := func(rows ...staging.Row) int64 {
+		t.Helper()
+		var n int64
+		if err := pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error {
+			var err error
+			n, err = settle.UpsertSnapshot(ctx, tx, rows)
+			return err
+		}); err != nil {
+			t.Fatalf("UpsertSnapshot: %v", err)
+		}
+		return n
+	}
+	type snap struct {
+		value    float64
+		revision int
+		settled  time.Time
+	}
+	read := func() snap {
+		t.Helper()
+		var s snap
+		if err := e.pool.QueryRow(ctx, `
+			select value_num, revision, settled_at from hourly_snapshot
+			where terminal_id = $1 and item_code = 'temp' and hour_start = $2`,
+			testTerminalID, hour).Scan(&s.value, &s.revision, &s.settled); err != nil {
+			t.Fatalf("读快照: %v", err)
+		}
+		return s
+	}
+
+	// 1) 首次落库：revision=0。
+	if n := apply(row(0, 1.0)); n != 1 {
+		t.Fatalf("首次写入影响行数 = %d，期望 1", n)
+	}
+	first := read()
+	if first.value != 1.0 || first.revision != 0 || first.settled.IsZero() {
+		t.Fatalf("首次落库 = %+v，期望 value=1 revision=0 settled 非空", first)
+	}
+
+	// 2) 更晚的 value_time：覆盖 + revision=1 + settled_at 前进。
+	if n := apply(row(5, 2.0)); n != 1 {
+		t.Fatalf("更新影响行数 = %d，期望 1", n)
+	}
+	second := read()
+	if second.value != 2.0 || second.revision != 1 {
+		t.Fatalf("更新后 = %+v，期望 value=2 revision=1", second)
+	}
+	if second.settled.Before(first.settled) {
+		t.Fatalf("settled_at 应前进或不变: %s → %s", first.settled, second.settled)
+	}
+
+	// 3) 更早的 value_time：整行跳过，值/版本/时间都不变。
+	if n := apply(row(1, 9.0)); n != 0 {
+		t.Fatalf("更早值影响行数 = %d，期望 0", n)
+	}
+	// 4) 相等 value_time：同样跳过（幂等）。
+	if n := apply(row(5, 8.0)); n != 0 {
+		t.Fatalf("相等值影响行数 = %d，期望 0", n)
+	}
+	third := read()
+	if third != second {
+		t.Fatalf("被跳过的写不应改变快照: %+v → %+v", second, third)
+	}
+}
+
+// R-030：结算对已存在的快照行走 DO UPDATE，revision 递增（不再静默 DO NOTHING）。
+func TestSettleUpdatesExistingSnapshot(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	hour := hourOf(baseTime)
+	num := func(v float64) *float64 { return &v }
+
+	// 先放一条"旧"快照（模拟此前已结算过）。
+	if err := pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error {
+		_, err := settle.UpsertSnapshot(ctx, tx, []staging.Row{{
+			Value: store.Value{TerminalID: testTerminalID, ItemCode: "temp", ValueNum: num(1.0),
+				Unit: "C", ValueTime: hour.Add(10 * time.Minute)},
+			HourStart: hour,
+		}})
+		return err
+	}); err != nil {
+		t.Fatalf("预置快照: %v", err)
+	}
+
+	// 暂存里放更晚的同格数据，走的还是结算路径。
+	if err := pgx.BeginFunc(ctx, e.pool, func(tx pgx.Tx) error {
+		return staging.Upsert(ctx, tx, []staging.Row{{
+			Value: store.Value{TerminalID: testTerminalID, ItemCode: "temp", ValueNum: num(2.0),
+				Unit: "C", ValueTime: hour.Add(50 * time.Minute)},
+			HourStart: hour,
+		}})
+	}); err != nil {
+		t.Fatalf("预置暂存: %v", err)
+	}
+
+	var before int
+	if err := e.pool.QueryRow(ctx, `select revision from hourly_snapshot where terminal_id = $1 and item_code = 'temp' and hour_start = $2`,
+		testTerminalID, hour).Scan(&before); err != nil {
+		t.Fatalf("读 revision: %v", err)
+	}
+
+	e.clock.Set(closeOf(hour).Add(time.Second))
+	if _, err := e.settler.Run(ctx); err != nil {
+		t.Fatalf("结算失败: %v", err)
+	}
+
+	var (
+		value    float64
+		revision int
+	)
+	if err := e.pool.QueryRow(ctx, `select value_num, revision from hourly_snapshot where terminal_id = $1 and item_code = 'temp' and hour_start = $2`,
+		testTerminalID, hour).Scan(&value, &revision); err != nil {
+		t.Fatalf("读快照: %v", err)
+	}
+	if value != 2.0 {
+		t.Fatalf("结算后快照值 = %v，期望 2.0", value)
+	}
+	if revision != before+1 {
+		t.Fatalf("revision = %d，期望 %d（结算走 DO UPDATE）", revision, before+1)
+	}
+	if n := e.snapshotCount(); n != 1 {
+		t.Fatalf("快照行数 = %d，期望 1（不产生第二行）", n)
+	}
+}

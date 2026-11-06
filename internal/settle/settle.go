@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -119,22 +120,73 @@ func (s *Settler) fail(ctx context.Context, now time.Time, err error) {
 }
 
 // 结算条件唯一口径：小时结束后再等该终端的窗口秒数（闭区间，等于关闭时刻即可结算）。
+// 快照写入本身不在这里拼 SQL —— 统一走 UpsertSnapshot（结算与窗口外分流共用一份实现）。
 const (
-	insertClosedSQL = `
-		insert into hourly_snapshot
-		    (terminal_id, item_code, hour_start, value_num, value_text, unit, value_time,
-		     quality, quality_reason)
-		select s.terminal_id, s.item_code, s.hour_start, s.value_num, s.value_text, s.unit, s.value_time,
-		       s.quality, s.quality_reason
+	selectClosedSQL = `
+		select s.terminal_id, s.item_code, s.hour_start, s.value_num, s.value_text, s.unit,
+		       s.value_time, s.quality, coalesce(s.quality_reason, '')
 		from hourly_staging s
 		where s.terminal_id = any($2)
-		  and s.hour_start + interval '1 hour' + make_interval(secs => $3) <= $1::timestamptz
-		on conflict (terminal_id, item_code, hour_start) do nothing`
+		  and s.hour_start + interval '1 hour' + make_interval(secs => $3) <= $1::timestamptz`
 	deleteClosedSQL = `
 		delete from hourly_staging s
 		where s.terminal_id = any($2)
 		  and s.hour_start + interval '1 hour' + make_interval(secs => $3) <= $1::timestamptz`
 )
+
+// UpsertSnapshot 是快照写入的**唯一**实现：结算任务与接入管道（窗口外分流）都调用它。
+//
+// 版本化语义（R-030）：同一格 (terminal_id, item_code, hour_start) 只有 value_time **更大**时
+// 才覆盖，并在 SQL 内原子执行 revision = hourly_snapshot.revision + 1、settled_at = now()；
+// value_time 相等或更小则整行跳过，revision 与 settled_at 都不变（幂等）。
+func UpsertSnapshot(ctx context.Context, tx pgx.Tx, rows []staging.Row) (int64, error) {
+	if len(rows) == 0 {
+		return 0, nil
+	}
+	placeholders := make([]string, len(rows))
+	args := make([]any, 0, len(rows)*9)
+	for i, r := range rows {
+		n := i * 9
+		placeholders[i] = fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9)
+		args = append(args, r.TerminalID, r.ItemCode, r.HourStart,
+			r.ValueNum, r.ValueText, r.Unit, r.ValueTime, r.Quality, r.QualityReason)
+	}
+	tag, err := tx.Exec(ctx, `
+		insert into hourly_snapshot
+		    (terminal_id, item_code, hour_start, value_num, value_text, unit, value_time,
+		     quality, quality_reason)
+		values `+strings.Join(placeholders, ", ")+`
+		on conflict (terminal_id, item_code, hour_start) do update
+		set value_num = excluded.value_num, value_text = excluded.value_text,
+		    unit = excluded.unit, value_time = excluded.value_time,
+		    quality = excluded.quality, quality_reason = excluded.quality_reason,
+		    revision = hourly_snapshot.revision + 1, settled_at = now()
+		where excluded.value_time > hourly_snapshot.value_time`, args...)
+	if err != nil {
+		return 0, err
+	}
+	return tag.RowsAffected(), nil
+}
+
+// readClosed 读出该批终端"已到关闭时刻"的暂存行，交给 UpsertSnapshot。
+func readClosed(ctx context.Context, tx pgx.Tx, now time.Time, ids []string, window int) ([]staging.Row, error) {
+	rows, err := tx.Query(ctx, selectClosedSQL, now, ids, window)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []staging.Row
+	for rows.Next() {
+		var r staging.Row
+		if err := rows.Scan(&r.TerminalID, &r.ItemCode, &r.HourStart, &r.ValueNum, &r.ValueText,
+			&r.Unit, &r.ValueTime, &r.Quality, &r.QualityReason); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
 
 // settle 在一个事务里完成"取每项最后值 -> 幂等插入快照 -> 删除该小时暂存"。
 // 窗口按终端生效值分组，分组所需的配置只从 WindowConfig 读取一次。
@@ -169,21 +221,25 @@ func (s *Settler) settle(ctx context.Context, now time.Time) (int64, error) {
 	}
 	sort.Ints(windows)
 
-	var inserted int64
+	var written int64
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		for _, w := range windows {
-			tag, err := tx.Exec(ctx, insertClosedSQL, now, buckets[w], w)
+			closed, err := readClosed(ctx, tx, now, buckets[w], w)
 			if err != nil {
-				return fmt.Errorf("插入快照(window=%d): %w", w, err)
+				return fmt.Errorf("读取待结算暂存(window=%d): %w", w, err)
 			}
-			inserted += tag.RowsAffected()
+			n, err := UpsertSnapshot(ctx, tx, closed)
+			if err != nil {
+				return fmt.Errorf("写快照(window=%d): %w", w, err)
+			}
+			written += n
 			if _, err := tx.Exec(ctx, deleteClosedSQL, now, buckets[w], w); err != nil {
 				return fmt.Errorf("清理暂存(window=%d): %w", w, err)
 			}
 		}
 		return nil
 	})
-	return inserted, err
+	return written, err
 }
 
 // candidates 返回暂存中至少有一条"小时已结束"数据的终端。
