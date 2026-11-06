@@ -82,19 +82,23 @@ func New(pool *pgxpool.Pool, rec *exception.Recorder, now func() time.Time, log 
 }
 
 // Run 执行一轮结算：先保证目标月分区存在，再落快照并清暂存。任一步失败记一条 snapshot_failed，下轮重试。
+//
+// 返回值 = 本轮**处理**的暂存行数（"结算了多少格"）。快照实际受影响行数（含 UPDATE）
+// 只进日志 "snapshot_writes"：快照里若已有同 value_time 的行，upsert 影响 0 行，
+// 但那批暂存确实被结算并清掉了，所以不能拿受影响行数当结算量。
 func (s *Settler) Run(ctx context.Context) (int64, error) {
 	now := s.Now()
 	if err := EnsurePartitions(ctx, s.Pool, now); err != nil {
 		s.fail(ctx, now, err)
 		return 0, err
 	}
-	n, err := s.settle(ctx, now)
+	n, affected, err := s.settle(ctx, now)
 	if err != nil {
 		s.fail(ctx, now, err)
 		return 0, err
 	}
 	if n > 0 {
-		s.Log.Info("小时结算完成", "rows", n, "now", now.Format(time.RFC3339))
+		s.Log.Info("小时结算完成", "rows", n, "snapshot_writes", affected, "now", now.Format(time.RFC3339))
 	}
 	return n, nil
 }
@@ -190,21 +194,21 @@ func readClosed(ctx context.Context, tx pgx.Tx, now time.Time, ids []string, win
 
 // settle 在一个事务里完成"取每项最后值 -> 幂等插入快照 -> 删除该小时暂存"。
 // 窗口按终端生效值分组，分组所需的配置只从 WindowConfig 读取一次。
-func (s *Settler) settle(ctx context.Context, now time.Time) (int64, error) {
+func (s *Settler) settle(ctx context.Context, now time.Time) (processed, affected int64, err error) {
 	ids, err := s.candidates(ctx, now)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	if len(ids) == 0 {
-		return 0, nil
+		return 0, 0, nil
 	}
 	cfg, err := LoadWindowConfig(ctx, s.Pool)
 	if err != nil {
-		return 0, fmt.Errorf("读取结算窗口配置: %w", err)
+		return 0, 0, fmt.Errorf("读取结算窗口配置: %w", err)
 	}
 	scopes, err := s.terminalScopes(ctx, ids)
 	if err != nil {
-		return 0, err
+		return 0, 0, err
 	}
 	buckets := make(map[int][]string, 2)
 	for _, id := range ids {
@@ -221,7 +225,6 @@ func (s *Settler) settle(ctx context.Context, now time.Time) (int64, error) {
 	}
 	sort.Ints(windows)
 
-	var written int64
 	err = pgx.BeginFunc(ctx, s.Pool, func(tx pgx.Tx) error {
 		for _, w := range windows {
 			closed, err := readClosed(ctx, tx, now, buckets[w], w)
@@ -232,14 +235,18 @@ func (s *Settler) settle(ctx context.Context, now time.Time) (int64, error) {
 			if err != nil {
 				return fmt.Errorf("写快照(window=%d): %w", w, err)
 			}
-			written += n
+			// 返回值语义 = 本轮**处理**的暂存行数（含被 value_time 守卫跳过的行）：
+			// 快照里已有同 value_time 时 upsert 影响 0 行，但那批暂存确实被结算并清掉了。
+			// 快照实际受影响行数另行累加，只用于日志观测。
+			processed += int64(len(closed))
+			affected += n
 			if _, err := tx.Exec(ctx, deleteClosedSQL, now, buckets[w], w); err != nil {
 				return fmt.Errorf("清理暂存(window=%d): %w", w, err)
 			}
 		}
 		return nil
 	})
-	return written, err
+	return processed, affected, err
 }
 
 // candidates 返回暂存中至少有一条"小时已结束"数据的终端。
