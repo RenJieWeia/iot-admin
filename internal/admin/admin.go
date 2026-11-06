@@ -48,7 +48,6 @@ func (e Entity) pk() string {
 	return "id"
 }
 
-
 // rejectFixedRows 对「行集固定」的实体拒绝新增/删除：400，而不是静默 404/500。
 func rejectFixedRows(w http.ResponseWriter, e Entity) bool {
 	if !e.FixedRows {
@@ -277,8 +276,7 @@ func (a *API) update(w http.ResponseWriter, r *http.Request) {
 		sets[i] = c + " = " + e.placeholder(i+1, c)
 	}
 	vals = append(vals, r.PathValue("id"))
-	row, err := a.queryOne(r, e, fmt.Sprintf("update %s set %s where id::text = $%d returning *",
-		e.Table, strings.Join(sets, ", "), len(cols)+1), vals...)
+	row, err := a.queryOne(r, e, updateSQL(e, sets, len(cols)+1), vals...)
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
@@ -289,6 +287,13 @@ func (a *API) update(w http.ResponseWriter, r *http.Request) {
 	}
 	a.invalidate()
 	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: row})
+}
+
+// updateSQL 构造 UPDATE 语句。主键列统一走 e.pk()——snapshot_settings 这类非 id 主键
+// （table_name）的实体，若这里写死 id 会 500 column "id" does not exist。
+func updateSQL(e Entity, sets []string, idParam int) string {
+	return fmt.Sprintf("update %s set %s where %s::text = $%d returning *",
+		e.Table, strings.Join(sets, ", "), e.pk(), idParam)
 }
 
 func (a *API) delete(w http.ResponseWriter, r *http.Request) {

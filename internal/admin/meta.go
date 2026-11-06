@@ -67,11 +67,11 @@ type MetaField struct {
 	Operators      []string          `json:"operators"`
 	OperatorLabels map[string]string `json:"operatorLabels"`
 	// Derived 表示该列由服务端列表 SQL 计算（不在物理表里），前端只展示、不可排序/筛选。
-	Derived bool `json:"derived,omitempty"`
-	OptionsSource  string            `json:"optionsSource"`
-	Options        []MetaOption      `json:"options"`
-	AdvancedOnly   bool              `json:"advancedOnly"`
-	WidthStrategy  string            `json:"widthStrategy"`
+	Derived       bool         `json:"derived,omitempty"`
+	OptionsSource string       `json:"optionsSource"`
+	Options       []MetaOption `json:"options"`
+	AdvancedOnly  bool         `json:"advancedOnly"`
+	WidthStrategy string       `json:"widthStrategy"`
 	// Editable / Required 是抽屉表单契约：前端不再靠 id && filterable 推断可编辑列。
 	Editable bool     `json:"editable"`
 	Required bool     `json:"required"`

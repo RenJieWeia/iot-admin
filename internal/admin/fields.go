@@ -90,7 +90,6 @@ var qualityOptions = []Option{
 	{Value: "7", Label: "越界+规则+单位闭集外", Tone: "warning"},
 }
 
-
 // 六档步长白名单（与 migrations/0010 的 CHECK 约束同源）：
 // 秒/分 1,2,3,4,5,6,10,12,15,20,30；时 1,2,3,4,6,8,12；日 1；月 1,2,3,4,6,12；年 1。
 // 选项既用于抽屉下拉，也经 _meta.enums 下发（key 与字段名一致）。

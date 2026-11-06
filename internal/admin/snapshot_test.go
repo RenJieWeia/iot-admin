@@ -143,7 +143,6 @@ func TestSnapshotStepDictionaries(t *testing.T) {
 
 // ---------- 小工具 ----------
 
-
 func stepOptionsOf(field string) []Option {
 	fields, _ := FieldMetas("snapshot-plans")
 	for _, f := range fields {
@@ -170,4 +169,21 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
+}
+
+// TestUpdateSQLUsesEntityPKey 守住「非 id 主键的实体」不会在 UPDATE 里写死 id。
+// 线上曾因此 500：PUT /admin/v1/snapshot-settings/snapshot_second → column "id" does not exist。
+func TestUpdateSQLUsesEntityPKey(t *testing.T) {
+	e, ok := lookup("snapshot-settings")
+	if !ok {
+		t.Fatal("snapshot-settings 实体缺失")
+	}
+	got := updateSQL(e, []string{"retention_days = $1"}, 2)
+	want := `update snapshot_settings set retention_days = $1 where table_name::text = $2 returning *`
+	if got != want {
+		t.Fatalf("update SQL 不符：\n got  %s\n want %s", got, want)
+	}
+	if strings.Contains(got, "where id::text") {
+		t.Fatal("UPDATE 仍在写死 id 列")
+	}
 }
