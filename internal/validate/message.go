@@ -27,6 +27,11 @@ const (
 	ReasonProtocolError   = "protocol_error"
 	ReasonCleanFailed     = "clean_failed"
 	ReasonTerminalUnknown = "terminal_unknown"
+	// ReasonAllItemsFailed 表示终端被正常解析、但**所有数据项都不合格**
+	// （项级失败：值类型不符 / 值缺失 / 采集时间不可解析）。
+	// 它不是结构性拒收：同样 accepted=false，但 items 里会列出全部失败项，
+	// 且不产生状态型/事件型的拒收计数（不走 rejectTerminal）。
+	ReasonAllItemsFailed = "all_items_failed"
 )
 
 // MaxMissingCodes 结果中回传的缺失/非法 code 上限。
@@ -34,6 +39,20 @@ const MaxMissingCodes = 10
 
 // MaxSpanPerTerminal 单终端内 items 的采集时间允许跨度。
 const MaxSpanPerTerminal = time.Hour
+
+// 项级失败原因闭集（只允许这三个值）：只剔除该项，不再整终端拒收。
+const (
+	ItemValueType       = "value_type"       // 值类型与物模型声明不符
+	ItemValueMissing    = "value_missing"    // 必填项缺失 / value 为 null
+	ItemTimeUnparseable = "time_unparseable" // collectedAt 不可解析
+)
+
+// ItemFailure 是单条数据项的校验失败；调用方剔除该项并继续处理其余项。
+type ItemFailure struct {
+	Code   string
+	Reason string
+	Detail string
+}
 
 // EnvelopeError 是整包级错误，调用方必须以 400 整体拒收。
 type EnvelopeError struct {
@@ -138,47 +157,60 @@ func ParseEnvelope(payload []byte) (*Envelope, error) {
 		MsgType: msgType, Terminals: terminals}, nil
 }
 
-// ParseTerminal 做单终端校验（R2/R3/R4/R7/R8）：terminalId 非空、items 非空、
-// code 非空、value 非 null、collectedAt 可解析、code 不重复、采集时间跨度不超 1 小时。
-// 失败返回 *TerminalError，调用方只拒收该终端。
-func ParseTerminal(tw TerminalWire) (TerminalPayload, *TerminalError) {
+// ParseTerminal 做单终端校验（R2/R3/R4/R7/R8）：terminalId 非空、items 非空、code 非空、
+// code 不重复、采集时间跨度不超 1 小时。
+//
+// 项级失败（value 缺失/null、collectedAt 不可解析）不再整终端拒回：它们进第三个返回值，
+// 调用方剔除该项后继续处理其余项。**code 为空仍是结构性错误**（该项连标识都没有），
+// 依旧整终端拒收，且 Codes 与改动前一致（同一次解析里的其它非法项也一并回传）。
+func ParseTerminal(tw TerminalWire) (TerminalPayload, *TerminalError, []ItemFailure) {
 	tp := TerminalPayload{TerminalID: tw.TerminalID}
 	if strings.TrimSpace(tw.TerminalID) == "" {
-		return tp, &TerminalError{Reason: ReasonMsgIncomplete, Detail: "缺少 terminalId"}
+		return tp, &TerminalError{Reason: ReasonMsgIncomplete, Detail: "缺少 terminalId"}, nil
 	}
 	if len(tw.Items) == 0 || string(tw.Items) == "null" {
-		return tp, &TerminalError{Reason: ReasonMsgIncomplete, Detail: "items 缺失"}
+		return tp, &TerminalError{Reason: ReasonMsgIncomplete, Detail: "items 缺失"}, nil
 	}
 	var items []RawItem
 	if err := json.Unmarshal(tw.Items, &items); err != nil {
-		return tp, &TerminalError{Reason: ReasonMsgIncomplete, Detail: "items 不是数组: " + err.Error()}
+		return tp, &TerminalError{Reason: ReasonMsgIncomplete, Detail: "items 不是数组: " + err.Error()}, nil
 	}
 	if len(items) == 0 {
-		return tp, &TerminalError{Reason: ReasonMsgIncomplete, Detail: "items 为空"}
+		return tp, &TerminalError{Reason: ReasonMsgIncomplete, Detail: "items 为空"}, nil
 	}
 
 	seen := make(map[string]struct{}, len(items))
-	var codes []string
+	var codes []string         // 结构性拒收时回传的 code 集合（与改动前保持同一份）
+	var failures []ItemFailure // 项级失败：只剔除该项
+	var valid []RawItem
+	structural := false
 	var minAt, maxAt time.Time
 	for i := range items {
 		it := &items[i]
 		if strings.TrimSpace(it.Code) == "" {
 			codes = append(codes, fmt.Sprintf("#%d(code 为空)", i))
+			structural = true
 			continue
 		}
 		if len(it.Value) == 0 || string(it.Value) == "null" {
 			codes = append(codes, it.Code)
+			failures = append(failures, ItemFailure{
+				Code: it.Code, Reason: ItemValueMissing, Detail: "value 缺失或为 null",
+			})
 			continue
 		}
 		t, err := ParseCollectedAt(it.CollectedAt)
 		if err != nil {
 			codes = append(codes, it.Code)
+			failures = append(failures, ItemFailure{
+				Code: it.Code, Reason: ItemTimeUnparseable, Detail: err.Error(),
+			})
 			continue
 		}
 		if _, dup := seen[it.Code]; dup {
 			return tp, &TerminalError{
 				Reason: ReasonMsgIncomplete, Detail: "code 重复: " + it.Code, Codes: []string{it.Code},
-			}
+			}, nil
 		}
 		seen[it.Code] = struct{}{}
 		it.ParsedTime = t
@@ -188,18 +220,23 @@ func ParseTerminal(tw TerminalWire) (TerminalPayload, *TerminalError) {
 		if maxAt.IsZero() || t.After(maxAt) {
 			maxAt = t
 		}
+		valid = append(valid, *it)
 	}
-	if len(codes) > 0 {
-		return tp, &TerminalError{Reason: ReasonMsgIncomplete, Detail: "value 缺失或 collectedAt 非法", Codes: codes}
+	if structural {
+		// 与改动前一致：code 为空即整终端拒收，Codes 收集同一次解析里的全部非法项。
+		// 文案只描述结构性原因——value 缺失与 collectedAt 非法已降为项级失败，不再出现在这里。
+		return tp, &TerminalError{
+			Reason: ReasonMsgIncomplete, Detail: "数据项缺少编码", Codes: codes,
+		}, nil
 	}
 	if maxAt.Sub(minAt) > MaxSpanPerTerminal {
 		return tp, &TerminalError{
 			Reason: ReasonProtocolError,
 			Detail: fmt.Sprintf("单终端采集时间跨度 %s 超过 1 小时", maxAt.Sub(minAt)),
-		}
+		}, nil
 	}
-	tp.Items = items
-	return tp, nil
+	tp.Items = valid
+	return tp, nil, failures
 }
 
 // epoch 数值时间戳的可解释区间（R-029）。两端都是闭区间：

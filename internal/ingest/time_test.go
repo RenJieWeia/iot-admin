@@ -50,21 +50,39 @@ func TestCollectedAtWithZConvertsToShanghaiHour(t *testing.T) {
 	}
 }
 
-// 用例 13：空格分隔 "2026-11-05 10:00:00" → 该终端拒收。
-func TestCollectedAtWithSpaceSeparatorRejected(t *testing.T) {
+// 用例 13：空格分隔 "2026-11-05 10:00:00" → 两项都 time_unparseable（项级失败）。
+// 全部项失败 → accepted=false、reason 为空；不再整终端 msg_incomplete。
+func TestCollectedAtWithSpaceSeparatorFailsItems(t *testing.T) {
 	e := newEnv(t)
 	res := e.handle(single(testTerminalID,
 		rawIt("temp", 25.0, "C", "2026-11-05 10:00:00"),
 		rawIt("power", 1.0, "kW", "2026-11-05 10:00:00")))
 	r := resultOf(t, res, testTerminalID)
-	if r.Accepted || r.Reason != validate.ReasonMsgIncomplete {
-		t.Fatalf("空格分隔时间应拒收: %+v", r)
+	if r.Accepted {
+		t.Fatalf("两项时间都不可解析，不应 accepted: %+v", r)
 	}
-	if len(r.MissingCodes) != 2 {
-		t.Fatalf("missingCodes = %v，期望两个 code 都非法", r.MissingCodes)
+	if r.Reason != validate.ReasonAllItemsFailed {
+		t.Fatalf("项级全失败的 reason 应为 %q，实际 %q", validate.ReasonAllItemsFailed, r.Reason)
+	}
+	m := resultWire(t, r)
+	if got := wireInt(t, m, "failedCount"); got != 2 {
+		t.Fatalf("failedCount = %d，期望 2", got)
+	}
+	items := wireItems(t, m)
+	if len(items) != 2 {
+		t.Fatalf("items 长度 = %d，期望 2: %v", len(items), items)
+	}
+	for _, item := range items {
+		if item["reason"] != itemReasonTimeUnparseable {
+			t.Fatalf("项级原因 = %v，期望 %s", item["reason"], itemReasonTimeUnparseable)
+		}
+	}
+	// 兼容字段只收 value_missing；时间不可解析不进 missingCodes（与改造前不同，契约明示）。
+	if len(r.MissingCodes) != 0 {
+		t.Fatalf("missingCodes = %v，期望空（只收 value_missing）", r.MissingCodes)
 	}
 	if n := e.count(`select count(*) from latest_value`); n != 0 {
-		t.Fatalf("被拒终端不应写缓存，实际 %d 行", n)
+		t.Fatalf("全失败不应写缓存，实际 %d 行", n)
 	}
 }
 

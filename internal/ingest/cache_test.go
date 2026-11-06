@@ -115,11 +115,24 @@ func TestAdminPropertyUpdateTakesEffectImmediately(t *testing.T) {
 	e.clock.Add(5 * time.Second) // 远小于 TTL，只能靠 Flush 生效
 
 	r := resultOf(t, e.handle(msg), testTerminalID)
-	if r.Accepted || r.Reason != validate.ReasonMsgIncomplete {
-		t.Fatalf("新增声明后应判 msg_incomplete，实际 %+v", r)
+	// 契约：缺一项只记项级 value_missing，其余项照常入库（不再整终端 msg_incomplete）。
+	if !r.Accepted {
+		t.Fatalf("新增声明后只应记项级失败、不应整终端拒收，实际 %+v", r)
+	}
+	m := resultWire(t, r)
+	if got := wireInt(t, m, "failedCount"); got != 1 {
+		t.Fatalf("failedCount = %d，期望 1", got)
+	}
+	items := wireItems(t, m)
+	if len(items) != 1 || items[0]["code"] != "hum" || items[0]["reason"] != itemReasonValueMissing {
+		t.Fatalf("items = %v，期望 [{hum value_missing}]", items)
 	}
 	if len(r.MissingCodes) != 1 || r.MissingCodes[0] != "hum" {
 		t.Fatalf("缺失项 = %v，期望 [hum]", r.MissingCodes)
+	}
+	// 闭环：新声明立即生效（hum 缺失被拦），但原有两项仍照常入库。
+	if n := e.count(`select count(*) from latest_value where terminal_id = $1`, testTerminalID); n != 2 {
+		t.Fatalf("latest_value 行数 = %d，期望 2（temp/power 照常入库）", n)
 	}
 }
 
@@ -176,7 +189,21 @@ func TestTTLFallsBackForDirectDBEdit(t *testing.T) {
 	}
 
 	e.clock.Add(meta.DefaultTTL) // 累计超过 TTL
-	if r := resultOf(t, e.handle(msg), testTerminalID); r.Accepted || r.Reason != validate.ReasonMsgIncomplete {
-		t.Fatalf("TTL 过期后应按新定义判 msg_incomplete，实际 %+v", r)
+	r := resultOf(t, e.handle(msg), testTerminalID)
+	if !r.Accepted {
+		t.Fatalf("TTL 过期后应按新定义判项级失败、不整终端拒收，实际 %+v", r)
+	}
+	m := resultWire(t, r)
+	if got := wireInt(t, m, "failedCount"); got != 1 {
+		t.Fatalf("failedCount = %d，期望 1", got)
+	}
+	if reason := itemReason(wireItems(t, m), "hum"); reason != itemReasonValueMissing {
+		t.Fatalf("hum 的项级原因 = %q，期望 %s", reason, itemReasonValueMissing)
+	}
+	if len(r.MissingCodes) != 1 || r.MissingCodes[0] != "hum" {
+		t.Fatalf("缺失项 = %v，期望 [hum]", r.MissingCodes)
+	}
+	if n := e.count(`select count(*) from latest_value where terminal_id = $1`, testTerminalID); n != 2 {
+		t.Fatalf("latest_value 行数 = %d，期望 2（其余项照常入库）", n)
 	}
 }

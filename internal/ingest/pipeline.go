@@ -36,14 +36,44 @@ type Processor struct {
 	Log   *slog.Logger
 }
 
+// 项级失败原因闭集（唯一来源在 validate，这里只做别名，方便 ingest 的调用方与用例引用）。
+const (
+	ItemValueType       = validate.ItemValueType
+	ItemValueMissing    = validate.ItemValueMissing
+	ItemTimeUnparseable = validate.ItemTimeUnparseable
+)
+
+// MaxItemResults 是应答里逐项失败明细的上限；超出只截断明细，FailedCount 仍报真实总数。
+// **对外契约**：网关侧只能依赖前 MaxItemResults 条明细，需要全量时按 failedCount 自行核对。
+const MaxItemResults = 20
+
+// ItemResult 是单条数据项的失败明细（对外应答契约）。
+type ItemResult struct {
+	Code   string `json:"code"`
+	Reason string `json:"reason"`
+	Detail string `json:"detail,omitempty"`
+}
+
 // Result 是单个终端的处理结局（HTTP 响应的 results 项）。
+//
+// Accepted 的判据是 !(失败项>0 且 成功项==0)：全部项失败时 Accepted=false 且
+// Reason=all_items_failed（项级全失败），Items 列出全部失败项；部分失败时 Accepted=true
+// 并带 FailedCount/Items。终端级结构性拒收仍走各自的 Reason。
+//
+// **对外契约**（改动需通知网关侧）：
+//   - failedCount/items 是本次新增字段：items 只列**失败项**，最多 MaxItemResults 条，
+//     超出时 failedCount 仍是真实总数；成功项不逐项回传。
+//   - missingCodes 语义已收窄：只回传 value_missing（值缺失/必填未上报）的 code，
+//     采集时间不可解析的项不再进入该字段（改由 items[].reason=time_unparseable 表达）。
 type Result struct {
-	TerminalID   string   `json:"terminalId,omitempty"`
-	Accepted     bool     `json:"accepted"`
-	Reason       string   `json:"reason,omitempty"`
-	MissingCodes []string `json:"missingCodes,omitempty"`
-	Written      int      `json:"written"`
-	Published    bool     `json:"published"`
+	TerminalID   string       `json:"terminalId,omitempty"`
+	Accepted     bool         `json:"accepted"`
+	Reason       string       `json:"reason,omitempty"`
+	MissingCodes []string     `json:"missingCodes,omitempty"`
+	Written      int          `json:"written"`
+	Published    bool         `json:"published"`
+	FailedCount  int          `json:"failedCount,omitempty"`
+	Items        []ItemResult `json:"items,omitempty"`
 }
 
 // BatchResult 是一批消息的逐终端结果。
@@ -107,7 +137,8 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 	tw validate.TerminalWire, now time.Time, cfg settle.WindowConfig) Result {
 
 	// 2.1/2.2 结构、value、collectedAt、code 重复、跨度
-	tp, terr := validate.ParseTerminal(tw)
+	// 项级失败（value 缺失/时间不可解析）从解析阶段带出，结构性错误仍是 terr。
+	tp, terr, parseFailures := validate.ParseTerminal(tw)
 	if terr != nil {
 		return p.rejectTerminal(ctx, tw.TerminalID, ingress, now, terr, "")
 	}
@@ -141,12 +172,21 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 		p.Log.Error("读取物模型失败", "type", term.TypeID, "err", err)
 		return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}
 	}
-	if missing := validate.MissingRequired(props, tp.Items); len(missing) > 0 {
-		return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
-			Reason: validate.ReasonMsgIncomplete,
-			Detail: fmt.Sprintf("required 属性缺失: %v", missing),
-			Codes:  missing,
-		}, "")
+	// 项级失败：先装解析阶段的失败项，再补 required 缺失（同一 code 只记一次，
+	// 例如「value 为 null 的必填项」两边都会命中，保留更具体的 value_missing 明细）。
+	failures := append([]validate.ItemFailure(nil), parseFailures...)
+	failedCodes := make(map[string]struct{}, len(failures))
+	for _, f := range failures {
+		failedCodes[f.Code] = struct{}{}
+	}
+	for _, code := range validate.MissingRequired(props, tp.Items) {
+		if _, dup := failedCodes[code]; dup {
+			continue
+		}
+		failedCodes[code] = struct{}{}
+		failures = append(failures, validate.ItemFailure{
+			Code: code, Reason: validate.ItemValueMissing, Detail: "required 属性缺失",
+		})
 	}
 	rules, err := p.Meta.LoadRules(ctx, term.ID)
 	if err != nil {
@@ -179,6 +219,7 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 		violations       []violationHit
 		unitUnknownHours []time.Time
 	)
+	cleanFailed := 0 // 项级 value_type 失败数（用于 okCount 与事件明细）
 	for _, item := range tp.Items {
 		pr, ok := propByCode[item.Code]
 		if !ok {
@@ -187,11 +228,12 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 		}
 		out, vios, cerr := clean.Item(pr, item)
 		if cerr != nil {
-			return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
-				Reason: validate.ReasonCleanFailed,
-				Detail: cerr.Error(),
-				Codes:  []string{item.Code},
-			}, "")
+			// 值类型与物模型声明不符属项级失败：剔除该项，其余项照常入库。
+			cleanFailed++
+			failures = append(failures, validate.ItemFailure{
+				Code: item.Code, Reason: validate.ItemValueType, Detail: cerr.Error(),
+			})
+			continue
 		}
 		if out.UnitUnknown {
 			unitUnknownHours = append(unitUnknownHours, staging.HourStart(out.Time))
@@ -218,6 +260,25 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 			p.Log.Info("质量规则命中", "terminal", term.ID, "item", out.Code, "rule", string(v.RuleType))
 		}
 		cleaned = append(cleaned, out)
+	}
+
+	// 异常事件口径不变：msg_incomplete / clean_failed 仍按「终端+小时+类型」各记一次，
+	// detail 里列失败项；改成项级只影响"是否整终端拒收"，不改类型与计数方式。
+	var msgCodes, typeCodes []string
+	for _, f := range failures {
+		if f.Reason == validate.ItemValueType {
+			typeCodes = append(typeCodes, f.Code)
+			continue
+		}
+		msgCodes = append(msgCodes, f.Code)
+	}
+	if len(msgCodes) > 0 {
+		p.Exc.Event(ctx, exception.MsgIncomplete, term.ID, ingress, staging.HourStart(now), 1,
+			fmt.Sprintf("项级失败项被剔除: %v", msgCodes))
+	}
+	if len(typeCodes) > 0 {
+		p.Exc.Event(ctx, exception.CleanFailed, term.ID, ingress, staging.HourStart(now), 1,
+			fmt.Sprintf("清洗失败项被剔除: %v", typeCodes))
 	}
 
 	// 2.6 两段写入模型（R-030）：按归属小时是否已到关闭时刻分流，**不再丢弃**。
@@ -260,7 +321,26 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 		}
 	}
 
-	res := Result{TerminalID: tp.TerminalID, Accepted: true, Written: len(written)}
+	// 判定规则：Accepted = !(失败项>0 且 成功项==0)。okCount 统计"没被判为项级失败的数据项"，
+	// 含物模型未声明的编码（那类继续忽略并计 clean_failed，不算失败）。
+	// 全部项失败时给机器可读的 reason=all_items_failed；该路径不经过 rejectTerminal，
+	// 因此不产生终端级拒收事件，也不影响 HTTP 503 判定（503 只看 internal_error）。
+	okCount := len(tp.Items) - cleanFailed
+	failedCount := len(failures)
+	accepted := !(failedCount > 0 && okCount == 0)
+	reason := ""
+	if !accepted {
+		reason = validate.ReasonAllItemsFailed
+	}
+	res := Result{
+		TerminalID:   tp.TerminalID,
+		Accepted:     accepted,
+		Reason:       reason,
+		Written:      len(written),
+		FailedCount:  failedCount,
+		Items:        itemResults(failures),
+		MissingCodes: missingCodes(failures),
+	}
 	// 2.9 按终端发布一条：只发窗口内的值（窗口外数据不触发实时主题）
 	if published := inWindowOnly(written, inWindow); len(published) > 0 {
 		res.Published = p.publishRealtime(ctx, term, published, ingress, now)
@@ -438,6 +518,37 @@ func (p *Processor) rejectTerminal(ctx context.Context, terminalID, gatewayID st
 		codes = codes[:validate.MaxMissingCodes]
 	}
 	return Result{TerminalID: terminalID, Reason: terr.Reason, MissingCodes: codes}
+}
+
+// itemResults 把项级失败转成应答明细，最多 MaxItemResults 条（FailedCount 仍报真实总数）。
+func itemResults(failures []validate.ItemFailure) []ItemResult {
+	if len(failures) == 0 {
+		return nil
+	}
+	n := len(failures)
+	if n > MaxItemResults {
+		n = MaxItemResults
+	}
+	out := make([]ItemResult, 0, n)
+	for _, f := range failures[:n] {
+		out = append(out, ItemResult{Code: f.Code, Reason: f.Reason, Detail: f.Detail})
+	}
+	return out
+}
+
+// missingCodes 兼容老网关：只回传 value_missing 的 code，沿用 MaxMissingCodes 上限。
+func missingCodes(failures []validate.ItemFailure) []string {
+	var codes []string
+	for _, f := range failures {
+		if f.Reason != validate.ItemValueMissing {
+			continue
+		}
+		codes = append(codes, f.Code)
+		if len(codes) >= validate.MaxMissingCodes {
+			break
+		}
+	}
+	return codes
 }
 
 // eventTypeFor 把逐终端 reason 映射到唯一的事件型枚举。

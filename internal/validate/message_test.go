@@ -64,9 +64,12 @@ func TestParseEnvelopeOK(t *testing.T) {
 	}
 	wantItems := []int{2, 1} // T1 两条、T2 一条
 	for i, tw := range env.Terminals {
-		tp, terr := validate.ParseTerminal(tw)
+		tp, terr, failures := validate.ParseTerminal(tw)
 		if terr != nil {
 			t.Fatalf("终端 %d (%s) 期望通过，实际 %v", i, tw.TerminalID, terr)
+		}
+		if len(failures) != 0 {
+			t.Fatalf("终端 %d (%s) 不应有项级失败，实际 %v", i, tw.TerminalID, failures)
 		}
 		if want := wantItems[i]; len(tp.Items) != want {
 			t.Fatalf("终端 %s items: 期望 %d，实际 %d", tw.TerminalID, want, len(tp.Items))
@@ -144,7 +147,8 @@ func TestMissingRequired(t *testing.T) {
 	}
 }
 
-// 7)、8)、9) 单终端拒收：value=null / code 重复 / 跨度 70 分钟。
+// 7)、9) 结构性拒收不变：code 重复 / 跨度 70 分钟 / code 为空。
+// 这些是「没有扩大化」的回归护栏：改造后仍必须整终端拒回，且不得附带项级失败。
 func TestParseTerminalRejects(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -152,12 +156,6 @@ func TestParseTerminalRejects(t *testing.T) {
 		wantReason string
 		wantCode   string // 期望出现在 Codes 中；空表示不检查
 	}{
-		{
-			name:       "value 为 null",
-			tw:         wire(t, "T1", `[{"code":"temp","value":null,"collectedAt":"`+atOK+`"}]`),
-			wantReason: validate.ReasonMsgIncomplete,
-			wantCode:   "temp",
-		},
 		{
 			name: "code 重复",
 			tw: wire(t, "T1", `[
@@ -175,15 +173,23 @@ func TestParseTerminalRejects(t *testing.T) {
 			]`),
 			wantReason: validate.ReasonProtocolError,
 		},
+		{
+			name:       "code 为空",
+			tw:         wire(t, "T1", `[{"code":"","value":1,"collectedAt":"`+atOK+`"}]`),
+			wantReason: validate.ReasonMsgIncomplete,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			_, terr := validate.ParseTerminal(c.tw)
+			_, terr, failures := validate.ParseTerminal(c.tw)
 			if terr == nil {
 				t.Fatalf("期望 *TerminalError(%s)，实际 nil", c.wantReason)
 			}
 			if terr.Reason != c.wantReason {
 				t.Fatalf("reason: 期望 %q，实际 %q (%v)", c.wantReason, terr.Reason, terr)
+			}
+			if len(failures) != 0 {
+				t.Fatalf("结构性拒收不得同时返回项级失败，实际 %v", failures)
 			}
 			if c.wantCode == "" {
 				return
@@ -201,13 +207,45 @@ func TestParseTerminalRejects(t *testing.T) {
 	}
 }
 
+// 8) value=null / collectedAt 不可解析 → 项级失败（value_missing / time_unparseable），
+// 不再整终端拒回；合法项照常进入 payload。
+func TestParseTerminalItemFailures(t *testing.T) {
+	tw := wire(t, "T1", `[
+		{"code":"temp","value":null,"unit":"C","collectedAt":"`+atOK+`"},
+		{"code":"hum","value":61,"unit":"%","collectedAt":"2026-11-05 10:00:00"},
+		{"code":"power","value":1.0,"unit":"kW","collectedAt":"`+atOK+`"}
+	]`)
+	tp, terr, failures := validate.ParseTerminal(tw)
+	if terr != nil {
+		t.Fatalf("项级失败不应产生 *TerminalError，实际 %v", terr)
+	}
+	if len(tp.Items) != 1 || tp.Items[0].Code != "power" {
+		t.Fatalf("合法项应保留 power 一条，实际 %+v", tp.Items)
+	}
+	want := map[string]string{
+		"temp": validate.ItemValueMissing,
+		"hum":  validate.ItemTimeUnparseable,
+	}
+	if len(failures) != len(want) {
+		t.Fatalf("项级失败数 = %d，期望 %d：%v", len(failures), len(want), failures)
+	}
+	for _, f := range failures {
+		if want[f.Code] != f.Reason {
+			t.Fatalf("code %s 的失败原因 = %q，期望 %q", f.Code, f.Reason, want[f.Code])
+		}
+		if f.Detail == "" {
+			t.Fatalf("code %s 的项级失败应带 detail", f.Code)
+		}
+	}
+}
+
 // 10) 跨度恰好 60 分钟 → 通过（边界）。
 func TestParseTerminalSpanBoundary(t *testing.T) {
 	tw := wire(t, "T1", `[
 		{"code":"temp","value":25.4,"unit":"C","collectedAt":"`+atOK+`"},
 		{"code":"hum","value":61,"unit":"%","collectedAt":"2026-11-05T11:00:00+08:00"}
 	]`)
-	tp, terr := validate.ParseTerminal(tw)
+	tp, terr, _ := validate.ParseTerminal(tw)
 	if terr != nil {
 		t.Fatalf("跨度恰好 1h 期望通过，实际 %v", terr)
 	}

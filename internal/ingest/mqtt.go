@@ -34,7 +34,12 @@ func Subscribe(client mqtt.Client, p *Processor, log *slog.Logger) error {
 		}
 		for _, r := range res.Results {
 			if !r.Accepted {
-				log.Info("MQTT 终端未入库", "topic", m.Topic(), "terminal", r.TerminalID, "reason", r.Reason)
+				// !Accepted 现在包含两种语义：终端级结构性拒收（reason 为 protocol_error /
+				// msg_incomplete / terminal_unknown 等）与项级全失败（reason=all_items_failed、
+				// failed>0、written==0）。日志带上这两个数即可区分，不改变处理路径——
+				// MQTT 没有应答码，重传策略仍由网关侧按原因自行决定。
+				log.Info("MQTT 终端未入库", "topic", m.Topic(), "terminal", r.TerminalID,
+					"reason", r.Reason, "failed", r.FailedCount, "written", r.Written)
 			}
 		}
 	})

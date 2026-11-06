@@ -128,3 +128,59 @@ func TestWriteFailureReturns503(t *testing.T) {
 		t.Fatalf("cache_write_failed 计数 = %d，期望 ≥1", total)
 	}
 }
+
+// 验收 3（补强）：报文里有项级失败、其余项本该 accepted=true 时，写库故障仍必须整包 503，
+// 且 body 保留完整逐终端 results —— 不得用 accepted=true 掩盖平台故障。
+func TestWriteFailureWithPartialItemsStill503(t *testing.T) {
+	dsn := testDSN(t)
+	e := newEnv(t)
+	ctx := context.Background()
+	at := baseTime.Add(5 * time.Minute)
+	body := batch(testGatewayID, termOf(testTerminalID,
+		it("temp", "坏值", "C", at), // 项级 value_type，其余项本应入库
+		it("power", 1.0, "kW", at)))
+
+	if status, resp := e.post(testGatewayID, body); status != http.StatusOK {
+		t.Fatalf("正常批量应返回 200，实际 %d %v", status, resp["message"])
+	}
+
+	// 只替换写路径的池：异常记录器继续用 e.pool。
+	writePool, err := store.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("连接写路径连接池: %v", err)
+	}
+	e.proc.DB = writePool
+	writePool.Close()
+
+	status, resp := e.post(testGatewayID, body)
+	if status != http.StatusServiceUnavailable {
+		t.Fatalf("写路径故障应返回 503（不因部分项失败而变 200），实际 %d %v", status, resp["message"])
+	}
+	if resp["message"] != ingest.ReasonInternal {
+		t.Fatalf("message = %v，期望 %s", resp["message"], ingest.ReasonInternal)
+	}
+	data, ok := resp["data"].(map[string]any)
+	if !ok {
+		t.Fatalf("503 响应缺少 data（body 不得为空）: %v", resp)
+	}
+	results, ok := data["results"].([]any)
+	if !ok || len(results) != 1 {
+		t.Fatalf("data.results = %v，期望 1 条", data["results"])
+	}
+	first, ok := results[0].(map[string]any)
+	if !ok {
+		t.Fatalf("results[0] 不是对象: %v", results[0])
+	}
+	if first["terminalId"] != testTerminalID {
+		t.Fatalf("results[0].terminalId = %v，期望 %s", first["terminalId"], testTerminalID)
+	}
+	if _, ok := first["written"]; !ok {
+		t.Fatalf("results[0] 缺 written 字段，逐终端结构不完整: %v", first)
+	}
+	if first["reason"] != ingest.ReasonInternal {
+		t.Fatalf("results[0].reason = %v，期望 %s", first["reason"], ingest.ReasonInternal)
+	}
+	if accepted, _ := first["accepted"].(bool); accepted {
+		t.Fatalf("平台故障不得标记 accepted: %v", first)
+	}
+}
