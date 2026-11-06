@@ -212,7 +212,7 @@ func TestGatewayMismatchWithRegistry(t *testing.T) {
 	}
 }
 
-// 用例 8：terminalId 未注册 → 拒收，记 terminal_unknown（不是 auth_failed）。
+// 用例 8：terminalId 未注册 → 拒收，记 terminal_unknown。
 func TestUnknownTerminalRecordsTerminalUnknown(t *testing.T) {
 	e := newEnv(t)
 	at := baseTime.Add(5 * time.Minute)
@@ -225,13 +225,8 @@ func TestUnknownTerminalRecordsTerminalUnknown(t *testing.T) {
 	if n := e.eventCount("T-NOPE", exception.TerminalUnknown, e.clock.Now()); n != 1 {
 		t.Fatalf("terminal_unknown 计数 = %d，期望 1", n)
 	}
-	if n := e.count(`select count(*) from exception_count where error_type = 'auth_failed'`); n != 0 {
-		t.Fatalf("auth_failed 不应由业务校验触发，实际 %d 行", n)
-	}
-	if n := e.count(`select count(*) from exception_count where error_type = $1`,
-		string(exception.AuthFailed)); n != 0 {
-		t.Fatal("auth_failed 计数应为 0")
-	}
+	// 状态型异常整套能力已随「异常区间下线」批次移除，枚举里只剩事件型，
+	// 因此不再断言任何状态型计数为 0。
 }
 
 // 用例 9：ver = 2 → 整包 400。

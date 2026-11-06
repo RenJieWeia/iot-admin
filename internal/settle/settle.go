@@ -153,7 +153,7 @@ type CellRevision struct {
 // value_time 相等或更小则整行跳过，revision 与 settled_at 都不变（幂等）。
 //
 // 返回值是**实际写入（insert 或 update）的格子**及其写入后的 revision；
-// 被 value_time 守卫跳过的行不出现在结果里，调用方据此决定是否写版本表。
+// 被 value_time 守卫跳过的行不出现在结果里。
 func UpsertSnapshot(ctx context.Context, tx pgx.Tx, rows []staging.Row) ([]CellRevision, error) {
 	if len(rows) == 0 {
 		return nil, nil
@@ -192,43 +192,6 @@ func UpsertSnapshot(ctx context.Context, tx pgx.Tx, rows []staging.Row) ([]CellR
 		written = append(written, c)
 	}
 	return written, rowsOut.Err()
-}
-
-// VersionSource 是版本行的来源（R-034）：1 = MQTT 补录（msgType=2）；2 = 手工 API。
-const (
-	VersionSourceMQTTBackfill int16 = 1
-	VersionSourceManualAPI    int16 = 2
-)
-
-// VersionRow 是一行版本记录；与快照写入**同一事务**落库。
-type VersionRow struct {
-	TerminalID string
-	ItemCode   string
-	HourStart  time.Time
-	Revision   int
-	Source     int16
-	ValueTime  time.Time
-	Actor      string // 手工 API 的 operator，可为空
-}
-
-// InsertVersions 批量写入版本行；实时写入不得调用（用例锁定 snapshot_cell_history 计数为 0）。
-func InsertVersions(ctx context.Context, tx pgx.Tx, rows []VersionRow) error {
-	if len(rows) == 0 {
-		return nil
-	}
-	placeholders := make([]string, len(rows))
-	args := make([]any, 0, len(rows)*7)
-	for i, r := range rows {
-		n := i * 7
-		placeholders[i] = fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, nullif($%d, ''))",
-			n+1, n+2, n+3, n+4, n+5, n+6, n+7)
-		args = append(args, r.TerminalID, r.ItemCode, r.HourStart, r.Revision, r.Source, r.ValueTime, r.Actor)
-	}
-	_, err := tx.Exec(ctx, `
-		insert into snapshot_cell_history
-		    (terminal_id, item_code, hour_start, revision, source, value_time, actor)
-		values `+strings.Join(placeholders, ", "), args...)
-	return err
 }
 
 // readClosed 读出该批终端"已到关闭时刻"的暂存行，交给 UpsertSnapshot。

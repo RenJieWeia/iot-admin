@@ -85,12 +85,12 @@ func TestMetaSections(t *testing.T) {
 	if err := json.Unmarshal(data["exceptions"], &exceptions); err != nil {
 		t.Fatalf("exceptions 解析失败: %v", err)
 	}
-	if len(exceptions) != 2 {
-		t.Fatalf("exceptions = %d 段，期望 2", len(exceptions))
+	if len(exceptions) != 1 {
+		t.Fatalf("exceptions = %d 段，期望 1（异常区间已下线）", len(exceptions))
 	}
-	wantSlots := []string{"events", "intervals"}
-	wantNames := []string{"exception-events", "exception-intervals"}
-	wantLabels := []string{"异常事件", "异常区间"}
+	wantSlots := []string{"events"}
+	wantNames := []string{"exception-events"}
+	wantLabels := []string{"异常事件"}
 	for i, ex := range exceptions {
 		if ex.Slot != wantSlots[i] || ex.Name != wantNames[i] || ex.Title != wantLabels[i] {
 			t.Fatalf("exceptions[%d] = %+v，期望 slot/name/title = %s/%s/%s",
@@ -215,13 +215,13 @@ func TestMetaFieldShape(t *testing.T) {
 			sections = append(sections, item)
 		}
 	}
-	if len(sections) != 11 {
-		t.Fatalf("元数据段数 = %d，期望 6 实体 + 2 异常页 + 3 只读源", len(sections))
+	if len(sections) != 10 {
+		t.Fatalf("元数据段数 = %d，期望 6 实体 + 1 异常页 + 3 只读源", len(sections))
 	}
 }
 
-// 验收：枚举字段带中文标签与 Tone 闭集；关系字段带目标实体；period 不可筛选/不可排序。
-func TestMetaEnumsRelationsAndPeriod(t *testing.T) {
+// 验收：枚举字段带中文标签与 Tone 闭集；关系字段带目标实体。
+func TestMetaEnumsRelations(t *testing.T) {
 	payload := BuildMeta()
 	known := map[string]bool{}
 	for _, e := range Entities {
@@ -230,8 +230,6 @@ func TestMetaEnumsRelationsAndPeriod(t *testing.T) {
 	for _, page := range ExceptionPages() {
 		known[page.Entity.Name] = true
 	}
-	var periodChecked bool
-
 	check := func(where string, fields []MetaField) {
 		for _, f := range fields {
 			switch f.Type {
@@ -278,25 +276,6 @@ func TestMetaEnumsRelationsAndPeriod(t *testing.T) {
 	}
 	for _, ex := range payload.Exceptions {
 		check(ex.Slot, ex.Fields)
-		if ex.Slot != "intervals" {
-			continue
-		}
-		for _, f := range ex.Fields {
-			if f.Key != "period" {
-				continue
-			}
-			periodChecked = true
-			if f.Filterable || f.Sortable {
-				t.Fatalf("period 必须不可筛选且不可排序（tstzrange 语义歧义）: filterable=%v sortable=%v",
-					f.Filterable, f.Sortable)
-			}
-			if f.FilterType != "none" || len(f.Operators) != 0 {
-				t.Fatalf("period 的 filterType/operators 应为 none/空: %q %v", f.FilterType, f.Operators)
-			}
-		}
-	}
-	if !periodChecked {
-		t.Fatal("exceptions[intervals] 缺少 period 字段")
 	}
 }
 
@@ -318,7 +297,7 @@ func TestMetaRoutePrecedence(t *testing.T) {
 	}
 }
 
-// 实体中文标签集中在此，前端零硬编码；标签集合必须覆盖 6 实体 + 2 异常页。
+// 实体中文标签集中在此，前端零硬编码；标签集合必须覆盖 6 实体 + 1 异常页。
 func TestEntityLabelsCoverAllSections(t *testing.T) {
 	want := map[string]string{
 		"data-domains":           "数据域",
@@ -328,7 +307,6 @@ func TestEntityLabelsCoverAllSections(t *testing.T) {
 		"quality-rules":          "质量规则",
 		"settle-configs":         "结算窗口",
 		"exception-events":       "异常事件",
-		"exception-intervals":    "异常区间",
 	}
 	for name, label := range want {
 		if got := EntityLabel(name); got != label {

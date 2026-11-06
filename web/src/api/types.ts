@@ -99,10 +99,10 @@ export interface ReadonlyMeta {
   fields: FieldMeta[];
 }
 
-/** 只读异常页（2 个，独立路由，不进 admin.Entities）。 */
+/** 只读异常页（1 个：events，独立路由，不进 admin.Entities）。 */
 export interface ExceptionMeta {
-  slot: 'events' | 'intervals';
-  /** 对应的内部实体名（exception-events / exception-intervals）。 */
+  slot: 'events';
+  /** 对应的内部实体名（exception-events）。 */
   name: string;
   title: string;
   route: string;

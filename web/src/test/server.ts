@@ -154,10 +154,10 @@ export const server = setupServer(
 
   http.get('/admin/v1/exceptions/:slot', ({ params, request }) => {
     const url = new URL(request.url);
-    if (params.slot !== 'events' && params.slot !== 'intervals') {
+    if (params.slot !== 'events') {
       return HttpResponse.json({ code: 404, message: 'unknown_slot' }, { status: 404 });
     }
-    const rows = params.slot === 'events' ? (exceptionEvents as RowData[]) : [];
+    const rows = exceptionEvents as RowData[];
     const { slice, page, pageSize } = paginate(rows, url);
     return HttpResponse.json({
       code: 0,

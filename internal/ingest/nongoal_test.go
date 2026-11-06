@@ -17,12 +17,19 @@ import (
 
 // 用例 31：非目标项检查 —— 零外部依赖（不调用 newEnv，admin handler 用 nil pool 构造）。
 func TestNoOutOfScopeArtifacts(t *testing.T) {
+	// 迁移允许建的表：历史上的合法表集合（含后已下线的两张）。
 	allowedTables := map[string]bool{
 		"data_domain": true, "device_type": true, "thing_model_property": true, "terminal": true,
 		"quality_rule": true, "settle_config": true,
 		"latest_value": true, "hourly_staging": true, "hourly_snapshot": true,
 		"exception_interval": true, "exception_count": true, "schema_migrations": true,
-		// R-034（task-013）明确新增：补录留痕的版本记录表
+		// R-034（task-013）曾新增，收敛后由 0008 删除：补录留痕的版本记录表
+		"snapshot_cell_history": true,
+	}
+	// 收敛（0008）后必须已经不存在的表：建过、但迁移里必须有一条 drop。
+	// 只把它们从"允许建"里删掉是不够的——0003/0007 仍然建它们，否则这条守卫会误报。
+	retiredTables := map[string]bool{
+		"exception_interval":    true,
 		"snapshot_cell_history": true,
 	}
 	forbiddenWords := []string{
@@ -30,6 +37,8 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		"aggregate", "report", "backfill", "version", "lineage", "retention_config", "subscription",
 	}
 	createTable := regexp.MustCompile(`(?i)create table if not exists\s+([a-z_]+)`)
+	dropTable := regexp.MustCompile(`(?i)drop table if exists\s+([a-z_]+)`)
+	dropped := map[string]bool{}
 	files, err := fs.Glob(migrations.FS, "*.sql")
 	if err != nil {
 		t.Fatalf("读取迁移目录: %v", err)
@@ -52,6 +61,16 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 					t.Fatalf("表 %q 命中非目标关键字 %q", table, bad)
 				}
 			}
+		}
+		for _, m := range dropTable.FindAllStringSubmatch(string(body), -1) {
+			dropped[m[1]] = true
+		}
+	}
+
+	// 收敛边界：下线能力建过的表，必须在迁移里有对应的 drop（只从白名单删掉不算数）。
+	for table := range retiredTables {
+		if !dropped[table] {
+			t.Fatalf("收敛后应下线的表 %q 没有任何迁移 drop 它", table)
 		}
 	}
 
@@ -87,15 +106,12 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		}
 	}
 
-	// 异常枚举：状态型 3 种、事件型 10 种（含本轮新增 terminal_unknown），无重复。
-	if len(exception.IntervalTypes) != 3 {
-		t.Fatalf("状态型异常类型数 = %d，期望 3", len(exception.IntervalTypes))
-	}
+	// 异常枚举：收敛后只剩事件型 10 种（状态型区间已下线），无重复。
 	if len(exception.EventTypes) != 10 {
 		t.Fatalf("事件型异常类型数 = %d，期望 10", len(exception.EventTypes))
 	}
 	seen := map[exception.ErrorType]bool{}
-	for _, kind := range append(append([]exception.ErrorType{}, exception.IntervalTypes...), exception.EventTypes...) {
+	for _, kind := range exception.EventTypes {
 		if seen[kind] {
 			t.Fatalf("异常类型 %q 重复定义", kind)
 		}

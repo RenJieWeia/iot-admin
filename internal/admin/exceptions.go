@@ -2,12 +2,12 @@ package admin
 
 import "net/http"
 
-// 两张异常表只读：**不进 Entities**（管理 API 实体数固定为 6，nongoal_test 断言），
+// 异常计数表只读：**不进 Entities**（管理 API 实体数固定为 6，nongoal_test 断言），
 // 走独立的 /admin/v1/exceptions/{slot} 路由；字段元数据仍在 fields.go 的 fieldSets 里，
 // 查询/分页/排序复用同一套 QueryState（q/sort/order/page/pageSize/filter.* + meta{total,...}）。
 
 // ExceptionPage 描述一张异常只读页：Slot 是 URL 段，Entity 是查询用的实体定义。
-// Entity.Name 与 fieldSets 的键一致（"exception-events" / "exception-intervals"）。
+// Entity.Name 与 fieldSets 的键一致（"exception-events"）。
 type ExceptionPage struct {
 	Slot   string
 	Entity Entity
@@ -27,22 +27,9 @@ var exceptionPages = []ExceptionPage{
 			},
 		},
 	},
-	{
-		Slot: "intervals",
-		// period 是 tstzrange：外层先转 text 才能按 JSON 直接展示；筛选/排序仍走普通列。
-		Entity: Entity{
-			Name: "exception-intervals",
-			Table: "(select id, terminal_id, gateway_id, item_code, error_type, period::text as period, " +
-				"raw_count, created_at from exception_interval)",
-			Cols: []string{
-				"id", "terminal_id", "gateway_id", "item_code", "error_type",
-				"period", "raw_count", "created_at",
-			},
-		},
-	},
 }
 
-// ExceptionPages 返回异常只读页的固定顺序定义（events、intervals），供 _meta 与上层复用。
+// ExceptionPages 返回异常只读页的固定顺序定义（events），供 _meta 与上层复用。
 func ExceptionPages() []ExceptionPage {
 	out := make([]ExceptionPage, len(exceptionPages))
 	copy(out, exceptionPages)

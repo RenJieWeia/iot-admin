@@ -188,8 +188,8 @@ func TestMetaReadonlySection(t *testing.T) {
 			t.Fatalf("%q 应为高级筛选，实际常驻=%v 高级=%v", key, resident, advanced)
 		}
 	}
-	if payload.Exceptions == nil || len(payload.Exceptions) != 2 {
-		t.Fatalf("exceptions 段应保持 2 项（契约不变），实际 %d", len(payload.Exceptions))
+	if payload.Exceptions == nil || len(payload.Exceptions) != 1 {
+		t.Fatalf("exceptions 段应只剩 events（异常区间已下线），实际 %d", len(payload.Exceptions))
 	}
 }
 

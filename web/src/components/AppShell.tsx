@@ -66,7 +66,6 @@ const ICONS: Record<string, LucideIcon> = {
   'hourly-staging': History,
   'hourly-snapshot': Clock,
   'exception-events': AlertTriangle,
-  'exception-intervals': Clock,
 };
 
 const navItemClass = ({ isActive }: { isActive: boolean }) =>

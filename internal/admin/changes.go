@@ -2,9 +2,6 @@ package admin
 
 import (
 	"context"
-	"encoding/base64"
-	"errors"
-	"fmt"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -25,12 +22,7 @@ import (
 //   - cursor 不透明串（上一页最后一行的 settled_at + 主键的 base64），只能原样回传；
 //   - 与列表端点不同，这里**不**接受 filter/sort/order（顺序固定，分页靠游标保证不重不漏）。
 
-const (
-	// ChangesDefaultLimit 是 changes 端点的默认条数。
-	ChangesDefaultLimit = 200
-	// ChangesMaxLimit 是 changes 端点的上限（超出按上限截断）。
-	ChangesMaxLimit = 1000
-)
+// 游标分页的限额与编解码在 cursor.go（只读页与 changes 端点共用同一份实现）。
 
 // ChangeRow 是一行快照变更（只读投影，不暴露 value 之外的内部列）。
 type ChangeRow struct {
@@ -60,14 +52,6 @@ type changesQuery struct {
 	Since  time.Time
 	Limit  int
 	Cursor *changesCursor
-}
-
-// changesCursor 是游标解码后的位置（settled_at + 主键三列）。
-type changesCursor struct {
-	SettledAt  time.Time
-	TerminalID string
-	ItemCode   string
-	HourStart  time.Time
 }
 
 // parseChangesQuery 解析并校验查询参数；任何非法值都返回 *QueryError（400 invalid_query）。
@@ -105,42 +89,6 @@ func parseChangesQuery(v url.Values) (changesQuery, error) {
 		q.Cursor = &cur
 	}
 	return q, nil
-}
-
-// changesCursorLayout 是游标里时间的编码格式（固定纳秒精度，避免精度丢失导致跳行）。
-const changesCursorLayout = time.RFC3339Nano
-
-func encodeChangesCursor(c changesCursor) string {
-	raw := strings.Join([]string{
-		c.SettledAt.UTC().Format(changesCursorLayout),
-		c.TerminalID,
-		c.ItemCode,
-		c.HourStart.UTC().Format(changesCursorLayout),
-	}, "\x1f")
-	return base64.RawURLEncoding.EncodeToString([]byte(raw))
-}
-
-func decodeChangesCursor(s string) (changesCursor, error) {
-	raw, err := base64.RawURLEncoding.DecodeString(s)
-	if err != nil {
-		return changesCursor{}, errors.New("不是合法的 base64url")
-	}
-	parts := strings.Split(string(raw), "\x1f")
-	if len(parts) != 4 {
-		return changesCursor{}, errors.New("字段数不符")
-	}
-	settled, err := time.Parse(changesCursorLayout, parts[0])
-	if err != nil {
-		return changesCursor{}, fmt.Errorf("settled_at: %w", err)
-	}
-	hour, err := time.Parse(changesCursorLayout, parts[3])
-	if err != nil {
-		return changesCursor{}, fmt.Errorf("hour_start: %w", err)
-	}
-	if parts[1] == "" || parts[2] == "" {
-		return changesCursor{}, errors.New("主键为空")
-	}
-	return changesCursor{SettledAt: settled, TerminalID: parts[1], ItemCode: parts[2], HourStart: hour}, nil
 }
 
 // changesSQL 是唯一查询：since 之后、游标之后，按四列升序，多取一行用于判断 hasMore。

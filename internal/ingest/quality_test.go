@@ -254,8 +254,9 @@ func TestQualityFlags(t *testing.T) {
 	}
 }
 
-// R-034：补录留痕 —— 只有补录来源且实际写入快照才写版本行；实时写入 0 行。
-func TestBackfillWritesCellHistory(t *testing.T) {
+// 补录回填到已结算小时：仍进 hourly_snapshot、仍走 UPSERT 且 revision 按 value_time 自增。
+// 留痕表已下线（R-034 撤销），本用例只锁业务行为：进快照、revision 自增、旧值幂等跳过。
+func TestBackfillWritesSnapshotAndRevision(t *testing.T) {
 	ctx := context.Background()
 	e := newEnv(t)
 	// 两个都已关闭的小时：H1 用于实时对照，H2 用于补录序列（互不影响）。
@@ -265,13 +266,7 @@ func TestBackfillWritesCellHistory(t *testing.T) {
 	at1 := h1.Add(30 * time.Minute)
 	at2 := h2.Add(30 * time.Minute)
 
-	versionCount := func() int {
-		var n int
-		if err := e.pool.QueryRow(ctx, `select count(*) from snapshot_cell_history`).Scan(&n); err != nil {
-			t.Fatalf("统计版本行: %v", err)
-		}
-		return n
-	}
+	// 行不存在时 QueryRow 会报 no rows，因此这条断言同时证明「已进快照」。
 	revisionOf := func(code string, hour time.Time) int {
 		var rev int
 		if err := e.pool.QueryRow(ctx, `
@@ -289,52 +284,35 @@ func TestBackfillWritesCellHistory(t *testing.T) {
 		}
 	}
 
-	// 1) 实时（msgType=1）→ 快照写入但版本表 0 行。
+	// 1) 实时（msgType=1）→ 窗口外直写快照，首写 revision=0。
 	send(1, it("temp", 1.0, "C", at1), it("power", 1.0, "kW", at1))
 	if rev := revisionOf("temp", h1); rev != 0 {
 		t.Fatalf("实时首写 revision = %d，期望 0", rev)
-	}
-	if n := versionCount(); n != 0 {
-		t.Fatalf("实时写入不得产生版本行，实际 %d 行", n)
+	} else {
+		t.Logf("步骤1 实时首写：hourly_snapshot 行存在，revision=%d", rev)
 	}
 
-	// 2) 补录（msgType=2）另一个已关闭小时 → 每格 1 行版本，revision=0。
+	// 2) 补录（msgType=2）另一个已关闭小时 → 同样进快照，首写 revision=0。
 	send(2, it("temp", 2.0, "C", at2), it("power", 2.0, "kW", at2))
-	if n := versionCount(); n != 2 {
-		t.Fatalf("首写补录应产生 2 行版本（每格 1 行），实际 %d", n)
-	}
 	if rev := revisionOf("temp", h2); rev != 0 {
 		t.Fatalf("补录首写 revision = %d，期望 0", rev)
+	} else {
+		t.Logf("步骤2 补录首写：进了已结算小时的快照，revision=%d", rev)
 	}
 
-	// 3) 更晚的 value_time → revision=1，版本行 +2。
+	// 3) 更晚的 value_time → UPSERT 覆盖，revision++。
 	send(2, it("temp", 3.0, "C", at2.Add(time.Minute)), it("power", 3.0, "kW", at2.Add(time.Minute)))
 	if rev := revisionOf("temp", h2); rev != 1 {
 		t.Fatalf("修正后 revision = %d，期望 1", rev)
-	}
-	if n := versionCount(); n != 4 {
-		t.Fatalf("修正后版本行 = %d，期望 4", n)
-	}
-	var (
-		source int16
-		rev    int
-	)
-	if err := e.pool.QueryRow(ctx, `
-		select source, revision from snapshot_cell_history
-		where terminal_id = $1 and item_code = 'temp' order by id desc limit 1`,
-		testTerminalID).Scan(&source, &rev); err != nil {
-		t.Fatalf("读最新版本行: %v", err)
-	}
-	if source != 1 || rev != 1 {
-		t.Fatalf("最新版本行 source=%d revision=%d，期望 1/1", source, rev)
+	} else {
+		t.Logf("步骤3 更晚 value_time：UPSERT 覆盖，revision 自增到 %d", rev)
 	}
 
-	// 4) 更早的 value_time → 幂等跳过：版本行不增、revision 不变。
+	// 4) 更早的 value_time → 幂等跳过：revision 不变。
 	send(2, it("temp", 0.5, "C", at2), it("power", 0.5, "kW", at2))
-	if n := versionCount(); n != 4 {
-		t.Fatalf("幂等跳过后版本行 = %d，期望仍为 4", n)
-	}
 	if rev := revisionOf("temp", h2); rev != 1 {
 		t.Fatalf("幂等跳过后 revision = %d，期望仍为 1", rev)
+	} else {
+		t.Logf("步骤4 更早 value_time：幂等跳过，revision 保持 %d", rev)
 	}
 }

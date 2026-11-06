@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
-	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -20,11 +19,11 @@ import (
 // 异常只读页的定义必须固定且不混进 admin.Entities（实体数恒为 6）。
 func TestExceptionPagesShape(t *testing.T) {
 	pages := ExceptionPages()
-	if len(pages) != 2 {
-		t.Fatalf("异常页数 = %d，期望 2", len(pages))
+	if len(pages) != 1 {
+		t.Fatalf("异常页数 = %d，期望 1（异常区间已下线）", len(pages))
 	}
-	wantSlots := []string{"events", "intervals"}
-	wantNames := []string{"exception-events", "exception-intervals"}
+	wantSlots := []string{"events"}
+	wantNames := []string{"exception-events"}
 	for i, p := range pages {
 		if p.Slot != wantSlots[i] || p.Entity.Name != wantNames[i] {
 			t.Fatalf("异常页[%d] = %s/%s，期望 %s/%s", i, p.Slot, p.Entity.Name, wantSlots[i], wantNames[i])
@@ -37,15 +36,10 @@ func TestExceptionPagesShape(t *testing.T) {
 	if ev, ok := ExceptionBySlot("events"); !ok || ev.Table != "exception_count" {
 		t.Fatalf("events → %+v/%v，期望 exception_count", ev, ok)
 	}
-	// period 必须在外层转 text，否则 tstzrange 无法直接按 JSON 展示。
-	if iv, ok := ExceptionBySlot("intervals"); !ok || !strings.Contains(iv.Table, "period::text as period") {
-		t.Fatalf("intervals 的数据源应把 period 转 text: %+v", iv)
-	}
+	// 区间页已下线：上面的 len(pages)==1 与 slot/name 断言即覆盖，
+	// 这里只保留"未知 slot / 普通实体名不被接受"的通用负向用例。
 	if _, ok := ExceptionBySlot("nope"); ok {
 		t.Fatal("未知 slot 不应解析成功")
-	}
-	if e, ok := ExceptionByEntity("exception-intervals"); !ok || e.Name != "exception-intervals" {
-		t.Fatalf("ExceptionByEntity(exception-intervals) = %+v/%v", e, ok)
 	}
 	if _, ok := ExceptionByEntity("terminals"); ok {
 		t.Fatal("ExceptionByEntity 不应接受普通实体")
@@ -71,10 +65,6 @@ func TestExceptionRoutesWhitelist(t *testing.T) {
 		want   string
 	}{
 		{"/admin/v1/exceptions/nope", http.StatusNotFound, "unknown_slot"},
-		{"/admin/v1/exceptions/intervals?filter.period.gte=2026-01-01", http.StatusBadRequest, "不可筛选"},
-		{"/admin/v1/exceptions/intervals?filter.period=2026-01-01", http.StatusBadRequest, "不可筛选"},
-		{"/admin/v1/exceptions/intervals?sort=period", http.StatusBadRequest, "不可排序"},
-		{"/admin/v1/exceptions/intervals?filter.nope=1", http.StatusBadRequest, "未知筛选字段"},
 		{"/admin/v1/exceptions/events?filter.period.gte=1", http.StatusBadRequest, "未知筛选字段"},
 		{"/admin/v1/exceptions/events?filter.error_type.sounds=x", http.StatusBadRequest, "不支持操作符"},
 		{"/admin/v1/exceptions/events?filter.count=x", http.StatusBadRequest, "需要数值"},
@@ -128,15 +118,6 @@ func TestExceptionQueriesParse(t *testing.T) {
 	if _, ok := FieldMetaOf("exception-events", "id"); ok {
 		t.Fatal("exception_count 没有 id 列，字段元数据不得虚拟 id")
 	}
-
-	intervals, _ := ExceptionBySlot("intervals")
-	qs, err = ParseQueryState(intervals, url.Values{})
-	if err != nil {
-		t.Fatalf("解析失败: %v", err)
-	}
-	if qs.Sort != "id" || qs.Order != "desc" {
-		t.Fatalf("异常区间默认排序 = %s %s，期望 id desc", qs.Sort, qs.Order)
-	}
 }
 
 // 无 id 列的表靠全列 tie-breaker 保证分页不重不漏。
@@ -178,26 +159,7 @@ func TestExceptionListQueryShape(t *testing.T) {
 	if len(countArgs) != 1 {
 		t.Fatalf("总数参数 = %v，期望 1 个", countArgs)
 	}
-
-	intervals, _ := ExceptionBySlot("intervals")
-	qs, err = ParseQueryState(intervals, url.Values{})
-	if err != nil {
-		t.Fatalf("解析失败: %v", err)
-	}
-	sql, _, err = BuildListQuery(intervals, qs)
-	if err != nil {
-		t.Fatalf("构建失败: %v", err)
-	}
-	if !strings.Contains(sql, "period::text as period") || !strings.Contains(sql, "order by id desc") {
-		t.Fatalf("异常区间 SQL 不符: %s", sql)
-	}
-	if strings.Contains(sql, "id desc, id") {
-		t.Fatalf("按 id 排序时不应重复追加 tie-breaker: %s", sql)
-	}
 }
-
-// periodBoundaries 匹配 Postgres tstzrange 的文本形态：["起","止")。
-var periodBoundaries = regexp.MustCompile(`^\["([^"]+)","([^"]+)"\)$`)
 
 // 需 DSN：异常两表的真实查询（列表 + 总数 + 排序 + 分页）。
 func TestExceptionRowsWithDB(t *testing.T) {
@@ -216,7 +178,6 @@ func TestExceptionRowsWithDB(t *testing.T) {
 	termA, termB := prefix+"a", prefix+"b"
 	cleanup := func() {
 		_, _ = pool.Exec(ctx, `delete from exception_count where terminal_id like $1`, prefix+"%")
-		_, _ = pool.Exec(ctx, `delete from exception_interval where terminal_id like $1`, prefix+"%")
 	}
 	cleanup()
 	t.Cleanup(cleanup)
@@ -237,24 +198,6 @@ func TestExceptionRowsWithDB(t *testing.T) {
 			t.Fatalf("建异常事件 %s: %v", r.kind, err)
 		}
 	}
-	intervalRows := []struct {
-		terminal, item, kind, period string
-		raw                          int
-	}{
-		{termA, "", "gateway_disconnected",
-			"[2026-01-01 00:00:00+00,2026-01-01 01:00:00+00)", 5},
-		{termA, "item-x", "item_silent",
-			"[2026-01-02 00:00:00+00,2026-01-02 01:00:00+00)", 7},
-	}
-	for _, r := range intervalRows {
-		if _, err := pool.Exec(ctx,
-			`insert into exception_interval (terminal_id, gateway_id, item_code, error_type, period, raw_count)
-			 values ($1, 'GWX', nullif($2, ''), $3, $4::tstzrange, $5)`,
-			r.terminal, r.item, r.kind, r.period, r.raw); err != nil {
-			t.Fatalf("建异常区间 %s: %v", r.kind, err)
-		}
-	}
-
 	handler := New(pool).Handler()
 	fetch := func(path string) ([]map[string]any, ListMeta) {
 		t.Helper()
@@ -316,37 +259,6 @@ func TestExceptionRowsWithDB(t *testing.T) {
 		t.Fatalf("count = %v，期望 2", data[0]["count"])
 	}
 
-	// 4) 异常区间：period 以 text 展示，默认 id desc。
-	data, meta = fetch("/admin/v1/exceptions/intervals?filter.terminal_id.eq=" + termA)
-	if meta.Total != 2 || len(data) != 2 {
-		t.Fatalf("intervals total=%d rows=%d，期望 2/2", meta.Total, len(data))
-	}
-	period, _ := data[0]["period"].(string)
-	bounds := periodBoundaries.FindStringSubmatch(period)
-	if bounds == nil {
-		t.Fatalf("period 应展示为 [起,止) 区间文本，实际 %q", period)
-	}
-	for i, want := range []time.Time{
-		time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC),
-		time.Date(2026, 1, 2, 1, 0, 0, 0, time.UTC),
-	} {
-		got, err := time.Parse("2006-01-02 15:04:05Z07", bounds[i+1])
-		if err != nil {
-			t.Fatalf("period 边界 %q 不是合法时间: %v", bounds[i+1], err)
-		}
-		if !got.Equal(want) {
-			t.Fatalf("period 边界[%d] = %s，期望 %s", i, got, want.Format(time.RFC3339))
-		}
-	}
-	if meta.Sort != "id" || meta.Order != "desc" {
-		t.Fatalf("intervals 默认排序 = %s %s", meta.Sort, meta.Order)
-	}
-
-	// 5) 超出范围：空页但 total 正确。
-	data, meta = fetch("/admin/v1/exceptions/intervals?filter.terminal_id.eq=" + termA + "&page=9")
-	if meta.Total != 2 || len(data) != 0 {
-		t.Fatalf("超范围页 total=%d rows=%d，期望 2/0", meta.Total, len(data))
-	}
 }
 
 // orderClauseOf 取出 SQL 里 order by 之后、limit 之前的部分，供逐项断言。

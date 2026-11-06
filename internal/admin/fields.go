@@ -83,12 +83,6 @@ var qualityOptions = []Option{
 	{Value: "7", Label: "越界+规则+单位闭集外", Tone: "warning"},
 }
 
-var intervalTypeOptions = []Option{
-	{Value: "gateway_disconnected", Label: "网关断连", Tone: "negative"},
-	{Value: "auth_failed", Label: "鉴权失败", Tone: "negative"},
-	{Value: "item_silent", Label: "数据项沉默", Tone: "warning"},
-}
-
 // hourStartField 是运行时两页的归属小时列（staging/snapshot 共用）。
 var hourStartField = FieldMeta{
 	Key: "hour_start", Label: "归属小时", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
@@ -101,7 +95,7 @@ var revisionField = FieldMeta{
 	FilterType: "numberRange", Operators: []string{"gte", "lte"}, WidthStrategy: "fixed",
 }
 
-// settledAtField 是快照页的落库/修正时刻：游标分页的排序列，也是 changes 端点的 since 口径。
+// settledAtField 是快照页的落库/修正时刻：游标分页的排序列（快照变更查询端点已下线）。
 var settledAtField = FieldMeta{
 	Key: "settled_at", Label: "落库时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
 	FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min",
@@ -248,27 +242,6 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "dateRange", Operators: []string{"gte", "lte"}, AdvancedOnly: true, WidthStrategy: "min"},
 			{Key: "sample_digest", Label: "样本摘要", Type: "text", Visible: false, Sortable: false, Filterable: false,
 				FilterType: "none", AdvancedOnly: true, WidthStrategy: "flex"},
-		},
-	},
-	"exception-intervals": {
-		fields: []FieldMeta{
-			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
-			{Key: "terminal_id", Label: "终端", Type: "text", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
-			{Key: "gateway_id", Label: "网关", Type: "text", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
-			{Key: "item_code", Label: "数据项", Type: "text", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
-			{Key: "error_type", Label: "异常类型", Type: "enum", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "multiSelect", Operators: []string{"in"}, OptionsSource: "static",
-				Options: intervalTypeOptions, WidthStrategy: "min"},
-			// period 是 tstzrange：可展示但不可直接比较，时间范围筛选走 created_at。
-			{Key: "period", Label: "区间", Type: "text", Visible: true, Sortable: false, Filterable: false,
-				FilterType: "none", WidthStrategy: "flex"},
-			{Key: "raw_count", Label: "原始计数", Type: "number", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "numberRange", Operators: []string{"gte", "lte"}, WidthStrategy: "fixed"},
-			{Key: "created_at", Label: "创建时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
-				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
 		},
 	},
 	// 只读数据源（R-022 读路径 / R-030 可见面）：不在 admin.Entities 里，只服务

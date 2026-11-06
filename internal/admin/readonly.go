@@ -260,7 +260,7 @@ func listCursor(ctx context.Context, pool *pgxpool.Pool, e Entity, q readonlyCur
 	return items, meta, nil
 }
 
-// cursorFromRow 从结果行拼出下一页游标（与 changes.go 的编码格式完全一致）。
+// cursorFromRow 从结果行拼出下一页游标（编码见 cursor.go，与游标参数共用同一实现）。
 func cursorFromRow(row map[string]any) (string, error) {
 	settledRaw, ok := row["settled_at"].(string)
 	if !ok {

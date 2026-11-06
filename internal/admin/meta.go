@@ -26,7 +26,6 @@ var entityLabels = map[string]string{
 	"quality-rules":          "质量规则",
 	"settle-configs":         "结算窗口",
 	"exception-events":       "异常事件",
-	"exception-intervals":    "异常区间",
 	"latest-values":          "最新值",
 	"hourly-staging":         "小时暂存",
 	"hourly-snapshot":        "小时快照",

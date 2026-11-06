@@ -442,32 +442,6 @@ export const metaFixture: MetaPayload = {
         }),
       ],
     },
-    {
-      slot: 'intervals',
-      name: 'exception-intervals',
-      title: '异常区间',
-      route: '/admin/v1/exceptions/intervals',
-      readOnly: true,
-      defaultSort: 'created_at',
-      defaultOrder: 'desc',
-      fields: [
-        field({
-          key: 'terminal_id',
-          label: '终端',
-          type: 'text',
-          operators: ['contains', 'eq'],
-          widthStrategy: 'min',
-        }),
-        field({
-          key: 'raw_count',
-          label: '原始计数',
-          type: 'number',
-          filterType: 'numberRange',
-          operators: ['gte', 'lte'],
-          widthStrategy: 'fixed',
-        }),
-      ],
-    },
   ],
   // 枚举字典与布尔字典由后端下发，前端归一后渲染中文。
   enums: {
