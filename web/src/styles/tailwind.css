@@ -48,6 +48,8 @@
 
   /* 字号与行高 */
   --text-meta: var(--text-meta);
+  --text-nav: var(--text-nav);
+  --tracking-nav: var(--tracking-nav);
   --text-body: var(--text-body);
   --text-section: var(--text-section);
   --text-page: var(--text-page);
@@ -162,4 +164,38 @@
   flex: 1 1 0;
   min-width: 0;
   width: auto;
+}
+
+/* 外壳结构（步 2）：精确像素集中在 CSS，TSX 只引用语义类名。 */
+@utility shell {
+  display: grid;
+  grid-template-columns: var(--nav-width) 1fr;
+  min-height: 100vh;
+  background: var(--color-bg);
+
+  @media (max-width: 1024px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+@utility app-header {
+  height: var(--header-h);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-surface);
+}
+
+@utility content-card {
+  border-radius: var(--radius-card);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+
+@utility nav-item-active {
+  background: var(--color-primary-weak);
+  box-shadow: inset 2px 0 0 0 var(--color-primary);
+}
+
+@utility table-shell {
+  overflow-x: auto;
 }

@@ -38,6 +38,8 @@
   --lh-body: 22px;
   --text-meta: 12px;
   --lh-meta: 18px;
+  --text-nav: 11px;
+  --tracking-nav: 0.04em;
   --font-mono: "SFMono-Regular", "Menlo", "Consolas", monospace;
 
   /* 形状与阴影 */
