@@ -155,14 +155,15 @@
   width: auto;
 }
 
-/* 外壳结构（步 2）：精确像素集中在 CSS，TSX 只引用语义类名。 */
+/* 外壳结构（步 2）：精确像素集中在 CSS，TSX 只引用语义类名。
+   断点口径 = Tailwind `max-lg`（< 1024px，不含 1024）：1024 起为双列桌面。 */
 @utility shell {
   display: grid;
   grid-template-columns: var(--nav-width) 1fr;
   min-height: 100vh;
   background: var(--color-bg);
 
-  @media (max-width: 1024px) {
+  @media (max-width: 1023.98px) {
     grid-template-columns: 1fr;
   }
 }
@@ -208,9 +209,10 @@
   }
 }
 
-/* 触摸目标 ≥44×44（admin-ui-spec §14）：只约束窄屏，桌面保持既有密度。 */
+/* 触摸目标 ≥44×44（admin-ui-spec §14）：只约束窄屏（< 1024px，与 max-lg 同口径），
+   1024 起回到桌面密度，避免断点边界上导航项高度跳 8px。 */
 @utility touch-target {
-  @media (max-width: 1024px) {
+  @media (max-width: 1023.98px) {
     min-height: var(--touch-target);
     min-width: var(--touch-target);
   }

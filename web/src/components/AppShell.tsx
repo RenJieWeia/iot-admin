@@ -27,8 +27,11 @@ interface Props {
   children: ReactNode;
 }
 
-/** 与 tailwind.css 里 `shell` 的断点一致：≤1024px 单列，侧栏收进抽屉。 */
-const NARROW_QUERY = '(max-width: 1024px)';
+/**
+ * 与 tailwind.css 里 `shell` 的断点一致：口径取 Tailwind `max-lg`（< 1024px，**不含 1024**），
+ * 单列 + 侧栏收进抽屉；1024 起算桌面，侧栏常驻。
+ */
+const NARROW_QUERY = '(max-width: 1023.98px)';
 
 /**
  * 窄屏判定：宽度是浏览器状态，只能问 matchMedia。
@@ -131,7 +134,8 @@ function SidebarNav({ id, onNavigate }: { id?: string; onNavigate?: () => void }
 
 /**
  * 外壳：220px 侧栏（surface-2）+ 56px 顶栏（标题/面包屑 + 主操作）+ 内容白卡。
- * 窄屏（≤1024px）侧栏收进抽屉，由顶栏左侧的菜单按钮触发（admin-ui-spec §3.1）。
+ * 窄屏（< 1024px，与 Tailwind `max-lg` 同口径）侧栏收进抽屉，由顶栏左侧的菜单按钮触发
+ * （admin-ui-spec §3.1）。1024 及更宽走桌面布局。
  */
 export function AppShell({ title, subtitle, actions, children }: Props) {
   const narrow = useIsNarrow();
