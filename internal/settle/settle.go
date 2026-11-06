@@ -122,8 +122,10 @@ func (s *Settler) fail(ctx context.Context, now time.Time, err error) {
 const (
 	insertClosedSQL = `
 		insert into hourly_snapshot
-		    (terminal_id, item_code, hour_start, value_num, value_text, unit, value_time)
-		select s.terminal_id, s.item_code, s.hour_start, s.value_num, s.value_text, s.unit, s.value_time
+		    (terminal_id, item_code, hour_start, value_num, value_text, unit, value_time,
+		     quality, quality_reason)
+		select s.terminal_id, s.item_code, s.hour_start, s.value_num, s.value_text, s.unit, s.value_time,
+		       s.quality, s.quality_reason
 		from hourly_staging s
 		where s.terminal_id = any($2)
 		  and s.hour_start + interval '1 hour' + make_interval(secs => $3) <= $1::timestamptz

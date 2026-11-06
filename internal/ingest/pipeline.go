@@ -158,6 +158,13 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 		source string // thing_model | rule
 		detail string
 	}
+	// 行级质量标记（R-022）：按 item_code 聚合位掩码与可读摘要，随 store.Value 落库。
+	qualityBits := make(map[string]int16, len(tp.Items))
+	qualityNotes := make(map[string][]string, len(tp.Items))
+	markQuality := func(code string, bit int16, note string) {
+		qualityBits[code] |= bit
+		qualityNotes[code] = append(qualityNotes[code], note)
+	}
 	var (
 		cleaned          []clean.Out
 		unknownCodes     []string
@@ -180,18 +187,26 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 		}
 		if out.UnitUnknown {
 			unitUnknownHours = append(unitUnknownHours, staging.HourStart(out.Time))
+			markQuality(out.Code, store.QualityUnitUnknown,
+				fmt.Sprintf("source=clean item=%s 单位不在换算闭集内，已透传原单位", out.Code))
 		}
 		for _, v := range vios { // 物模型 min/max 越界
+			detail := fmt.Sprintf("%s: %s", v.RuleType, v.Detail)
 			violations = append(violations, violationHit{
 				hour: staging.HourStart(out.Time), code: out.Code,
-				source: "thing_model", detail: fmt.Sprintf("%s: %s", v.RuleType, v.Detail),
+				source: "thing_model", detail: detail,
 			})
+			markQuality(out.Code, store.QualityOutOfRange,
+				fmt.Sprintf("source=thing_model item=%s %s", out.Code, detail))
 		}
 		for _, v := range clean.Check(rules, out) { // 终端质量规则命中
+			detail := fmt.Sprintf("%s: %s", v.RuleType, v.Detail)
 			violations = append(violations, violationHit{
 				hour: staging.HourStart(out.Time), code: out.Code,
-				source: "rule", detail: fmt.Sprintf("%s: %s", v.RuleType, v.Detail),
+				source: "rule", detail: detail,
 			})
+			markQuality(out.Code, store.QualityRuleHit,
+				fmt.Sprintf("source=rule item=%s %s", out.Code, detail))
 			p.Log.Info("质量规则命中", "terminal", term.ID, "item", out.Code, "rule", string(v.RuleType))
 		}
 		cleaned = append(cleaned, out)
@@ -215,7 +230,7 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 	var written, regressed []clean.Out
 	if len(inWindow) > 0 {
 		var werr error
-		written, regressed, werr = p.write(ctx, term.ID, inWindow)
+		written, regressed, werr = p.write(ctx, term.ID, inWindow, qualityBits, qualityNotes)
 		if werr != nil {
 			p.Log.Error("写缓存/暂存失败", "terminal", term.ID, "err", werr)
 			// 写失败属平台侧故障：异常仍记 cache_write_failed 保可观测，但返回值必须是
@@ -255,7 +270,8 @@ func (p *Processor) handleTerminal(ctx context.Context, env *validate.Envelope, 
 
 // write 在同一事务里串行化写入 latest_value 与 hourly_staging；返回写入项与回拨项。
 // 每条消息对每张表只发一条批量语句，避免逐项 round trip。
-func (p *Processor) write(ctx context.Context, terminalID string, outs []clean.Out) (written, regressed []clean.Out, err error) {
+func (p *Processor) write(ctx context.Context, terminalID string, outs []clean.Out,
+	qualityBits map[string]int16, qualityNotes map[string][]string) (written, regressed []clean.Out, err error) {
 	unlock := p.Locks.Lock(terminalID)
 	defer unlock()
 	vals := make([]store.Value, len(outs))
@@ -264,6 +280,8 @@ func (p *Processor) write(ctx context.Context, terminalID string, outs []clean.O
 		vals[i] = store.Value{
 			TerminalID: terminalID, ItemCode: o.Code,
 			ValueNum: o.Number, ValueText: o.Text, Unit: o.Unit, ValueTime: o.Time,
+			Quality:       qualityBits[o.Code],
+			QualityReason: strings.Join(qualityNotes[o.Code], "; "),
 		}
 		rows[i] = staging.Row{Value: vals[i], HourStart: staging.HourStart(o.Time)}
 	}

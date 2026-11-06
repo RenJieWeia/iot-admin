@@ -20,18 +20,23 @@ func Upsert(ctx context.Context, tx pgx.Tx, vs []store.Value) (map[string]struct
 		return written, nil
 	}
 	placeholders := make([]string, len(vs))
-	args := make([]any, 0, len(vs)*6)
+	args := make([]any, 0, len(vs)*8)
 	for i, v := range vs {
-		n := i * 6
-		placeholders[i] = fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, now())", n+1, n+2, n+3, n+4, n+5, n+6)
-		args = append(args, v.TerminalID, v.ItemCode, v.ValueNum, v.ValueText, v.Unit, v.ValueTime)
+		n := i * 8
+		placeholders[i] = fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, now())",
+			n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8)
+		args = append(args, v.TerminalID, v.ItemCode, v.ValueNum, v.ValueText, v.Unit, v.ValueTime,
+			v.Quality, v.QualityReason)
 	}
+	// 质量标记跟随"胜出"的那一行：value_time 更新时才覆盖，避免旧数据的质量位盖掉新数据。
 	rows, err := tx.Query(ctx, `
-		insert into latest_value (terminal_id, item_code, value_num, value_text, unit, value_time, updated_at)
+		insert into latest_value
+		    (terminal_id, item_code, value_num, value_text, unit, value_time, quality, quality_reason, updated_at)
 		values `+strings.Join(placeholders, ", ")+`
 		on conflict (terminal_id, item_code) do update
 		set value_num = excluded.value_num, value_text = excluded.value_text,
-		    unit = excluded.unit, value_time = excluded.value_time, updated_at = now()
+		    unit = excluded.unit, value_time = excluded.value_time,
+		    quality = excluded.quality, quality_reason = excluded.quality_reason, updated_at = now()
 		where excluded.value_time > latest_value.value_time
 		returning item_code`, args...)
 	if err != nil {

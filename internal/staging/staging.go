@@ -50,21 +50,24 @@ func Upsert(ctx context.Context, tx pgx.Tx, rows []Row) error {
 		return nil
 	}
 	placeholders := make([]string, len(rows))
-	args := make([]any, 0, len(rows)*7)
+	args := make([]any, 0, len(rows)*9)
 	for i, r := range rows {
-		n := i * 7
-		placeholders[i] = fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, now())",
-			n+1, n+2, n+3, n+4, n+5, n+6, n+7)
+		n := i * 9
+		placeholders[i] = fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d, now())",
+			n+1, n+2, n+3, n+4, n+5, n+6, n+7, n+8, n+9)
 		args = append(args, r.TerminalID, r.ItemCode, r.HourStart,
-			r.ValueNum, r.ValueText, r.Unit, r.ValueTime)
+			r.ValueNum, r.ValueText, r.Unit, r.ValueTime, r.Quality, r.QualityReason)
 	}
+	// 质量标记与 value_time 同步覆盖（R-022）：同一小时同一项以最后到达的为准。
 	_, err := tx.Exec(ctx, `
 		insert into hourly_staging
-		    (terminal_id, item_code, hour_start, value_num, value_text, unit, value_time, updated_at)
+		    (terminal_id, item_code, hour_start, value_num, value_text, unit, value_time,
+		     quality, quality_reason, updated_at)
 		values `+strings.Join(placeholders, ", ")+`
 		on conflict (terminal_id, item_code, hour_start) do update
 		set value_num = excluded.value_num, value_text = excluded.value_text,
-		    unit = excluded.unit, value_time = excluded.value_time, updated_at = now()
+		    unit = excluded.unit, value_time = excluded.value_time,
+		    quality = excluded.quality, quality_reason = excluded.quality_reason, updated_at = now()
 		where excluded.value_time > hourly_staging.value_time`, args...)
 	return err
 }

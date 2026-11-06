@@ -3,6 +3,7 @@ package ingest_test
 import (
 	"bytes"
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -108,5 +109,146 @@ func TestQualityViolationMarksThingModelSource(t *testing.T) {
 	}
 	if bytes.Contains([]byte(digest), []byte("source=rule")) {
 		t.Fatalf("不应出现规则来源标记，实际 %q", digest)
+	}
+}
+
+// R-022：行级质量标记位（0/1/2/3/4）与结算传播。
+func TestQualityFlags(t *testing.T) {
+	ctx := context.Background()
+	e := newEnv(t)
+	at := baseTime.Add(5 * time.Minute)
+	hour := hourOf(at)
+
+	qualityOf := func(terminal, code, table string) (int16, string) {
+		t.Helper()
+		var q int16
+		var reason *string
+		q2 := `select quality, quality_reason from ` + table +
+			` where terminal_id = $1 and item_code = $2`
+		if err := e.pool.QueryRow(ctx, q2, terminal, code).Scan(&q, &reason); err != nil {
+			t.Fatalf("读取 %s(%s/%s): %v", table, terminal, code, err)
+		}
+		if reason == nil {
+			return q, ""
+		}
+		return q, *reason
+	}
+
+	// 1) 正常：quality=0 且无摘要。
+	if r := resultOf(t, e.handle(single(testTerminalID,
+		it("temp", 25.0, "C", at), it("power", 1.0, "kW", at))), testTerminalID); !r.Accepted {
+		t.Fatalf("正常报文应被接收: %+v", r)
+	}
+	if q, reason := qualityOf(testTerminalID, "temp", "latest_value"); q != 0 || reason != "" {
+		t.Fatalf("正常值 quality=%d reason=%q，期望 0/空", q, reason)
+	}
+
+	// 2) 仅规则命中 → 2。
+	e.addRule(testTerminalID, "temp", "range", `{"min": 0, "max": 100}`)
+	e.clock.Add(time.Minute)
+	if r := resultOf(t, e.handle(single(testTerminalID,
+		it("temp", 150.0, "C", at.Add(time.Minute)),
+		it("power", 1.0, "kW", at.Add(time.Minute)))), testTerminalID); !r.Accepted {
+		t.Fatalf("规则命中不得拒收: %+v", r)
+	}
+	if q, reason := qualityOf(testTerminalID, "temp", "latest_value"); q != 2 ||
+		!strings.Contains(reason, "source=rule") {
+		t.Fatalf("规则命中 quality=%d reason=%q，期望 2 + source=rule", q, reason)
+	}
+
+	// 3) 物模型越界 + 规则命中 → 3（位可叠加）。
+	if _, err := e.pool.Exec(ctx,
+		`update thing_model_property set min_value = 0, max_value = 100 where type_id = $1 and item_code = 'temp'`,
+		e.typeID); err != nil {
+		t.Fatalf("设置物模型边界: %v", err)
+	}
+	e.proc.Meta.Flush()
+	e.clock.Add(time.Minute)
+	if r := resultOf(t, e.handle(single(testTerminalID,
+		it("temp", 150.0, "C", at.Add(2*time.Minute)),
+		it("power", 1.0, "kW", at.Add(2*time.Minute)))), testTerminalID); !r.Accepted {
+		t.Fatalf("越界不得拒收: %+v", r)
+	}
+	if q, reason := qualityOf(testTerminalID, "temp", "latest_value"); q != 3 ||
+		!strings.Contains(reason, "source=thing_model") || !strings.Contains(reason, "source=rule") {
+		t.Fatalf("叠加 quality=%d reason=%q，期望 3 + 两个来源", q, reason)
+	}
+
+	// 4) 仅物模型越界（T2 无规则）→ 1；单位闭集外 → 4。
+	if r := resultOf(t, e.handle(single(testTerminalB,
+		it("temp", 150.0, "C", at.Add(2*time.Minute)),
+		it("power", 3.0, "hp", at.Add(2*time.Minute)))), testTerminalB); !r.Accepted {
+		t.Fatalf("T2 报文应被接收: %+v", r)
+	}
+	if q, reason := qualityOf(testTerminalB, "temp", "latest_value"); q != 1 ||
+		!strings.Contains(reason, "source=thing_model") {
+		t.Fatalf("仅越界 quality=%d reason=%q，期望 1 + source=thing_model", q, reason)
+	}
+	if q, reason := qualityOf(testTerminalB, "power", "latest_value"); q != 4 ||
+		!strings.Contains(reason, "单位不在换算闭集内") {
+		t.Fatalf("单位闭集外 quality=%d reason=%q，期望 4", q, reason)
+	}
+
+	// 5) 结算：snapshot 的质量标记与 staging 一致（非 0 样本至少 1 例）。
+	type row struct {
+		q      int16
+		reason string
+	}
+	staging := map[string]row{}
+	rows, err := e.pool.Query(ctx, `
+		select terminal_id || '/' || item_code, quality, coalesce(quality_reason, '')
+		from hourly_staging where hour_start = $1`, hour)
+	if err != nil {
+		t.Fatalf("读取 staging: %v", err)
+	}
+	for rows.Next() {
+		var k string
+		var r row
+		if err := rows.Scan(&k, &r.q, &r.reason); err != nil {
+			t.Fatalf("扫描 staging: %v", err)
+		}
+		staging[k] = r
+	}
+	rows.Close()
+	if len(staging) == 0 {
+		t.Fatal("staging 为空，无法比较结算传播")
+	}
+
+	e.clock.Set(closeOf(hour))
+	if _, err := e.settler.Run(ctx); err != nil {
+		t.Fatalf("结算失败: %v", err)
+	}
+	nonZero := 0
+	rows, err = e.pool.Query(ctx, `
+		select terminal_id || '/' || item_code, quality, coalesce(quality_reason, '')
+		from hourly_snapshot where hour_start = $1`, hour)
+	if err != nil {
+		t.Fatalf("读取 snapshot: %v", err)
+	}
+	defer rows.Close()
+	seen := 0
+	for rows.Next() {
+		var k string
+		var r row
+		if err := rows.Scan(&k, &r.q, &r.reason); err != nil {
+			t.Fatalf("扫描 snapshot: %v", err)
+		}
+		want, ok := staging[k]
+		if !ok {
+			t.Fatalf("snapshot 出现 staging 没有的键 %q", k)
+		}
+		if r.q != want.q || r.reason != want.reason {
+			t.Fatalf("%s 结算后 quality=%d/%q，staging 为 %d/%q", k, r.q, r.reason, want.q, want.reason)
+		}
+		if r.q != 0 {
+			nonZero++
+		}
+		seen++
+	}
+	if seen != len(staging) {
+		t.Fatalf("snapshot 行数 = %d，staging 行数 = %d", seen, len(staging))
+	}
+	if nonZero == 0 {
+		t.Fatal("结算样本里没有非 0 quality，无法验证传播")
 	}
 }

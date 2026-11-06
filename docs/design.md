@@ -47,6 +47,7 @@
 11. **本期区间表无生产写入路径**（能力具备、平台侧未实现）：BroMQ 侧已具备网关离线观测能力——`tracking` hook 维护 `mqtt_clients` 连接状态（`/api/mqtt/clients` 与 `/metrics` 可读），且支持 MQTT 遗嘱（LWT，仅当网关自己在 CONNECT 里声明 `WillTopic` 时才可用，正常 DISCONNECT 不触发）。**平台侧写入路径仍未实现**：`gateway_disconnected` 只能由 Broker 侧信号判定，把"平台到 Broker 的客户端连接断开"记为网关断连仍会产生 100% 假阳性 + 100% 假阴性，因此当前不得用平台连接状态冒充。写入路径随网关离线观测任务排期（证据：`docs/review/RESEARCH-002.md` §5/§6）。
 12. **平台故障与数据问题分离**：DB 等平台侧故障时逐终端标 `internal_error`，HTTP 整包 503（body 仍带完整 `results`）；数据问题仍是 200 + 逐终端 `results`。网关按状态码决定是否整批重传。写路径失败（`latest.Upsert`/`staging.Upsert` 事务失败）同属平台侧故障：异常仍记 `cache_write_failed` 保可观测，但逐终端返回 `internal_error`、整包 503。
 13. **质量违规来源**：`quality_violation` 摘要前缀固定 `source=thing_model`（物模型 min/max 越界）或 `source=rule`（终端质量规则命中），同一项两类都命中计 2 次。
+14. **行级质量标记（R-022）**：`latest_value` / `hourly_staging` / `hourly_snapshot` 各带 `quality smallint not null default 0` 与 `quality_reason text`。`quality` 是位掩码、可叠加：`1` 物模型 min/max 越界、`2` 终端质量规则命中、`4` 单位不在换算闭集内；`0` 正常，高位留给后续扩展。`quality_reason` 存可读摘要（如 `source=thing_model item=power 低于下限`，多来源用 `; ` 连接）。**原值照常入库**（`value_num`/`value_text`/`unit` 不因质量异常而改变），`exception_count.quality_violation` 的计数口径不变；质量标记跟随"胜出"的行（`value_time` 更大者覆盖，含标记本身），结算时从 staging 原样带进 snapshot。
 14. **单位换算短路**：`from == target` 时直接透传、不计数——即使该单位不在换算闭集内。否则电表场景里 A / V / kvar 等只要物模型声明与上报一致就会每分钟刷出大量假 `clean_failed`。
 
 ## 三、本轮必修项落地（对应任务书第二章）
