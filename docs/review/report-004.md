@@ -188,3 +188,71 @@ $ git diff --name-only rv-06..HEAD | grep -vE "^(web/|internal/ui/|cmd/server/|d
 - `Q-004` 已闭环：删除 `internal/ui/ui.go` 后，`entityLabels`/`exceptionEntities`/`exceptionRoutes` 不复存在，标签与异常页映射的唯一来源是 `admin.EntityLabel` / `admin.ExceptionPages` / `admin.ExceptionBySlot|ByEntity`，未新增重复定义。
 - `Open-Q（新增，非阻塞）`：`_meta` 的 `FieldMeta` 建议补 `editable`（抽屉可编辑列）与 `required`（前端必填提示）两个布尔位，前端目前用推断（见 §5）。若采纳，`formFields()`/`buildSchema()` 改为读契约即可，页面无需改动。
 - 无其他未闭环项。批量/导出/列偏好/保存视图按 R-018 整体豁免，已在本报告 §2.3 声明。
+
+---
+
+## 7. REVIEW-004（浏览器渲染层）处置与证据
+
+- `fix-commit:` `63b0daa`（`Base: rv-07`，单独提交，未改写 `rv-07`）
+- `verdict-before:` `REVIEW-004` 判定 rv-07 不可放行（F1 阻断、F2 重要、F3 建议）
+- `method:` 无头 Chromium（`/usr/bin/chromium`，Chrome 156）+ CDP，`Emulation.setDeviceMetricsOverride` 强制 1440×900 CSS 视口（不用 `--window-size`，避免落入 ≤1024 断点）
+- `instances:` 临时冒烟实例 `127.0.0.1:8085`（本机 PG `55432` + 真实 `internal/admin`/`internal/ui`，验证后删除，未入库）
+
+### 7.1 F1 skip 链接缺类导致整页 grid 重排（阻断）
+
+**根因**：`AppShell.module.css` 里是 `.skip-link`（kebab），`AppShell.tsx` 用 `styles.skipLink`；CSS Modules 不做驼峰转换 → `undefined` → 该 `<a>` 无 class、非定位元素，作为普通 grid item 占掉 `.shell` 首格。
+
+**修复**：`.skipLink`（含 `:focus-visible { left: var(--space-2) }`）；防御性 `.sidebar{grid-column:1}` / `.main{grid-column:2}`（1024 断点内同为 `grid-column:1`）；新增 `web/src/styles/moduleClasses.test.ts` 比对 `*.module.css` 导出类名与应用代码里的 `styles.<key>` 引用。
+
+**浏览器实测（1440×900，`/ui/terminals`）**
+
+| 指标 | rv-07（REVIEW-004 实测） | 修复后（本次实测） |
+| --- | --- | --- |
+| `main.x / main.width` | `0 / 200` | **`200 / 1240`** |
+| `main.y` | `484` | **`0`** |
+| `.shell` grid 列 | 单列（被挤） | **`200px 1240px`** |
+| `aside` | 占满首行整宽 | **`x=0, w=200, h=900`** |
+| `<table>` | `x=25, w=1020`（被裁切） | **`x=225, w=1190`**（内容区满宽，`table-layout: fixed`，6 列） |
+| `<a href="#main">` | 无 class | **`_skipLink_g3iyy_7`**，`position: absolute`，`left: -9999px` |
+
+**skip 链接聚焦可见性**（真实 Tab 键，非程序化 focus）：`document.activeElement` 为该链接、`getBoundingClientRect().x = 8`、`getComputedStyle().left = "8px"`、`matches(':focus-visible') = true` —— 平时移出视口、聚焦时回到可视区，符合 §17。
+
+**护栏用例有效性验证**：把 `.skipLink` 临时改回 `.skip-link` 后 `moduleClasses.test.ts` 两条用例同时失败，报错定位到
+`AppShell.tsx → styles.skipLink（AppShell.module.css 无此类）`；改回即恢复通过。
+
+### 7.2 F2 CSP 拦截 Radix 注入的内联样式（重要）
+
+**修复**：CSP 改为 `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'; object-src 'none'`。
+**取舍声明**：放开的是 `style-src` 的 `'unsafe-inline'`——Radix 的 Dialog/Popper primitive 用注入式内联样式做定位、滚动锁与焦点守卫，拦掉属不确定行为；`script-src` 仍为 `'self'`，产物没有任何内联脚本，XSS 面没有被这条放开。`cmd/server/main_test.go` 增加断言：CSP 必须含 `style-src 'self' 'unsafe-inline'` 且 **不得**出现 `script-src 'self' 'unsafe-inline'`。
+
+**浏览器实测**：抽屉开、关全流程 `Log.entryAdded` / `Runtime.consoleAPICalled` / `Runtime.exceptionThrown` 三类事件中 **CSP 违规 0 条、console error 0 条**。
+抽屉本体：`x=960, w=480, position: fixed`，`body.overflow=hidden`（滚动锁生效），`hasInlineStyle=true`（Radix 注入不再被拦）。
+
+### 7.3 F3 favicon 404（建议）
+
+补 `web/public/favicon.svg` + `<link rel="icon" type="image/svg+xml" href="/favicon.svg">`；Vite 按 `base: '/ui/'` 重写为 `/ui/favicon.svg`，`go:embed` 随产物提供。
+**浏览器实测**：`/ui/favicon.svg` 三次请求全部 200，`/favicon.ico` 无请求；整页 `status >= 400` 的请求 **0 条**（共 9 个请求）。
+
+### 7.4 附带修复：Esc 关闭抽屉后的焦点归还（浏览器层才发现）
+
+**现象**：真实浏览器里 Esc 关闭抽屉后 `document.activeElement` 为 `BODY`（t=0/60/250/800ms 采样一致），而 jsdom 用例通过。
+**根因**：原实现用 `requestAnimationFrame` 延迟聚焦；该次导航是 React transition，rAF 落在提交之前，随后 Radix `FocusScope` 的卸载清理把焦点重置回 body。
+**修复**：改成「`drawer` 参数由非空变为空的提交之后」在 effect 里聚焦，仍按 `data-action`/`data-row-id` 重新取当前节点（列表重渲染会换掉旧节点）。
+**浏览器实测（真实鼠标点击「编辑」开抽屉 → Esc）**：关闭后 `activeElement = BUTTON("编辑")`，`data-action="edit"`，t=0/60/250/800ms 四次采样一致；由「新建」打开的抽屉关闭后焦点回到「新建」。
+
+### 7.5 复跑结果（本次）
+
+```
+$ npx vitest run            → Test Files 5 passed / Tests 26 passed（新增 moduleClasses 2 条）
+$ npx stylelint "src/**/*.css" → 无输出，exit 0
+$ npm run build && git diff --exit-code internal/ui/dist → exit 0（产物仍可复现）
+$ GOCACHE=/tmp/gocache go build ./... && go vet ./...   → 无输出
+$ GOCACHE=/tmp/gocache go test ./... -count=1
+ok cmd/server  ok internal/admin  ok internal/clean  ok internal/ingest
+ok internal/meta  ok internal/staging  ok internal/ui  ok internal/validate
+```
+
+### 7.6 未处理（留给下一轮，非阻塞）
+
+- 多选筛选控件仍是原生 `multiple` select（既有豁免 §13.2）；在 1440 视口下它比单行控件高、与同排标签不齐平。属视觉打磨，未在本轮顺手改（避免未申报的范围扩大），建议随 `table-query` §13.2 一起改成自定义多选或移入「更多筛选」。
+- R1（`FieldMeta.editable/required`）、R2（路由级 lazy + vendor 拆分）按 Lead 安排留到 `task-005`。
