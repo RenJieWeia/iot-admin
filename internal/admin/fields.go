@@ -32,6 +32,9 @@ type FieldMeta struct {
 	Options       []Option
 	AdvancedOnly  bool
 	WidthStrategy string // fixed|min|flex
+	// Derived 表示该列不在物理表里，由列表 SQL 计算得出（如快照计划的「已启用档位」）。
+	// 它不进写白名单、不可排序/筛选，DDL 对齐类测试会跳过它。
+	Derived bool
 }
 
 var boolOptions = []Option{
@@ -58,7 +61,7 @@ var ruleTypeOptions = []Option{
 	{Value: "not_null", Label: "非空", Tone: "neutral"},
 }
 
-// eventTypeOptions 必须与 exception.EventTypes 一一对应（7 类事件型异常）。
+// eventTypeOptions 必须与 exception.EventTypes 一一对应（8 类事件型异常）。
 // exceptions_test.go 的 TestEventTypeOptionsMatchEnum 会断言两边集合相等——
 // 下线能力时要同时改枚举与这里，别只改一边留下"下拉里有、后台不认"的死选项。
 var eventTypeOptions = []Option{
@@ -69,6 +72,9 @@ var eventTypeOptions = []Option{
 	{Value: "mqtt_publish_failed", Label: "发布失败", Tone: "negative"},
 	{Value: "quality_violation", Label: "质量违规", Tone: "warning"},
 	{Value: "terminal_unknown", Label: "终端未注册", Tone: "negative"},
+	// 注意：这里的 snapshot_write_failed 是「六档快照写入失败」，
+	// 与已删除的 snapshot_failed（旧「结算任务失败」）不是一回事，别混用。
+	{Value: "snapshot_write_failed", Label: "快照写入失败", Tone: "negative"},
 }
 
 // qualityOptions 是行级质量位掩码的 8 种组合（R-022 读路径）：0 正常，其余都是"有问题"。
@@ -82,6 +88,45 @@ var qualityOptions = []Option{
 	{Value: "5", Label: "越界+单位闭集外", Tone: "warning"},
 	{Value: "6", Label: "规则命中+单位闭集外", Tone: "warning"},
 	{Value: "7", Label: "越界+规则+单位闭集外", Tone: "warning"},
+}
+
+
+// 六档步长白名单（与 migrations/0010 的 CHECK 约束同源）：
+// 秒/分 1,2,3,4,5,6,10,12,15,20,30；时 1,2,3,4,6,8,12；日 1；月 1,2,3,4,6,12；年 1。
+// 选项既用于抽屉下拉，也经 _meta.enums 下发（key 与字段名一致）。
+func stepOptions(unit string, values ...string) []Option {
+	out := make([]Option, len(values))
+	for i, v := range values {
+		out[i] = Option{Value: v, Label: v + " " + unit, Tone: "neutral"}
+	}
+	return out
+}
+
+var (
+	secondStepOptions = stepOptions("秒", "1", "2", "3", "4", "5", "6", "10", "12", "15", "20", "30")
+	minuteStepOptions = stepOptions("分", "1", "2", "3", "4", "5", "6", "10", "12", "15", "20", "30")
+	hourStepOptions   = stepOptions("时", "1", "2", "3", "4", "6", "8", "12")
+	dayStepOptions    = stepOptions("日", "1")
+	monthStepOptions  = stepOptions("月", "1", "2", "3", "4", "6", "12")
+	yearStepOptions   = stepOptions("年", "1")
+)
+
+// snapshotStepField 生成一个档位步长字段（enum + 静态选项）。
+func snapshotStepField(key, label string, options []Option) FieldMeta {
+	return FieldMeta{
+		Key: key, Label: label, Type: "enum", Visible: true, Sortable: false, Filterable: true,
+		FilterType: "multiSelect", Operators: []string{"in"}, OptionsSource: "static",
+		Options: options, WidthStrategy: "fixed",
+	}
+}
+
+// snapshotEnabledField 生成一个档位启用字段（boolean）。
+func snapshotEnabledField(key, label string) FieldMeta {
+	return FieldMeta{
+		Key: key, Label: label, Type: "boolean", Visible: true, Sortable: false, Filterable: true,
+		FilterType: "boolean", Operators: []string{"eq"}, OptionsSource: "static",
+		Options: boolOptions, WidthStrategy: "fixed",
+	}
 }
 
 // runtimeCommonFields 返回最新值表的 8 个公共列。
@@ -233,6 +278,43 @@ var fieldSets = map[string]fieldSet{
 	//
 	// 只读源只剩「最新值」：公共 8 列由 runtimeCommonFields 提供。
 	"latest-values": {fields: runtimeCommonFields()},
+	// 快照计划：档位是列不是行。enabled_steps 是列表派生列（SQL 计算，不可排序/筛选）。
+	"snapshot-plans": {
+		fields: []FieldMeta{
+			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
+			{Key: "device_type_id", Label: "终端类型", Type: "relation", Visible: true, Sortable: true, Filterable: true, Required: true,
+				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
+			{Key: "item_code", Label: "数据项编码", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
+				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
+			{Key: "enabled_steps", Label: "已启用档位", Type: "text", Visible: true, Sortable: false, Filterable: false,
+				FilterType: "none", WidthStrategy: "flex", Derived: true},
+			snapshotEnabledField("second_enabled", "秒档"),
+			snapshotStepField("second_step", "秒步长", secondStepOptions),
+			snapshotEnabledField("minute_enabled", "分档"),
+			snapshotStepField("minute_step", "分步长", minuteStepOptions),
+			snapshotEnabledField("hour_enabled", "时档"),
+			snapshotStepField("hour_step", "时步长", hourStepOptions),
+			snapshotEnabledField("day_enabled", "日档"),
+			snapshotStepField("day_step", "日步长", dayStepOptions),
+			snapshotEnabledField("month_enabled", "月档"),
+			snapshotStepField("month_step", "月步长", monthStepOptions),
+			snapshotEnabledField("year_enabled", "年档"),
+			snapshotStepField("year_step", "年步长", yearStepOptions),
+			{Key: "updated_at", Label: "更新时间", Type: "datetime", Visible: false, Sortable: true, Filterable: false,
+				FilterType: "none", WidthStrategy: "min"},
+		},
+		relations: map[string]string{"device_type_id": "device-types"},
+	},
+	// 表级保留期：三行固定，只能改 retention_days；空值 = 永久保留。
+	"snapshot-settings": {
+		fields: []FieldMeta{
+			{Key: "table_name", Label: "存储", Type: "id", Visible: true, Sortable: true, Required: true, FilterType: "none", WidthStrategy: "min"},
+			{Key: "retention_days", Label: "保留天数（空 = 永久）", Type: "number", Visible: true, Sortable: true,
+				Filterable: false, FilterType: "none", WidthStrategy: "fixed"},
+			{Key: "updated_at", Label: "更新时间", Type: "datetime", Visible: false, Sortable: true, Filterable: false,
+				FilterType: "none", WidthStrategy: "min"},
+		},
+	},
 }
 
 // FieldMetas 返回实体的字段元数据；未知实体返回 false。

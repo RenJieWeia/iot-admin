@@ -24,6 +24,8 @@ var entityLabels = map[string]string{
 	"thing-model-properties": "终端属性",
 	"terminals":              "终端",
 	"quality-rules":          "质量规则",
+	"snapshot-plans":         "快照计划",
+	"snapshot-settings":      "存储与保留",
 	"exception-events":       "异常事件",
 	"latest-values":          "最新值",
 }
@@ -64,6 +66,8 @@ type MetaField struct {
 	FilterType     string            `json:"filterType"`
 	Operators      []string          `json:"operators"`
 	OperatorLabels map[string]string `json:"operatorLabels"`
+	// Derived 表示该列由服务端列表 SQL 计算（不在物理表里），前端只展示、不可排序/筛选。
+	Derived bool `json:"derived,omitempty"`
 	OptionsSource  string            `json:"optionsSource"`
 	Options        []MetaOption      `json:"options"`
 	AdvancedOnly   bool              `json:"advancedOnly"`
@@ -213,11 +217,18 @@ func labelKeyOf(entity string) string {
 	return "id"
 }
 
-// enumDictionaries 下发静态枚举字典（value_type / rule_type），文案仍以 fields.go 为准。
+// enumDictionaries 下发静态枚举字典（value_type / rule_type / 六档步长），文案仍以 fields.go 为准。
+// 步长字典的 key 与字段名一致（second_step…year_step），前端下拉直接按字段名取。
 func enumDictionaries() map[string]map[string]string {
 	return map[string]map[string]string{
-		"value_type": optionLabels(valueTypeOptions),
-		"rule_type":  optionLabels(ruleTypeOptions),
+		"value_type":  optionLabels(valueTypeOptions),
+		"rule_type":   optionLabels(ruleTypeOptions),
+		"second_step": optionLabels(secondStepOptions),
+		"minute_step": optionLabels(minuteStepOptions),
+		"hour_step":   optionLabels(hourStepOptions),
+		"day_step":    optionLabels(dayStepOptions),
+		"month_step":  optionLabels(monthStepOptions),
+		"year_step":   optionLabels(yearStepOptions),
 	}
 }
 
@@ -254,6 +265,7 @@ func metaFields(entity string) []MetaField {
 			WidthStrategy:  f.WidthStrategy,
 			Editable:       f.Editable,
 			Required:       f.Required,
+			Derived:        f.Derived,
 		}
 		for _, op := range f.Operators {
 			mf.Operators = append(mf.Operators, op)

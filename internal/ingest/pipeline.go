@@ -16,6 +16,7 @@ import (
 	"github.com/RenJieWeia/iot-admin/internal/latest"
 	"github.com/RenJieWeia/iot-admin/internal/meta"
 	"github.com/RenJieWeia/iot-admin/internal/publish"
+	"github.com/RenJieWeia/iot-admin/internal/snapshot"
 	"github.com/RenJieWeia/iot-admin/internal/staging"
 	"github.com/RenJieWeia/iot-admin/internal/store"
 	"github.com/RenJieWeia/iot-admin/internal/validate"
@@ -31,8 +32,10 @@ type Processor struct {
 	Pub   publish.Publisher
 	Exc   *exception.Recorder
 	Locks *store.ShardedLock
-	Now   func() time.Time
-	Log   *slog.Logger
+	// Snap 是六档快照的计划缓存；未装配时跳过快照（仅精简夹具会这样）。
+	Snap *snapshot.Store
+	Now  func() time.Time
+	Log  *slog.Logger
 }
 
 // 项级失败原因闭集（唯一来源在 validate，这里只做别名，方便 ingest 的调用方与用例引用）。
@@ -298,6 +301,16 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 		}
 	}
 
+	// 2.7 六档快照：latest_value 已提交（T1）后再开 T2，快照失败不回滚最新值。
+	// 每档独立判迟到，未在计划白名单里的序列零写入；快照跳过不影响发布口径。
+	if len(cleaned) > 0 {
+		if serr := p.writeSnapshots(ctx, term, cleaned, qualityBits, qualityNotes, now); serr != nil {
+			p.Log.Error("写快照失败", "terminal", term.ID, "err", serr)
+			p.Exc.Event(ctx, exception.SnapshotWriteFailed, term.ID, ingress, staging.HourStart(now), 1, serr.Error())
+			return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}
+		}
+	}
+
 	// 判定规则：Accepted = !(失败项>0 且 成功项==0)。okCount 统计"没被判为项级失败的数据项"，
 	// 含物模型未声明的编码（那类继续忽略并计 clean_failed，不算失败）。
 	// 全部项失败时给机器可读的 reason=all_items_failed；该路径不经过 rejectTerminal，
@@ -335,6 +348,47 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 			fmt.Sprintf("物模型未声明的数据项被忽略: %v", unknownCodes))
 	}
 	return res
+}
+
+// writeSnapshots 按计划缓存把清洗结果展开成六档快照行，并在独立事务（T2）里写入。
+//
+// 关键口径：
+//   - 计划未配置 → 该序列零写入；
+//   - 每档独立判迟到（段结束 + 15 分钟），跳过的档不出行、其余档照写；
+//   - 覆盖只认更新的 value_time（SQL 里的 WHERE 守卫，同值重发不增加 revision）。
+func (p *Processor) writeSnapshots(ctx context.Context, term validate.Terminal, outs []clean.Out,
+	qualityBits map[string]int16, qualityNotes map[string][]string, now time.Time) error {
+	if p.Snap == nil {
+		return nil
+	}
+	var rows []snapshot.Row
+	for _, o := range outs {
+		plan, ok, err := p.Snap.Lookup(ctx, term.TypeID, o.Code)
+		if err != nil {
+			return err
+		}
+		if !ok || !plan.Configured() {
+			continue
+		}
+		rows = append(rows, plan.Rows(now, snapshot.Value{
+			TerminalID: term.ID, ItemCode: o.Code,
+			Num: o.Number, Text: o.Text, Unit: o.Unit, Time: o.Time,
+			Quality:       qualityBits[o.Code],
+			QualityReason: strings.Join(qualityNotes[o.Code], "; "),
+		})...)
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	tx, err := p.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback(ctx) }()
+	if err := snapshot.Write(ctx, tx, rows); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 // write 在同一事务里把本终端的全部清洗结果写入 latest_value。

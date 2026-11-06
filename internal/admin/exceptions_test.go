@@ -46,8 +46,8 @@ func TestExceptionPagesShape(t *testing.T) {
 	}
 
 	// 实体集合收敛为 5 个（去掉结算窗口），异常表不得进 Entities。
-	if len(Entities) != 5 {
-		t.Fatalf("admin.Entities = %d，期望 5", len(Entities))
+	if len(Entities) != 7 {
+		t.Fatalf("admin.Entities = %d，期望 7", len(Entities))
 	}
 	for _, e := range Entities {
 		if strings.HasPrefix(e.Name, "exception-") {

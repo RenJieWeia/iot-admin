@@ -239,7 +239,12 @@ func BuildListQuery(e Entity, qs QueryState) (string, []any, error) {
 		return "", nil, err
 	}
 	var sb strings.Builder
-	sb.WriteString("select * from ")
+	sb.WriteString("select *")
+	for _, extra := range e.ExtraSelect {
+		sb.WriteString(", ")
+		sb.WriteString(extra)
+	}
+	sb.WriteString(" from ")
 	sb.WriteString(e.Table)
 	if where != "" {
 		sb.WriteString(" where ")

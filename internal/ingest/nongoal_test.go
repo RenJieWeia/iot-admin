@@ -22,6 +22,9 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		"data_domain": true, "device_type": true, "thing_model_property": true, "terminal": true,
 		"quality_rule": true, "settle_config": true,
 		"latest_value": true, "hourly_staging": true, "hourly_snapshot": true,
+		// B4 六档快照（迁移 0010）：三张快照表 + 白名单 + 表级保留期。
+		"snapshot_coarse": true, "snapshot_minute": true, "snapshot_second": true,
+		"snapshot_plan": true, "snapshot_settings": true,
 		"exception_interval": true, "exception_count": true, "schema_migrations": true,
 		// R-034（task-013）曾新增，收敛后由 0008 删除：补录留痕的版本记录表
 		"snapshot_cell_history": true,
@@ -57,6 +60,11 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		}
 		for _, m := range createTable.FindAllStringSubmatch(string(body), -1) {
 			table := m[1]
+			// 0010 用 DO 块动态建分区：模板里是 'snapshot_coarse_%s'，正则只抓到前缀
+			// （形如 snapshot_coarse_），它不是真实表名，跳过。真实表由上面的白名单覆盖。
+			if strings.HasSuffix(table, "_") {
+				continue
+			}
 			if !allowedTables[table] {
 				t.Fatalf("%s 建了非目标表 %q", name, table)
 			}
@@ -81,7 +89,7 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 	// 管理 API 只暴露 5 个数据源实体（结算窗口随 0009 下线）；nil pool 即可验证 404 路径不碰数据库。
 	wantEntities := []string{
 		"data-domains", "device-types", "thing-model-properties",
-		"terminals", "quality-rules",
+		"terminals", "quality-rules", "snapshot-plans", "snapshot-settings",
 	}
 	if len(admin.Entities) != len(wantEntities) {
 		t.Fatalf("管理 API 实体数 = %d，期望 %d", len(admin.Entities), len(wantEntities))
@@ -96,10 +104,10 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		}
 	}
 
-	// 双口径：可 CRUD = 5（上面已断言）；可导航 = 4，且导航集合不含 thing-model-properties。
+	// 双口径：可 CRUD = 7（上面已断言）；可导航 = 5（属性与保留期都是子资源，不进导航）。
 	meta := admin.BuildMeta()
-	if len(meta.Entities) != 4 {
-		t.Fatalf("可导航实体 = %d，期望 4（可 CRUD 仍是 %d）", len(meta.Entities), len(admin.Entities))
+	if len(meta.Entities) != 5 {
+		t.Fatalf("可导航实体 = %d，期望 5（可 CRUD 仍是 %d）", len(meta.Entities), len(admin.Entities))
 	}
 	for _, ent := range meta.Entities {
 		if ent.Name == "thing-model-properties" {
@@ -107,11 +115,15 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		}
 	}
 	// 不可导航不等于不可见：字段元数据必须仍从 subresources 下发，否则属性详情页拿不到列定义/必填。
-	if len(meta.Subresources) != 1 || meta.Subresources[0].Name != "thing-model-properties" {
-		t.Fatalf("subresources = %+v，期望只含 thing-model-properties", meta.Subresources)
+	subs := map[string]bool{}
+	for _, sub := range meta.Subresources {
+		subs[sub.Name] = true
+		if len(sub.Fields) == 0 {
+			t.Fatalf("subresources 里的 %s 没有字段元数据", sub.Name)
+		}
 	}
-	if len(meta.Subresources[0].Fields) == 0 {
-		t.Fatal("subresources 里的 thing-model-properties 没有字段元数据")
+	if len(meta.Subresources) != 2 || !subs["thing-model-properties"] || !subs["snapshot-settings"] {
+		t.Fatalf("subresources = %v，期望 thing-model-properties + snapshot-settings", subs)
 	}
 	handler := admin.New(nil).Handler()
 	for _, bad := range []string{"consumers", "permissions", "commands", "reports",
@@ -128,9 +140,9 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		}
 	}
 
-	// 异常枚举：再次收敛后只剩 7 种（状态型区间、上报超时/快照失败/迟到数据已下线），无重复。
-	if len(exception.EventTypes) != 7 {
-		t.Fatalf("事件型异常类型数 = %d，期望 7", len(exception.EventTypes))
+	// 异常枚举：8 种（B4 新增 snapshot_write_failed），无重复。
+	if len(exception.EventTypes) != 8 {
+		t.Fatalf("事件型异常类型数 = %d，期望 8", len(exception.EventTypes))
 	}
 	seen := map[exception.ErrorType]bool{}
 	for _, kind := range exception.EventTypes {

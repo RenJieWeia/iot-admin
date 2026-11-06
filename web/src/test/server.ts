@@ -2,6 +2,8 @@ import { http, HttpResponse } from 'msw';
 import { setupServer } from 'msw/node';
 import {
   allDeviceTypes,
+  allSnapshotPlans,
+  allSnapshotSettings,
   allProperties,
   allTerminals,
   deviceTypeOptions,
@@ -25,10 +27,14 @@ export const optionQueries: string[] = [];
 /** 终端属性列表收到的查询串（用于断言详情页固定注入 type_id）。 */
 export const propertyQueries: string[] = [];
 
+/** 快照计划列表收到的查询串。 */
+export const snapshotPlanQueries: string[] = [];
+
 export function resetWriteCalls() {
   writeCalls.length = 0;
   optionQueries.length = 0;
   propertyQueries.length = 0;
+  snapshotPlanQueries.length = 0;
 }
 
 const ok = <T>(data: T, extra: Record<string, unknown> = {}) =>
@@ -193,6 +199,29 @@ export const server = setupServer(
     if (!row) return HttpResponse.json({ code: 404, message: 'not_found' }, { status: 404 });
     return ok(row);
   }),
+
+  // 快照计划 / 表级保留期（B4）：保留期只允许 PUT，禁增删。
+  http.get('/admin/v1/snapshot-plans', ({ request }) => {
+    const url = new URL(request.url);
+    snapshotPlanQueries.push(url.search);
+    const { slice, page, pageSize } = paginate(allSnapshotPlans as RowData[], url);
+    return HttpResponse.json({
+      code: 0,
+      message: 'ok',
+      data: slice,
+      ...envelopeMeta(allSnapshotPlans.length, page, pageSize, 'id', 'desc'),
+    });
+  }),
+
+  http.get('/admin/v1/snapshot-plans/:id', ({ params }) => {
+    const row = allSnapshotPlans.find((item) => String(item.id) === params.id);
+    if (!row) return HttpResponse.json({ code: 404, message: 'not_found' }, { status: 404 });
+    return ok(row);
+  }),
+
+  http.get('/admin/v1/snapshot-settings', () =>
+    ok(allSnapshotSettings, { meta: { total: allSnapshotSettings.length, page: 1, pageSize: 50, sort: 'updated_at', order: 'desc' } }),
+  ),
 
   http.get('/admin/v1/:entity', ({ params, request }) => {
     const url = new URL(request.url);

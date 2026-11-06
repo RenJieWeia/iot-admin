@@ -287,6 +287,26 @@ export const metaFixture: MetaPayload = {
       ],
     },
     {
+      name: 'snapshot-plans',
+      title: '快照计划',
+      route: '/admin/v1/snapshot-plans',
+      readOnly: false,
+      defaultSort: 'id',
+      defaultOrder: 'desc',
+      fields: [
+        field({ key: 'id', label: 'ID', type: 'id', filterable: false, filterType: 'none', operators: [], widthStrategy: 'fixed' }),
+        field({
+          key: 'device_type_id', label: '终端类型', type: 'relation', filterType: 'relation',
+          operators: ['in'], optionsSource: 'remote', editable: true, required: true, widthStrategy: 'min',
+          ref: { entity: 'device-types', valueKey: 'id', labelKey: 'name' },
+        }),
+        field({ key: 'item_code', label: '数据项编码', type: 'text', filterType: 'text', operators: ['contains', 'eq'], editable: true, required: true, widthStrategy: 'min' }),
+        field({ key: 'enabled_steps', label: '已启用档位', type: 'text', sortable: false, filterable: false, filterType: 'none', operators: [], widthStrategy: 'flex' }),
+        ...sixGranularityFields(),
+        field({ key: 'updated_at', label: '更新时间', type: 'datetime', visible: false, filterable: false, filterType: 'none', operators: [], widthStrategy: 'min' }),
+      ],
+    },
+    {
       name: 'device-types',
       title: '终端类型',
       route: '/admin/v1/device-types',
@@ -323,6 +343,19 @@ export const metaFixture: MetaPayload = {
    * 「终端类型详情页」后，字段元数据由这里下发。
    */
   subresources: [
+    {
+      name: 'snapshot-settings',
+      title: '存储与保留',
+      route: '/admin/v1/snapshot-settings',
+      readOnly: false,
+      defaultSort: 'updated_at',
+      defaultOrder: 'desc',
+      fields: [
+        field({ key: 'table_name', label: '存储', type: 'id', filterable: false, filterType: 'none', operators: [], required: true, widthStrategy: 'min' }),
+        field({ key: 'retention_days', label: '保留天数（空 = 永久）', type: 'number', sortable: true, filterable: false, filterType: 'none', operators: [], editable: true, widthStrategy: 'fixed' }),
+        field({ key: 'updated_at', label: '更新时间', type: 'datetime', visible: false, filterable: false, filterType: 'none', operators: [], widthStrategy: 'min' }),
+      ],
+    },
     {
       name: 'thing-model-properties',
       title: '终端属性',
@@ -496,4 +529,43 @@ export const allProperties = [
   { id: 'p-4', type_id: '1', item_code: 'online', name: '在线', value_type: 'bool', unit: '' },
   { id: 'p-5', type_id: '2', item_code: 'temp', name: '温度', value_type: 'number', unit: 'C' },
   { id: 'p-6', type_id: '2', item_code: 'flow', name: '流量', value_type: 'number', unit: 'm3/h' },
+];
+
+/** 六档快照的 enabled/step 字段（与 internal/admin/fields.go 的步长白名单同源）。 */
+export function sixGranularityFields(): FieldMeta[] {
+  const steps: Record<string, string[]> = {
+    second: ['1', '2', '3', '4', '5', '6', '10', '12', '15', '20', '30'],
+    minute: ['1', '2', '3', '4', '5', '6', '10', '12', '15', '20', '30'],
+    hour: ['1', '2', '3', '4', '6', '8', '12'],
+    day: ['1'],
+    month: ['1', '2', '3', '4', '6', '12'],
+    year: ['1'],
+  };
+  const labels: Record<string, string> = { second: '秒', minute: '分', hour: '时', day: '日', month: '月', year: '年' };
+  const out: FieldMeta[] = [];
+  for (const key of ['second', 'minute', 'hour', 'day', 'month', 'year']) {
+    out.push(
+      field({
+        key: `${key}_enabled`, label: `${labels[key]}档`, type: 'boolean', filterType: 'boolean',
+        operators: ['eq'], optionsSource: 'static', editable: true, widthStrategy: 'fixed',
+      }),
+      field({
+        key: `${key}_step`, label: `${labels[key]}步长`, type: 'enum', sortable: false, filterType: 'multiSelect',
+        operators: ['in'], optionsSource: 'static', editable: true, widthStrategy: 'fixed',
+        options: (steps[key] ?? []).map((value) => ({ value, label: `${value} ${labels[key]}`, tone: 'neutral' as const })),
+      }),
+    );
+  }
+  return out;
+}
+
+export const allSnapshotPlans = [
+  { id: 1, device_type_id: '1', item_code: 'temp', enabled_steps: '秒30, 分5, 时1', second_enabled: 'true', second_step: '30', minute_enabled: 'true', minute_step: '5', hour_enabled: 'true', hour_step: '1', day_enabled: 'false', day_step: null, month_enabled: 'false', month_step: null, year_enabled: 'false', year_step: null },
+  { id: 2, device_type_id: '1', item_code: 'power', enabled_steps: '分1', second_enabled: 'false', second_step: null, minute_enabled: 'true', minute_step: '1', hour_enabled: 'false', hour_step: null, day_enabled: 'false', day_step: null, month_enabled: 'false', month_step: null, year_enabled: 'false', year_step: null },
+];
+
+export const allSnapshotSettings = [
+  { table_name: 'snapshot_coarse', retention_days: null, updated_at: '2026-11-06T10:00:00+08:00' },
+  { table_name: 'snapshot_minute', retention_days: 30, updated_at: '2026-11-06T10:00:00+08:00' },
+  { table_name: 'snapshot_second', retention_days: 7, updated_at: '2026-11-06T10:00:00+08:00' },
 ];

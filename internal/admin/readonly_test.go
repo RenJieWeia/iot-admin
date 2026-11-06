@@ -52,8 +52,8 @@ func TestReadonlyPagesShape(t *testing.T) {
 		t.Fatal("未知 slot 不应解析成功")
 	}
 	// 只读源不得混进管理实体（可 CRUD 5 / 可导航 4，见 nongoal_test）。
-	if len(Entities) != 5 {
-		t.Fatalf("admin.Entities = %d，期望 5", len(Entities))
+	if len(Entities) != 7 {
+		t.Fatalf("admin.Entities = %d，期望 7", len(Entities))
 	}
 	for _, e := range Entities {
 		if e.Name == "latest-values" {

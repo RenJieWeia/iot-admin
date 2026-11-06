@@ -13,6 +13,7 @@ import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
 import { FilterBar } from '../components/FilterBar';
 import { Pagination } from '../components/Pagination';
+import { SnapshotRetentionSection } from '../components/SnapshotRetentionSection';
 import { RecordDrawer, objectLabel } from '../components/RecordDrawer';
 import { Toast, type ToastMessage } from '../components/Toast';
 import { defaultSort, isWritable, relationTarget } from '../lib/fieldMeta';
@@ -315,6 +316,9 @@ export function EntityListPage() {
         )
       }
     >
+      {/* 快照计划页顶部：表级保留期区块（不进档位列表，避免被误读为每档可调）。 */}
+      {entity.name === 'snapshot-plans' && <SnapshotRetentionSection />}
+
       <FilterBar
         entity={entity}
         query={query}

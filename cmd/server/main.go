@@ -13,12 +13,14 @@ import (
 	"time"
 
 	mqtt "github.com/eclipse/paho.mqtt.golang"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/RenJieWeia/iot-admin/internal/admin"
 	"github.com/RenJieWeia/iot-admin/internal/exception"
 	"github.com/RenJieWeia/iot-admin/internal/ingest"
 	"github.com/RenJieWeia/iot-admin/internal/meta"
 	"github.com/RenJieWeia/iot-admin/internal/publish"
+	"github.com/RenJieWeia/iot-admin/internal/snapshot"
 	"github.com/RenJieWeia/iot-admin/internal/store"
 	"github.com/RenJieWeia/iot-admin/internal/ui"
 	"github.com/RenJieWeia/iot-admin/migrations"
@@ -58,12 +60,14 @@ func run(log *slog.Logger) error {
 	}
 	defer client.Disconnect(250)
 
+	snapStore := snapshot.NewStore(snapshot.NewPGLoader(pool), snapshot.DefaultTTL, now)
 	proc := &ingest.Processor{
 		DB:    pool,
 		Meta:  meta.NewStore(meta.NewPGLoader(pool), meta.DefaultTTL, now),
 		Pub:   publish.NewMQTT(client),
 		Exc:   rec,
 		Locks: store.NewShardedLock(64),
+		Snap:  snapStore,
 		Now:   now,
 		Log:   log,
 	}
@@ -72,8 +76,14 @@ func run(log *slog.Logger) error {
 	}
 
 	adminAPI := admin.New(pool)
-	// 元数据写入成功后失效进程内缓存，下一条消息立即使用新定义。
-	adminAPI.Invalidate = proc.Meta.Flush
+	// 管理面写入成功后失效进程内缓存：元数据与快照计划都清，下一条消息立即使用新定义。
+	adminAPI.Invalidate = func() {
+		proc.Meta.Flush()
+		snapStore.Invalidate()
+	}
+
+	// 快照分区维护：开机先跑一次，之后每日一次；失败只告警，不阻塞上报。
+	go maintainSnapshots(ctx, pool, now, log)
 
 	// 管理后台 UI：React SPA 产物走 embed，单二进制交付（R-015/R-016），不再渲染 HTML。
 	mux := newMux(proc, admin.WithAuth(nil, adminAPI.Handler()), ui.Handler())
@@ -95,6 +105,30 @@ func run(log *slog.Logger) error {
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	return srv.Shutdown(shutdownCtx)
+}
+
+// maintainSnapshots 续建快照分区并按保留期清理过期分区。
+// 开机立刻跑一次，之后每 24 小时一次；任何失败只记告警（缺分区导致的写失败属平台故障，网关可重传）。
+func maintainSnapshots(ctx context.Context, pool *pgxpool.Pool, now func() time.Time, log *slog.Logger) {
+	run := func() {
+		if err := snapshot.EnsurePartitions(ctx, pool, now()); err != nil {
+			log.Warn("快照分区续建失败", "err", err)
+		}
+		if err := snapshot.PurgeExpired(ctx, pool, now()); err != nil {
+			log.Warn("快照保留期清理失败", "err", err)
+		}
+	}
+	run()
+	ticker := time.NewTicker(24 * time.Hour)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
+		}
+	}
 }
 
 // withSecurityHeaders 给所有响应加安全头：管理面同源部署，CSP 不允许任何外源脚本/样式/连接。

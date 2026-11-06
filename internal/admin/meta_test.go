@@ -64,8 +64,8 @@ func TestMetaSections(t *testing.T) {
 			navigable = append(navigable, e)
 		}
 	}
-	if len(entities) != len(navigable) || len(entities) != 4 {
-		t.Fatalf("entities = %d 段，期望 4（可导航实体；可 CRUD 仍是 %d）", len(entities), len(Entities))
+	if len(entities) != len(navigable) || len(entities) != 5 {
+		t.Fatalf("entities = %d 段，期望 5（可导航实体；可 CRUD 仍是 %d）", len(entities), len(Entities))
 	}
 	for i, e := range entities {
 		if e.Name != navigable[i].Name {
@@ -93,11 +93,16 @@ func TestMetaSections(t *testing.T) {
 	if err := json.Unmarshal(data["subresources"], &subresources); err != nil {
 		t.Fatalf("subresources 解析失败: %v", err)
 	}
-	if len(subresources) != 1 || subresources[0].Name != "thing-model-properties" {
-		t.Fatalf("subresources = %+v，期望只有 thing-model-properties", subresources)
+	subBy := make(map[string]MetaEntity, len(subresources))
+	for _, sub := range subresources {
+		subBy[sub.Name] = sub
 	}
-	if subresources[0].Title != "终端属性" {
-		t.Fatalf("subresources 标题 = %q，期望 终端属性", subresources[0].Title)
+	// 两个子资源：属性（详情页用）+ 保留期（快照计划页顶部用），都不进导航。
+	if len(subresources) != 2 || subBy["thing-model-properties"].Name == "" || subBy["snapshot-settings"].Name == "" {
+		t.Fatalf("subresources = %v，期望 thing-model-properties + snapshot-settings", subBy)
+	}
+	if subBy["thing-model-properties"].Title != "终端属性" {
+		t.Fatalf("subresources 标题 = %q，期望 终端属性", subBy["thing-model-properties"].Title)
 	}
 	if len(subresources[0].Fields) == 0 {
 		t.Fatal("subresources 里的 thing-model-properties 没有字段元数据")
@@ -173,7 +178,8 @@ func TestMetaFieldShape(t *testing.T) {
 		// relation 允许缺省（omitempty），其余键必须齐全。
 		filtered := got[:0]
 		for _, k := range got {
-			if k != "relation" && k != "ref" {
+			// relation/ref 是 omitempty，derived 是 omitempty（只有派生列带 true）。
+			if k != "relation" && k != "ref" && k != "derived" {
 				filtered = append(filtered, k)
 			}
 		}
@@ -241,8 +247,8 @@ func TestMetaFieldShape(t *testing.T) {
 			sections = append(sections, item)
 		}
 	}
-	if len(sections) != 7 {
-		t.Fatalf("元数据段数 = %d，期望 4 导航实体 + 1 子资源 + 1 异常页 + 1 只读源", len(sections))
+	if len(sections) != 9 {
+		t.Fatalf("元数据段数 = %d，期望 5 导航实体 + 2 子资源 + 1 异常页 + 1 只读源", len(sections))
 	}
 }
 
@@ -352,7 +358,12 @@ func TestMetaDictionaries(t *testing.T) {
 	if err := json.Unmarshal(data["enums"], &enums); err != nil {
 		t.Fatalf("enums 解析失败: %v", err)
 	}
-	wantEnums := map[string][]Option{"value_type": valueTypeOptions, "rule_type": ruleTypeOptions}
+	wantEnums := map[string][]Option{
+		"value_type": valueTypeOptions, "rule_type": ruleTypeOptions,
+		"second_step": secondStepOptions, "minute_step": minuteStepOptions,
+		"hour_step": hourStepOptions, "day_step": dayStepOptions,
+		"month_step": monthStepOptions, "year_step": yearStepOptions,
+	}
 	if len(enums) != len(wantEnums) {
 		t.Fatalf("enums 字典 = %v，期望只有 %d 张", enums, len(wantEnums))
 	}
@@ -458,8 +469,13 @@ func TestEditableRequiredAnchors(t *testing.T) {
 // required 与 DDL 直接对照：解析 migrations/0001 的 not null / primary key / default，
 // 逐列比对，避免手工抄写与迁移漂移。
 func TestRequiredMatchesDDL(t *testing.T) {
-	ddl := string(mustReadMigrations(t, "0001_datasource.sql"))
-	table := ddlColumns(t, ddl)
+	// 基础实体在 0001；六档快照的表在 0010（snapshot_plan / snapshot_settings）。
+	table := map[string]map[string]ddlColumn{}
+	for _, name := range []string{"0001_datasource.sql", "0010_snapshot_six_granularities.sql"} {
+		for tbl, cols := range ddlColumns(t, string(mustReadMigrations(t, name))) {
+			table[tbl] = cols
+		}
+	}
 
 	payload := BuildMeta()
 	// 按实体名对齐：导航实体在 entities、不可导航的在 subresources，两段合起来覆盖全部实体。
@@ -481,6 +497,10 @@ func TestRequiredMatchesDDL(t *testing.T) {
 			t.Fatalf("DDL 里找不到表 %q", e.Table)
 		}
 		for _, f := range meta.Fields {
+			if f.Derived {
+				// 派生列不在物理表里（列表 SQL 计算），没有 DDL 可对齐。
+				continue
+			}
 			info, ok := cols[f.Key]
 			if !ok {
 				t.Fatalf("DDL 里找不到列 %s.%s", e.Table, f.Key)
@@ -541,7 +561,9 @@ type ddlColumn struct {
 func ddlColumns(t *testing.T, ddl string) map[string]map[string]ddlColumn {
 	t.Helper()
 	out := map[string]map[string]ddlColumn{}
-	tableRe := regexp.MustCompile(`(?ms)create table if not exists (\w+) \((.*?)\n\);`)
+	// 块尾可能是 `);` 也可能是 `) partition by range (...);`（0010 的六档快照表）：
+	// 用 `\n\)[^;]*;` 收尾，既不吃掉下一张表，也能覆盖分区表。
+	tableRe := regexp.MustCompile(`(?ms)create table if not exists (\w+) \((.*?)\n\)[^;]*;`)
 	columnRe := regexp.MustCompile(`(?m)^\s{4}([a-z_]+)\s+(.+?),?$`)
 	skip := map[string]bool{"unique": true, "constraint": true, "primary": true, "check": true, "foreign": true, "exclude": true}
 

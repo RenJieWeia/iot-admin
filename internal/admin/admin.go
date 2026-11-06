@@ -29,6 +29,53 @@ type Entity struct {
 	// 供详情页取列定义/筛选能力/必填（§1.1）。
 	// 零值 false = 可导航，保证现有实体的对外行为不变（若反过来用 Navigable 字段，零值会把现有实体全变成不可导航）。
 	Hidden bool
+	// PKey 是主键列名；空表示 id。表级配置这类非 id 主键（snapshot_settings.table_name）用它，
+	// get/update/delete 的 where 条件统一按它拼（列名只来自代码，不进 SQL 参数）。
+	PKey string
+	// FixedRows 表示行集固定：允许列表/查看/更新，但禁止新增与删除（handler 直接 400 fixed_rows）。
+	// 用于 snapshot_settings 这类「三行表级配置」——行由迁移预置，用户只能改值不能改行数。
+	FixedRows bool
+	// ExtraSelect 是列表查询追加的派生列表达式（如 concat_ws(...) as enabled_steps）。
+	// 只进 SELECT，不参与排序/筛选/写入：FieldMeta 里把这类字段的 Sortable/Filterable 显式置 false。
+	ExtraSelect []string
+}
+
+// pk 返回 get/update/delete 使用的主键列名。
+func (e Entity) pk() string {
+	if e.PKey != "" {
+		return e.PKey
+	}
+	return "id"
+}
+
+
+// rejectFixedRows 对「行集固定」的实体拒绝新增/删除：400，而不是静默 404/500。
+func rejectFixedRows(w http.ResponseWriter, e Entity) bool {
+	if !e.FixedRows {
+		return false
+	}
+	writeError(w, http.StatusBadRequest,
+		"fixed_rows: "+e.Name+" 的行集由系统预置，不允许新增或删除（只能修改允许的列）")
+	return true
+}
+
+// validatePlanBody 只对快照计划生效：档位是列不是行，提交体里出现六档之外的键就是
+// 「想新增档位/写派生列」，直接 400；步长越界与「启用却没步长」由 0010 的 CHECK 兜底
+// （writeDBError 把 23xxx 映射成 400）。
+func validatePlanBody(e Entity, body map[string]any) error {
+	if e.Name != "snapshot-plans" {
+		return nil
+	}
+	allowed := make(map[string]struct{}, len(e.Cols))
+	for _, c := range e.Cols {
+		allowed[c] = struct{}{}
+	}
+	for key := range body {
+		if _, ok := allowed[key]; !ok {
+			return invalidQuery("未知字段 %q：快照档位固定为六档（秒/分/时/日/月/年），不能新增档位", key)
+		}
+	}
+	return nil
 }
 
 // Entities 是本 API 对外暴露的全部实体，与"非目标"清单保持一致（无消费方/权限/命令/报表）。
@@ -40,7 +87,28 @@ var Entities = []Entity{
 	{Name: "terminals", Table: "terminal", Cols: []string{"id", "type_id", "gateway_id", "name", "enabled"}},
 	{Name: "quality-rules", Table: "quality_rule", Cols: []string{
 		"terminal_id", "item_code", "rule_type", "params", "enabled"}, JSONB: []string{"params"}},
+	// 快照计划：一行 = 一个序列（终端类型 + 数据项），六档各一组「启用 + 步长」。
+	// 档位是列不是行，所以 UI 没有「新增档位」入口；步长白名单与 DB CHECK 同源（见 fields.go）。
+	{Name: "snapshot-plans", Table: "snapshot_plan", Cols: []string{
+		"device_type_id", "item_code",
+		"second_enabled", "second_step", "minute_enabled", "minute_step",
+		"hour_enabled", "hour_step", "day_enabled", "day_step",
+		"month_enabled", "month_step", "year_enabled", "year_step"},
+		ExtraSelect: []string{enabledStepsSelect}},
+	// 表级保留期：三行由迁移预置，只允许改 retention_days（禁增删），不进导航。
+	{Name: "snapshot-settings", Hidden: true, FixedRows: true, PKey: "table_name",
+		Table: "snapshot_settings", Cols: []string{"retention_days"}},
 }
+
+// enabledStepsSelect 是快照计划列表的派生列：把六档启用情况拼成「秒30, 分5, 时1」。
+// 纯展示列，不可排序/筛选（见 FieldMeta）。
+const enabledStepsSelect = `concat_ws(', ',
+	case when second_enabled then concat('秒', second_step) end,
+	case when minute_enabled then concat('分', minute_step) end,
+	case when hour_enabled then concat('时', hour_step) end,
+	case when day_enabled then concat('日', day_step) end,
+	case when month_enabled then concat('月', month_step) end,
+	case when year_enabled then concat('年', year_step) end) as enabled_steps`
 
 // API 是管理接口集合。
 type API struct {
@@ -127,7 +195,7 @@ func (a *API) get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown_entity")
 		return
 	}
-	row, err := a.queryOne(r, e, fmt.Sprintf("select * from %s where id::text = $1", e.Table), r.PathValue("id"))
+	row, err := a.queryOne(r, e, fmt.Sprintf("select * from %s where %s::text = $1", e.Table, e.pk()), r.PathValue("id"))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
@@ -145,9 +213,16 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown_entity")
 		return
 	}
+	if rejectFixedRows(w, e) {
+		return
+	}
 	body, err := decodeBody(r)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_json: "+err.Error())
+		return
+	}
+	if err := validatePlanBody(e, body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	cols, vals, err := e.columns(body)
@@ -184,6 +259,10 @@ func (a *API) update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "invalid_json: "+err.Error())
 		return
 	}
+	if err := validatePlanBody(e, body); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	cols, vals, err := e.columns(body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -218,7 +297,10 @@ func (a *API) delete(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown_entity")
 		return
 	}
-	tag, err := a.Pool.Exec(r.Context(), fmt.Sprintf("delete from %s where id::text = $1", e.Table), r.PathValue("id"))
+	if rejectFixedRows(w, e) {
+		return
+	}
+	tag, err := a.Pool.Exec(r.Context(), fmt.Sprintf("delete from %s where %s::text = $1", e.Table, e.pk()), r.PathValue("id"))
 	if err != nil {
 		writeDBError(w, err)
 		return
