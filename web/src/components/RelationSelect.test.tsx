@@ -40,14 +40,19 @@ describe('关系字段远程搜索下拉（F4）', () => {
     expect(document.activeElement).toBe(input);
     expect(within(listbox).getAllByRole('option')).toHaveLength(4);
 
-    await user.type(input, '电');
-    // 防抖窗口内不应发新请求
     const queriesBefore = optionQueries.length;
-    await waitFor(() => expect(within(listbox).getAllByRole('option')).toHaveLength(1), {
-      timeout: 2000,
-    });
-    expect(optionQueries.length).toBe(queriesBefore + 1);
+    await user.type(input, '电');
+
+    // 先等"请求已发出"这个确定性信号，再断言渲染——不要一开始就等 DOM 文本：
+    // 300ms 防抖走的是真实计时器（本仓不全局用 fake timers，会牵连其它用例），
+    // 24 个测试文件并行时机器一忙，等 DOM 的 waitFor 就会撞线（历史抖动三次）。
+    await waitFor(() => expect(optionQueries.length).toBe(queriesBefore + 1), { timeout: 5000 });
     expect(optionQueries.at(-1)).toContain('q=%E7%94%B5');
+
+    // 请求已确认，这里只是等一次渲染提交；同样给足超时，避免并行时的假阴性。
+    await waitFor(() => expect(within(listbox).getAllByRole('option')).toHaveLength(1), {
+      timeout: 5000,
+    });
     expect(within(listbox).getByRole('option', { name: '电表' })).toBeInTheDocument();
   });
 
