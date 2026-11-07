@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Button, Card as RadixCard } from '@radix-ui/themes';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
@@ -13,11 +14,12 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DataTable } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
-import { CardHeader } from '../components/Card';
+import { Card, CardHeader } from '../components/Card';
 import { FilterBar } from '../components/FilterBar';
 import { Pagination } from '../components/Pagination';
 import { RecordDrawer, objectLabel } from '../components/RecordDrawer';
 import { Toast, type ToastMessage } from '../components/Toast';
+import { cn } from '../lib/cn';
 import { defaultSort, isWritable, relationTarget } from '../lib/fieldMeta';
 import {
   clearFilters,
@@ -33,6 +35,47 @@ import {
 } from '../lib/queryState';
 import { rememberScroll, takeScroll } from '../lib/scroll';
 import { getScrollPane } from '../lib/scrollPane';
+
+/**
+ * P2 试点适配层（1107018）：页面级按钮与卡片的取值范围开关。
+ *
+ * `EntityListPage` 是所有实体列表共用的路由（/:entity），所以试点控件必须按实体开，
+ * 不能无条件换 —— 否则 data-domains / quality-rules / device-types / snapshot-slots 的列表
+ * 会跟着换成 Radix 控件（验收就是这么发现的）。开关值见组件内的 radixPilot。
+ */
+const PilotUiContext = createContext(false);
+
+/** 按钮：试点实体用 Radix Button（solid=主 / soft=次 / ghost=文字链），其它实体保持 .btn 系列。 */
+function PilotActionButton({
+  weight,
+  className,
+  ...rest
+}: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'color'> & {
+  weight: 'solid' | 'soft' | 'ghost';
+}) {
+  const pilot = useContext(PilotUiContext);
+  if (pilot) {
+    // ghost 原生只有 32px（padding 6 + 行高 20），补 h-10 拉回 40px。
+    return (
+      <Button
+        {...rest}
+        type="button"
+        variant={weight}
+        size="3"
+        className={cn(weight === 'ghost' && 'h-10', className)}
+      />
+    );
+  }
+  const legacy = weight === 'solid' ? 'btn btn-primary' : weight === 'ghost' ? 'btn btn-link' : 'btn';
+  return <button {...rest} type="button" className={cn(legacy, className)} />;
+}
+
+/** 卡片：试点实体用 Radix <Card size="3">（带 data-card），其它实体继续用本地 <Card>。 */
+function ListCard({ children }: { children: ReactNode }) {
+  const pilot = useContext(PilotUiContext);
+  if (pilot) return <RadixCard size="3" data-card>{children}</RadixCard>;
+  return <Card>{children}</Card>;
+}
 
 function rangeText(meta: ListMeta, rowCount: number): string {
   if (meta.total === 0) return '共 0 条';
@@ -298,6 +341,15 @@ export function EntityListPage() {
 
   // 可写性完全由 _meta 派生（readOnly + 是否存在 editable 字段），不看路由。
   const writable = isWritable(entity);
+
+  /**
+   * P2 试点范围（1107018）：**只有终端列表** /terminals 用 Radix 控件。
+   * 本组件是所有实体列表共用的路由（/:entity → data-domains / device-types / terminals /
+   * quality-rules / snapshot-slots），按实体 key 判定而不是「这个组件就是试点页」——
+   * 无条件传 pilot 会把其它 4 个实体列表一起换掉（验收就是这么发现的）。
+   * 用 _meta 下发的 entity.name（= 路由段 = 接口路径段），不依赖 location 字符串，最稳。
+   */
+  const radixPilot = entity.name === 'terminals';
   const pageSizeOptions = metaQuery.data?.pagination?.options ?? [10, 20, 50];
 
   return (
@@ -306,6 +358,8 @@ export function EntityListPage() {
       // 一级页：只显示分组名，页面名由 h1 承担，避免与标题重复。
       breadcrumb={groupCrumb('entities')}
     >
+      {/* 试点开关作用域：只影响本页自有的按钮/卡片取值，见 radixPilot 注释。 */}
+      <PilotUiContext.Provider value={radixPilot}>
       {/* 摘要行：只消费现成数据（meta.total + 是否有筛选），不新增接口。
           高度固定（h-6 = 24px）：0 条 / 有数据 / 有筛选三种状态都占位，避免布局跳动。 */}
       <p
@@ -322,20 +376,18 @@ export function EntityListPage() {
       </p>
 
       {/* P2 试点：卡片换 Radix <Card size="3">；data-card 必须保留（card-hierarchy 用例依赖）。 */}
-      <RadixCard size="3" data-card>
+      <ListCard>
         <CardHeader
           title="筛选"
           actions={
-            <Button
-              type="button"
-              variant="soft"
-              size="3"
+            <PilotActionButton
+              weight="soft"
               data-action="clear-filters"
               disabled={!activeFilters}
               onClick={() => setQuery(patchQuery(clearFilters(query), { page: 1 }))}
             >
               清除筛选
-            </Button>
+            </PilotActionButton>
           }
         />
         <FilterBar
@@ -345,20 +397,17 @@ export function EntityListPage() {
           onChange={setQuery}
           optionsError={optionsQuery.isError}
           onRetryOptions={() => void optionsQuery.refetch()}
-          pilot
+          pilot={radixPilot}
         />
-      </RadixCard>
+      </ListCard>
 
-      {/* P2 试点：卡片换 Radix <Card size="3">；data-card 必须保留（card-hierarchy 用例依赖）。 */}
-      <RadixCard size="3" data-card>
+      <ListCard>
         <CardHeader
           title="数据"
           actions={
             writable ? (
-              <Button
-                type="button"
-                variant="solid"
-                size="3"
+              <PilotActionButton
+                weight="solid"
                 data-action="new"
                 onClick={(event) => {
                   saveMutation.reset();
@@ -366,7 +415,7 @@ export function EntityListPage() {
                 }}
               >
                 新建
-              </Button>
+              </PilotActionButton>
             ) : undefined
           }
         />
@@ -375,16 +424,14 @@ export function EntityListPage() {
           <span className="text-sm" role="status">
             {pageNotice}
           </span>
-          <Button
-            type="button"
-            variant="ghost"
-            size="3"
-            className="ml-auto h-10"
+          <PilotActionButton
+            weight="ghost"
+            className="ml-auto"
             aria-label="关闭纠偏提示"
             onClick={() => setPageNotice(null)}
           >
             知道了
-          </Button>
+          </PilotActionButton>
         </div>
       )}
 
@@ -395,9 +442,9 @@ export function EntityListPage() {
         >
           <span>刷新失败，显示的是上次数据</span>
           <span className="text-muted">{errorDetail(list.error) ?? '未知错误'}</span>
-          <Button type="button" variant="soft" size="3" onClick={() => void list.refetch()}>
+          <PilotActionButton weight="soft" onClick={() => void list.refetch()}>
             重试
-          </Button>
+          </PilotActionButton>
         </div>
       )}
 
@@ -409,14 +456,14 @@ export function EntityListPage() {
           extra={
             <>
               {activeFilters ? (
-                <Button type="button" variant="soft" size="3" onClick={() => setQuery(clearFilters(query))}>
+                <PilotActionButton weight="soft" onClick={() => setQuery(clearFilters(query))}>
                   清除筛选
-                </Button>
+                </PilotActionButton>
               ) : null}
               {dirtyQuery ? (
-                <Button type="button" variant="soft" size="3" onClick={() => setQuery(resetQuery(query))}>
+                <PilotActionButton weight="soft" onClick={() => setQuery(resetQuery(query))}>
                   重置查询
-                </Button>
+                </PilotActionButton>
               ) : null}
             </>
           }
@@ -427,15 +474,13 @@ export function EntityListPage() {
           text="该实体下暂无记录。可用右上角「新建」录入第一条，或通过管理接口写入后再刷新。"
           action={
             writable ? (
-              <Button
-                type="button"
-                variant="soft"
-                size="3"
+              <PilotActionButton
+                weight="soft"
                 data-action="new"
                 onClick={(event) => openDrawer('new', { trigger: event.currentTarget })}
               >
                 新建{entity.title}
-              </Button>
+              </PilotActionButton>
             ) : undefined
           }
         />
@@ -444,9 +489,9 @@ export function EntityListPage() {
           title="没有匹配的记录"
           text="当前关键词或筛选条件排除了全部结果。可逐个移除条件，或清除全部筛选后重新查询。"
           action={
-            <Button type="button" variant="soft" size="3" onClick={() => setQuery(clearFilters(query))}>
+            <PilotActionButton weight="soft" onClick={() => setQuery(clearFilters(query))}>
               清除筛选
-            </Button>
+            </PilotActionButton>
           }
         />
       ) : listState === 'stale' ? (
@@ -455,9 +500,9 @@ export function EntityListPage() {
           title="当前页暂时没有数据"
           text={`总数显示仍有 ${listMeta.total} 条，但这一页取不到数据：可能刚被删除，或数据在变化，请刷新或重试。`}
           action={
-            <Button type="button" variant="soft" size="3" onClick={() => void list.refetch()}>
+            <PilotActionButton weight="soft" onClick={() => void list.refetch()}>
               刷新
-            </Button>
+            </PilotActionButton>
           }
         />
       ) : (
@@ -504,11 +549,11 @@ export function EntityListPage() {
             pageSizeOptions={pageSizeOptions}
             onPage={(page) => setQuery(patchQuery(query, { page }))}
             onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
-            pilot
+            pilot={radixPilot}
           />
         </>
       )}
-      </RadixCard>
+      </ListCard>
 
       {drawerParam && (
         <RecordDrawer
@@ -542,6 +587,7 @@ export function EntityListPage() {
       />
 
       <Toast message={toast} onDismiss={() => setToast(null)} />
+      </PilotUiContext.Provider>
     </AppShell>
   );
 }
