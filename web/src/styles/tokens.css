@@ -1,22 +1,38 @@
 /* 设计令牌 v2（task-014 §2 步 1）：颜色/字号/形状的唯一来源。
-   页面与组件只允许引用变量，或引用 tailwind.css 里映射到这些变量的工具类。 */
+   页面与组件只允许引用变量，或引用 tailwind.css 里映射到这些变量的工具类。
+
+   1107016：14 个语义变量改为**引用 Radix Themes 变量**，变量名与组件/CSS 一处不动。
+   - 灰度走 `--slate-*`：Radix 在 `:root` 定义的 slate 刻度，与 <Theme grayColor="slate">
+     在 `.radix-themes` 里重绑的 `--gray-*` 同值；直接用 `--slate-*` 是为了让 :root、
+     body、portal（都在 Theme 子树外）也能解析到同一套值。
+   - 主色走 `--accent-*`：由 `<html data-accent-color="blue">`（main.tsx 同步落）与
+     `.radix-themes` 上的同名属性解析，两边取值一致。
+   - 语义色（success/warning/danger/info）、图表色、媒体色仍是字面值，本轮不接 Radix 状态色。 */
 :root {
   /* ===== 单一电蓝主题：下面这组是唯一取值（:root 与 [data-theme='blue'] 共用） =====
      这 14 个变量是三套主题唯一的差异面；其余令牌在下方共享层，三套完全一致。 */
-  --color-bg: #F4F7FB;
-  --color-surface: #FFFFFF;
-  --color-surface-2: #EAF0F7;
+  --color-bg: var(--slate-2);
+  --color-surface: var(--slate-1);
+  --color-surface-2: var(--slate-3);
+  /* 不在本轮 14 个之列，保留字面值（待后续单独迁移）。 */
   --color-border-subtle: #E6ECF3;
-  --color-border: #D8E0EA;
-  --color-border-strong: #C2CDDA;
-  --color-text: #0D1B2A;
-  --color-muted: #556577;
-  --color-faint: #66788A;
-  --color-primary: #2563EB;
-  --color-primary-hover: #1D4ED8;
-  --color-primary-weak: #EFF6FF;
-  --color-on-primary: #FFFFFF;
-  --color-shadow-sticky: rgba(13, 27, 42, 0.14);
+  --color-border: var(--slate-6);
+  --color-border-strong: var(--slate-7);
+  --color-text: var(--slate-12);
+  --color-muted: var(--slate-11);
+  /* faint 比 muted 浅一档仍要过 4.5:1：slate-10 只有 3.6:1，故往大面积底色混 8% 得到
+     介于 10 与 11 之间的一档（实测 4.79:1）。color-mix 不支持时回落到 slate-10。 */
+  --color-faint: var(--slate-10);
+  --color-faint: color-mix(in oklab, var(--slate-11) 92%, var(--slate-2));
+  --color-primary: var(--accent-11);
+  /* hover 比 primary 暗一档：Radix 刻度在 11 之后只有 12（跳变大），取两者混合留出中间档。
+     不支持 color-mix 时直接用 accent-12。 */
+  --color-primary-hover: var(--accent-12);
+  --color-primary-hover: color-mix(in oklab, var(--accent-11) 70%, var(--accent-12));
+  /* 弱背景取 accent-3：accent-2 在侧栏底色（slate-3）上几乎看不出选中态。 */
+  --color-primary-weak: var(--accent-3);
+  --color-on-primary: var(--accent-contrast);
+  --color-shadow-sticky: var(--slate-a6);
 
   /* ===== 共享层：语义色不随主题变（红=危险、琥珀=电）===== */
   --color-success: #15803D;
@@ -57,7 +73,8 @@
   --scale-10: #134E4A;
 
   /* 其它共享色 */
-  --color-skeleton: #E9EDF2;
+  /* 骨架屏块：slate-4 与原来 #E9EDF2 对白卡片的分离度相当（1.19 vs 1.15），slate-3 会太浅。 */
+  --color-skeleton: var(--slate-4);
   --color-overlay: rgba(16, 24, 40, 0.45);
 
   /* 字号 / 行高 4 级 */
@@ -125,23 +142,45 @@
 }
 
 /* ===== 单一电蓝主题：只覆盖上面 14 个变量 =====
-   :root 与 [data-theme='blue'] 同值：前者兜底（无 JS / 首帧前），后者保留属性结构供将来扩展。 */
+   :root 与 [data-theme='blue'] 同值：前者兜底（无 JS / 首帧前），后者保留属性结构供将来扩展。
+   取值与上方的 :root 一致，全部引用 Radix 变量（改一处要一起改）。 */
 :root,
 [data-theme='blue'] {
-  --color-bg: #F4F7FB;
-  --color-surface: #FFFFFF;
-  --color-surface-2: #EAF0F7;
+  --color-bg: var(--slate-2);
+  --color-surface: var(--slate-1);
+  --color-surface-2: var(--slate-3);
   --color-border-subtle: #E6ECF3;
-  --color-border: #D8E0EA;
-  --color-border-strong: #C2CDDA;
-  --color-text: #0D1B2A;
-  --color-muted: #556577;
-  --color-faint: #66788A;
-  --color-primary: #2563EB;
-  --color-primary-hover: #1D4ED8;
-  --color-primary-weak: #EFF6FF;
-  --color-on-primary: #FFFFFF;
-  --color-shadow-sticky: rgba(13, 27, 42, 0.14);
+  --color-border: var(--slate-6);
+  --color-border-strong: var(--slate-7);
+  --color-text: var(--slate-12);
+  --color-muted: var(--slate-11);
+  --color-faint: var(--slate-10);
+  --color-faint: color-mix(in oklab, var(--slate-11) 92%, var(--slate-2));
+  --color-primary: var(--accent-11);
+  --color-primary-hover: var(--accent-12);
+  --color-primary-hover: color-mix(in oklab, var(--accent-11) 70%, var(--accent-12));
+  --color-primary-weak: var(--accent-3);
+  --color-on-primary: var(--accent-contrast);
+  --color-shadow-sticky: var(--slate-a6);
+}
+
+/* ===== Radix 主题容器上的令牌钉回（1107016）=====
+ * `.radix-themes`（<Theme> 渲染出的 div）自己声明了几个与我们**同名**的变量：
+ *   `--color-surface: rgba(255,255,255,0.85)`（半透明白）、`--color-overlay: black-a6`、
+ *   `--space-1…9`（4/8/12/16/24/32/40/48/64）。
+ * 元素自身的声明永远压过从 :root 继承来的值——层序不参与「自身 vs 继承」的比较。
+ * 所以这里在同一个元素上把项目取值钉回去；本块未分层，优先级高于 tailwind.css 里的 layer(radix)。 */
+.radix-themes {
+  --color-surface: var(--slate-1);
+  --color-overlay: rgba(16, 24, 40, 0.45);
+  /* 项目间距刻度（4px 网格，5/6/8 档与 Radix 的 24/32/48 不同）。 */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
 }
 
 /* 石墨主题主色接近正文色：链接与导航选中项靠**下划线**表达可点性（令牌驱动，其它主题不变）。 */
