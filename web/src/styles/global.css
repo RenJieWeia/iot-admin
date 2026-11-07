@@ -199,6 +199,25 @@
 }
 
 /*
+ * ===== prefers-reduced-motion：关掉本轮加的全部动效（1107022）=====
+ * 只覆盖我们自己加动画/过渡的那几类元素，不用 `*` 兜底——Toast（另一位同学在改）与
+ * Radix 内部动画各有归属，避免互相踩。
+ * 不加 `!important`：本块位于所有 @layer 之外（未分层），层序优先级高于 components 与 radix，
+ * 因此能盖掉 `.drawer-panel[data-state='open']` 这类带属性选择器的动画声明（层序先于特异性比较）。
+ * 归零后 Radix Presence 收不到 animationend 会立即卸载，抽屉「无动画直接出现/消失」。
+ */
+@media (prefers-reduced-motion: reduce) {
+  .drawer-panel,
+  .drawer-overlay,
+  .rt-Button,
+  [aria-label='主导航'] a,
+  tbody tr {
+    animation: none;
+    transition: none;
+  }
+}
+
+/*
  * 表格 sticky 列的方向性投影：只在发生横向滚动时出现。
  * 未溢出的宽屏下两侧都不显示——否则首列右边会挂一条影子，像脏边。
  * DataTable 在滚动容器上切换 data-scroll-left / data-scroll-right（见 lib/scrollEdges.ts）。
