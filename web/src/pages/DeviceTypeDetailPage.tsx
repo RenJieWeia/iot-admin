@@ -255,6 +255,8 @@ export function DeviceTypeDetailPage() {
 
   const typeRow = typeQuery.data;
   const typeName = typeRow?.name ? String(typeRow.name) : id;
+  // 详情页的上级链接：优先用列表页交过来的来源 URL（location.state.from）。
+  const listHref = (location.state as { from?: string } | null)?.from ?? '/device-types';
   const summaryFields = parent.fields.filter((field) => field.visible);
   const drawerRow: RowData | null =
     drawer?.mode === 'new' ? ({ [LOCK_FIELD]: id } as RowData) : (drawer?.row ?? null);
@@ -263,7 +265,13 @@ export function DeviceTypeDetailPage() {
     <AppShell
       title={`终端类型 · ${typeName}`}
       // 三级：实体 / 终端类型（可点，回列表）/ 当前类型名（aria-current=page）。
-      breadcrumb={[...groupCrumb('entities'), { label: '终端类型', href: '/device-types' }, { label: typeName }]}
+      breadcrumb={[
+        ...groupCrumb('entities'),
+        // 父级带回来源 URL（含筛选/排序/分页）；深链直接进来没有 state → 回落列表页。
+        // 保持 <Link> 语义：键盘可达、可中键新开标签。
+        { label: '终端类型', href: listHref },
+        { label: typeName },
+      ]}
       actions={
         <div className="flex items-center gap-2">
           {writable && (

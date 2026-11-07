@@ -66,7 +66,7 @@ describe('终端类型详情页（task-016）', () => {
     });
   });
 
-  it('面包屑展开到「实体 / 终端类型 / 当前类型」，分组不可点、末项 aria-current', async () => {
+  it('面包屑展开到「实体 / 终端类型 / 当前类型」，分组不可点、末项 aria-current，父级带回筛选', async () => {
     const user = userEvent.setup();
     const listURL = '/device-types?sort=name&order=asc&pageSize=20';
     // 列表页的滚动键是「window.location.pathname + 查询串」；MemoryRouter 不会写 window.location，
@@ -93,9 +93,22 @@ describe('终端类型详情页（task-016）', () => {
     const current = within(crumb).getByText('泵站');
     expect(current).toHaveAttribute('aria-current', 'page');
     expect(current.closest('a')).toBeNull();
-    // 中间项「终端类型」可点，回列表页（不带筛选——带筛选的返回走浏览器后退）。
-    await user.click(within(crumb).getByRole('link', { name: '终端类型' }));
-    await waitFor(() => expect(view.location()).toBe('/device-types'));
+    // 中间项「终端类型」可点，且带回**来源 URL**（含筛选参数），用户上下文不丢。
+    const parent = within(crumb).getByRole('link', { name: '终端类型' });
+    const parentHref = parent.getAttribute('href') ?? '';
+    expect(parentHref).toContain('/device-types');
+    expect(parentHref).toContain('sort=name');
+    expect(parentHref).toContain('pageSize=20');
+    await user.click(parent);
+    await waitFor(() => expect(view.location()).toBe(listURL));
+  });
+
+  it('深链直接打开详情（无 location.state）：父级回落到 /device-types', async () => {
+    renderApp('/device-types/1');
+    await waitForRows(4);
+    const crumb = screen.getByRole('navigation', { name: '面包屑' });
+    const parent = within(crumb).getByRole('link', { name: '终端类型' });
+    expect(parent.getAttribute('href')).toBe('/device-types');
   });
 
   it('列表页挂载时按自己的键恢复内容区滚动位置（外壳固定后的回归）', async () => {

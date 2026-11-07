@@ -454,7 +454,14 @@ export function EntityListPage() {
             // 终端类型：进入「终端类型详情页」（属性子列表）。其它实体不出这个入口。
             onOpen={
               entity.name === 'device-types'
-                ? (row) => navigate(`/device-types/${encodeURIComponent(String(row.id ?? ''))}`)
+                ? (row) =>
+                    navigate(`/device-types/${encodeURIComponent(String(row.id ?? ''))}`, {
+                      // 把来源 URL（含筛选/排序/分页）交给详情页，
+                      // 面包屑父级用它当 href，用户返回时上下文不丢。
+                      // 用路由自带的 location，而不是 window.location：
+                      // 前者在测试（MemoryRouter）与真实浏览器里都指向当前页。
+                      state: { from: `${location.pathname}${location.search}` },
+                    })
                 : undefined
             }
             openLabel="查看属性"

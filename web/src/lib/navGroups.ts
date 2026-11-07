@@ -19,11 +19,13 @@ export const NAV_GROUPS: NavGroup[] = [
   { key: 'exceptions', label: '异常' },
 ];
 
-export const NAV_GROUP_LABEL: Record<NavGroupKey, string> = {
-  entities: '实体',
-  data: '数据',
-  exceptions: '异常',
-};
+/**
+ * key → 中文名。**从 NAV_GROUPS 派生**，不再手写第二份：
+ * 同一事实只留一个定义，否则改一处忘一处。
+ */
+export const NAV_GROUP_LABEL: Record<NavGroupKey, string> = Object.fromEntries(
+  NAV_GROUPS.map((group) => [group.key, group.label]),
+) as Record<NavGroupKey, string>;
 
 /** 面包屑的一节：有 href 可点，无 href 是纯文本（分组没有落地页）。 */
 export interface BreadcrumbItem {
