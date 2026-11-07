@@ -322,6 +322,18 @@ DOM 里的完整文本与详情页，**不为每格加 `tabIndex`**——大表�
 3. **主题只覆盖 14 个令牌**：`bg / surface / surface-2 / border-subtle / border / border-strong / text / muted / faint / primary / primary-hover / primary-weak / on-primary / shadow-sticky`。
 4. **语义色与图表色不随主题变**：成功/警告/危险/信息、`--chart-1..8`、`--media-*`、`--scale-1..10` 单套完全一致——红永远是危险，琥珀永远是电。
    组件里不允许出现颜色字面量，主题色只能写在 `styles/tokens.css`。
+5. **令牌一律引用 Radix 变量**（1107017 起）：`styles/tokens.css` 里的颜色、圆角、字号、行高
+   全部写成 `var(--slate-* | --accent-* | --green-9 …)` / `var(--radius-3 | --radius-4)` /
+   `var(--font-size-N | --line-height-N)` 的形式，**不写字面值**。
+   - 字面色只在「库没有对应变量」的地方保留：目前仅 `--radius-pill: 999px`
+     （Radix 的 `--radius-full` 不是通用变量，只在 `data-radius='full'` 下才有值）。
+     这类例外**必须在注释里写明为什么不能引用变量**，不许静默留字面值。
+   - 同理豁免「库没有该档位」的 `--text-nav: 11px`（Radix 最小档是 12px）。
+   - 布局尺寸（`--nav-width` / `--drawer-width` / `--row-h` / `--control-h` / `--space-*`）
+     是产品和版式决策，**不跟库默认走**，保持项目取值。
+   - `--font-size-N` / `--line-height-N` / `--radius-N` 只定义在 `.radix-themes` 上，
+     html/body/portal 在那棵子树外：`:root` 里带「该档库默认值」兜底，`.radix-themes`
+     钉回块里再声明一次不带兜底的值（跟随 `<Theme>` 的 radius/scaling）。改令牌时两处一起改。
 6. **focus ring 双层**：外圈主色 2px + 内圈 surface 2px（`outline-offset: 2px`），深色主色下也分得清。
 
 ## 6. 已知行为（不是缺陷，不要"修"）
