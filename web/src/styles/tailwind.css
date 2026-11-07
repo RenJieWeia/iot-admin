@@ -142,9 +142,11 @@
   min-width: 160px;
 }
 
+/* flex 列的宽度下限：0 会在极窄视口把整列压没（列标题也看不见），
+   120px 是「标题可读 + 允许比内容窄」的折中。 */
 @utility col-flex {
   width: auto;
-  min-width: 200px;
+  min-width: 120px;
 }
 
 @utility col-actions {

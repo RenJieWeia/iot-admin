@@ -50,7 +50,7 @@ type FieldMeta struct {
 func widthForType(t string) int {
 	switch t {
 	case "id":
-		return 120
+		return 80
 	case "boolean":
 		return 90
 	case "enum":
@@ -60,7 +60,7 @@ func widthForType(t string) int {
 	case "datetime":
 		return 170
 	case "text":
-		return 200
+		return 160
 	case "relation":
 		return 180
 	default: // json 及未知类型：不推导，交给 widthStrategy 的 flex
@@ -271,7 +271,10 @@ var fieldSets = map[string]fieldSet{
 	},
 	"thing-model-properties": {
 		fields: []FieldMeta{
-			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
+			// 自增主键对使用者没有价值，却要占 80px：该实体没有独立列表页，
+			// 唯一消费方是终端类型详情页的属性表（7 列挤在 1024~1366 视口里）。
+			// 其它实体（终端/数据域/规则…）的 ID 列保持可见。
+			{Key: "id", Label: "ID", Type: "id", Visible: false, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
 			{Key: "type_id", Label: "终端类型", Type: "relation", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
 			{Key: "item_code", Label: "数据项编码", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,

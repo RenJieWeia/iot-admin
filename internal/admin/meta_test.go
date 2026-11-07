@@ -643,8 +643,8 @@ func mustReadMigrations(t *testing.T, name string) []byte {
 // 列宽推导：类型 → 默认宽度；显式覆写优先。两者都是纯函数，直接钉住映射表。
 func TestWidthForType(t *testing.T) {
 	cases := map[string]int{
-		"id": 120, "boolean": 90, "enum": 120, "number": 110,
-		"datetime": 170, "text": 200, "relation": 180,
+		"id": 80, "boolean": 90, "enum": 120, "number": 110,
+		"datetime": 170, "text": 160, "relation": 180,
 		"json": 0, "": 0,
 	}
 	for typ, want := range cases {

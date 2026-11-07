@@ -535,3 +535,32 @@ func contains(values []string, target string) bool {
 	}
 	return false
 }
+
+// thing-model-properties 的 ID 列必须隐藏：该实体没有独立列表页，唯一消费方是终端类型详情页的
+// 属性表；7 列挤在 1024~1366 视口里，自增主键占的 80px 换不回任何信息量。
+func TestThingModelPropertyIDColumnHidden(t *testing.T) {
+	fields, ok := FieldMetas("thing-model-properties")
+	if !ok {
+		t.Fatal("thing-model-properties 字段集缺失")
+	}
+	var idField *FieldMeta
+	for i := range fields {
+		if fields[i].Key == "id" {
+			idField = &fields[i]
+			break
+		}
+	}
+	if idField == nil {
+		t.Fatal("thing-model-properties 缺少 id 字段定义")
+	}
+	if idField.Visible {
+		t.Fatal("ID 列应隐藏（Visible=false）")
+	}
+	// 其它实体的 ID 列不受影响。
+	other, _ := FieldMetas("terminals")
+	for _, f := range other {
+		if f.Key == "id" && !f.Visible {
+			t.Fatal("terminals 的 ID 列应保持可见")
+		}
+	}
+}
