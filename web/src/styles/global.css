@@ -77,10 +77,9 @@
   }
 
   /* 触摸热区扩展：视觉仍 40，命中区 ≥44（与 .touch-hit 工具类同源）。 */
+  /* 只给 .btn 撑热区：input/select 是替换元素，::after 不渲染，写了也不生效。 */
   @media (pointer: coarse) {
-    .btn::after,
-    .input::after,
-    .select::after {
+    .btn::after {
       content: '';
       position: absolute;
       width: max(100%, var(--touch-target));

@@ -199,7 +199,7 @@ export function ReadonlySlotPage({ source }: Props) {
               <Link
                 key={item.slot}
                 to={{ pathname: `/readonly/${item.slot}`, search: search ? `?${search}` : '' }}
-                className={active ? 'btn btn-primary h-8' : 'btn h-8'}
+                className={active ? 'btn btn-primary' : 'btn'}
                 aria-current={active ? 'page' : undefined}
               >
                 {STORAGE_LABELS[item.slot] ?? item.title}

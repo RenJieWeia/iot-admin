@@ -41,7 +41,7 @@ export function Pagination({ meta, rangeText, outOfRange, pageSizeOptions, onPag
         <label className="inline-flex items-center gap-2 text-muted">
           每页
           <select
-            className="h-8 rounded-sm border border-border bg-surface px-2"
+            className="rounded-sm border border-border bg-surface px-2"
             value={meta.pageSize}
             onChange={(event) => onPageSize(Number(event.target.value) as PageSize)}
           >
