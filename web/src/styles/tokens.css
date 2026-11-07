@@ -131,6 +131,11 @@
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
+  /* Radix 的 size=3 控件（Button / TextField）高度取 --space-7 = 40px，
+     而 --space-7 只定义在 .radix-themes 上；Drawer / Dialog / Toast 走 Portal，
+     在那棵子树之外，取不到就会让控件塌成内容高度（实测按钮 20px）。
+     这里在 :root 补一档与 Radix 同值的 40px，Portal 内外一致。 */
+  --space-7: 40px;
   --space-8: 32px;
 
     --underline-offset: 2px;
@@ -205,6 +210,11 @@
   --space-4: 16px;
   --space-5: 20px;
   --space-6: 24px;
+  /* Radix 的 size=3 控件（Button / TextField）高度取 --space-7 = 40px，
+     而 --space-7 只定义在 .radix-themes 上；Drawer / Dialog / Toast 走 Portal，
+     在那棵子树之外，取不到就会让控件塌成内容高度（实测按钮 20px）。
+     这里在 :root 补一档与 Radix 同值的 40px，Portal 内外一致。 */
+  --space-7: 40px;
   --space-8: 32px;
   /* 排版刻度同理：子树内取不带兜底的值，跟随 <Theme scaling>。 */
   --text-page: var(--font-size-5);
