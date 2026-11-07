@@ -652,13 +652,6 @@ func TestWidthForType(t *testing.T) {
 			t.Fatalf("widthForType(%q) = %d，期望 %d", typ, got, want)
 		}
 	}
-	// 显式覆写优先于类型推导。
-	if got := firstNonZeroInt(260, widthForType("text")); got != 260 {
-		t.Fatalf("显式 width 应优先，实际 %d", got)
-	}
-	if got := firstNonZeroInt(0, widthForType("datetime")); got != 170 {
-		t.Fatalf("缺省时应回落到类型推导，实际 %d", got)
-	}
 }
 
 // flex 列传给 widthStrategy 管：推导必须跳过，否则内联 width 会把 flex 变成 fixed，

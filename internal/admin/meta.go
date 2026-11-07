@@ -146,16 +146,6 @@ func (a *API) meta(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: BuildMeta()})
 }
 
-// firstNonZeroInt 返回第一个非零值：字段显式 Width 优先，否则用类型推导值。
-func firstNonZeroInt(values ...int) int {
-	for _, v := range values {
-		if v != 0 {
-			return v
-		}
-	}
-	return 0
-}
-
 // derivedWidth 是「列宽结论」的唯一来源：
 //
 //   - 字段显式 Width 最高优先（连 flex 也能覆盖）；
