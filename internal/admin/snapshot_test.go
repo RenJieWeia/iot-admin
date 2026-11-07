@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/RenJieWeia/iot-admin/internal/store"
 	"github.com/RenJieWeia/iot-admin/migrations"
+	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 // 六档步长白名单必须与 0013 的 CHECK 约束同源：改迁移不改这里（或反之）测试会红。
@@ -181,6 +183,59 @@ func TestSnapshotBindingDerivedColumnInListSQL(t *testing.T) {
 	}
 }
 
+// 绑定用例的公共夹具：造一个独立的域 / 类型 / 物模型 / 终端，用完整体清掉。
+// 不依赖库里已有的 id（测试库的 identity 值随执行顺序漂移），只依赖自己造的数据。
+type bindingFixture struct {
+	domainCode string
+	typeCode   string
+	typeID     int64
+	terminalID string
+}
+
+func newBindingFixture(t *testing.T, pool *pgxpool.Pool, ctx context.Context, tag string) bindingFixture {
+	t.Helper()
+	f := bindingFixture{
+		domainCode: "FX-" + tag + "-DOMAIN",
+		typeCode:   "FX-" + tag + "-TYPE",
+		terminalID: "FX-" + tag + "-T1",
+	}
+	// 先清后建：重跑用例不会因为残留行失败。
+	f.cleanup(ctx, pool)
+	t.Cleanup(func() { f.cleanup(ctx, pool) })
+
+	if _, err := pool.Exec(ctx, `insert into data_domain (code, name) values ($1, $2)`,
+		f.domainCode, "绑定夹具域 "+tag); err != nil {
+		t.Fatalf("建数据域: %v", err)
+	}
+	if err := pool.QueryRow(ctx, `
+		insert into device_type (code, name, domain_id)
+		select $1, $2, id from data_domain where code = $3
+		returning id`, f.typeCode, "绑定夹具类型 "+tag, f.domainCode).Scan(&f.typeID); err != nil {
+		t.Fatalf("建类型: %v", err)
+	}
+	for _, code := range []string{"temp", "hum"} {
+		if _, err := pool.Exec(ctx, `
+			insert into thing_model_property (type_id, item_code, name, value_type)
+			values ($1, $2, $2, 'number')`, f.typeID, code); err != nil {
+			t.Fatalf("建物模型属性: %v", err)
+		}
+	}
+	if _, err := pool.Exec(ctx, `
+		insert into terminal (id, type_id, gateway_id, name, enabled)
+		values ($1, $2, 'FX-GW', $1, true)`, f.terminalID, f.typeID); err != nil {
+		t.Fatalf("建终端: %v", err)
+	}
+	return f
+}
+
+// cleanup 按外键方向反着删：绑定 → 终端 → 物模型 → 类型 → 域。
+func (f bindingFixture) cleanup(ctx context.Context, pool *pgxpool.Pool) {
+	_, _ = pool.Exec(ctx, `delete from snapshot_binding where terminal_id = $1 or device_type_id in (select id from device_type where code = $2)`, f.terminalID, f.typeCode)
+	_, _ = pool.Exec(ctx, `delete from terminal where id = $1`, f.terminalID)
+	_, _ = pool.Exec(ctx, `delete from device_type where code = $1`, f.typeCode)
+	_, _ = pool.Exec(ctx, `delete from data_domain where code = $1`, f.domainCode)
+}
+
 // 列表响应里必须真的出现 fields_count（前端读的就是这个键）。
 // 只断言 SQL 不够——别名写错时 SQL 里看着对、返回的行里却是另一个键。
 func TestSnapshotBindingListReturnsFieldsCountWithDB(t *testing.T) {
@@ -194,32 +249,11 @@ func TestSnapshotBindingListReturnsFieldsCountWithDB(t *testing.T) {
 	if err := store.Migrate(ctx, pool, migrations.FS); err != nil {
 		t.Fatalf("执行迁移: %v", err)
 	}
-	cleanup := func() {
-		_, _ = pool.Exec(ctx, `delete from snapshot_binding`)
-	}
-	cleanup()
-	t.Cleanup(cleanup)
 
-	// 造一条类型级 + 三个字段的绑定（类型与物模型先备好）。
-	var typeID int64
-	if err := pool.QueryRow(ctx, `
-		insert into data_domain (code, name) values ('FC-DOMAIN', '字段数测试域')
-		on conflict (code) do update set name = excluded.name returning id`).Scan(new(int64)); err != nil {
-		// 已存在时走查询分支
-		if err := pool.QueryRow(ctx, `select id from data_domain where code = 'FC-DOMAIN'`).Scan(new(int64)); err != nil {
-			t.Fatalf("建数据域: %v", err)
-		}
-	}
-	if err := pool.QueryRow(ctx, `
-		insert into device_type (code, name, domain_id)
-		select 'FC-TYPE', '字段数测试类型', id from data_domain where code = 'FC-DOMAIN'
-		on conflict (code) do update set name = excluded.name
-		returning id`).Scan(&typeID); err != nil {
-		t.Fatalf("建类型: %v", err)
-	}
+	f := newBindingFixture(t, pool, ctx, "FC")
 	if _, err := pool.Exec(ctx, `
 		insert into snapshot_binding (device_type_id, item_codes)
-		values ($1, '["a","b","c"]'::jsonb)`, typeID); err != nil {
+		values ($1, '["temp","hum"]'::jsonb)`, f.typeID); err != nil {
 		t.Fatalf("建绑定: %v", err)
 	}
 
@@ -243,11 +277,82 @@ func TestSnapshotBindingListReturnsFieldsCountWithDB(t *testing.T) {
 	if !ok {
 		t.Fatalf("列表行里没有 fields_count，实际键：%v", keysOf(row))
 	}
-	if n, _ := got.(float64); int(n) != 3 {
-		t.Fatalf("fields_count = %v，期望 3", got)
+	if n, _ := got.(float64); int(n) != 2 {
+		t.Fatalf("fields_count = %v，期望 2", got)
 	}
 	if _, hasOld := row["item_count"]; hasOld {
 		t.Fatal("旧别名 item_count 不应再出现")
+	}
+}
+
+// 编辑切作用域必须真的把另一列写成 NULL（真库）。
+//
+// 前端用例只能证明"提交体两列带齐、另一列为 null"，证明不了服务端照做：
+// 后端 update 会把库里旧作用域列合并进校验视图，如果 columns() 把 null 丢掉，
+// 校验能过但库里两列仍同时非空——这条用例正是钉住那一步。
+func TestSnapshotBindingScopeSwitchWithDB(t *testing.T) {
+	dsn := testDSN(t)
+	ctx := context.Background()
+	pool, err := store.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("连接 PostgreSQL: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := store.Migrate(ctx, pool, migrations.FS); err != nil {
+		t.Fatalf("执行迁移: %v", err)
+	}
+
+	f := newBindingFixture(t, pool, ctx, "SC")
+	api := New(pool)
+	handler := api.Handler()
+	put := func(id int64, body string) (int, string) {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut,
+			"/admin/v1/snapshot-bindings/"+strconv.FormatInt(id, 10), strings.NewReader(body)))
+		return rec.Code, rec.Body.String()
+	}
+
+	// 起始：类型级绑定。
+	var id int64
+	if err := pool.QueryRow(ctx, `
+		insert into snapshot_binding (device_type_id, item_codes)
+		values ($1, '["temp"]'::jsonb) returning id`, f.typeID).Scan(&id); err != nil {
+		t.Fatalf("建类型级绑定: %v", err)
+	}
+
+	// ① 类型级 → 实例级：前端现在发的形状（两列带齐，type 侧 null）。
+	if code, body := put(id, fmt.Sprintf(
+		`{"device_type_id":null,"terminal_id":%q,"item_codes":["temp"]}`, f.terminalID)); code != http.StatusOK {
+		t.Fatalf("类型级→实例级应 200，实际 %d %s", code, body)
+	}
+	var typeID *int64
+	var terminalID *string
+	if err := pool.QueryRow(ctx, `select device_type_id, terminal_id from snapshot_binding where id = $1`, id).
+		Scan(&typeID, &terminalID); err != nil {
+		t.Fatalf("回查绑定: %v", err)
+	}
+	if typeID != nil {
+		t.Fatalf("切到实例级后 device_type_id 应为 NULL，实际 %d", *typeID)
+	}
+	if terminalID == nil || *terminalID != f.terminalID {
+		t.Fatalf("terminal_id 应为 %q，实际 %v", f.terminalID, terminalID)
+	}
+
+	// ② 反向：实例级 → 类型级。
+	if code, body := put(id, fmt.Sprintf(
+		`{"device_type_id":%d,"terminal_id":null,"item_codes":["temp"]}`, f.typeID)); code != http.StatusOK {
+		t.Fatalf("实例级→类型级应 200，实际 %d %s", code, body)
+	}
+	if err := pool.QueryRow(ctx, `select device_type_id, terminal_id from snapshot_binding where id = $1`, id).
+		Scan(&typeID, &terminalID); err != nil {
+		t.Fatalf("回查绑定: %v", err)
+	}
+	if terminalID != nil {
+		t.Fatalf("切到类型级后 terminal_id 应为 NULL，实际 %q", *terminalID)
+	}
+	if typeID == nil || *typeID != f.typeID {
+		t.Fatalf("device_type_id 应为 %d，实际 %v", f.typeID, typeID)
 	}
 }
 
