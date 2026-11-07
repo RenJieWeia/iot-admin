@@ -95,9 +95,15 @@
   --tracking-nav: 0.04em;
   --font-mono: "SFMono-Regular", "Menlo", "Consolas", monospace;
 
-  /* 形状与阴影 */
-  --radius-control: 6px;
-  --radius-card: 10px;
+  /* 形状与阴影。
+     圆角改走 Radix 刻度（--radius-3 = 6px、--radius-4 = 8px，medium/100%）：
+     `--radius-N` 只定义在 `[data-radius]` 上（=.radix-themes 自己），:root 解析不到，
+     所以这里带「该档的库默认值」兜底给 html/body/portal 用；主题子树内另有一份不带兜底的
+     声明（见文件末尾钉回块），两条路径当前同值。
+     --radius-pill 保留字面值：Radix 没有通用的 --radius-full 变量——`--radius-full` 只在
+     `[data-radius='full']` 下才有值（其它档位是 0px），且同样只作用于 .radix-themes 子树。 */
+  --radius-control: var(--radius-3, 6px);
+  --radius-card: var(--radius-4, 8px);
   --radius-pill: 999px;
   --shadow-card: 0 1px 2px rgba(16, 24, 40, 0.06);
   --shadow-overlay: 0 8px 24px rgba(16, 24, 40, 0.18);
@@ -177,7 +183,12 @@
  * 所以这里在同一个元素上把项目取值钉回去；本块未分层，优先级高于 tailwind.css 里的 layer(radix)。 */
 .radix-themes {
   --color-surface: var(--slate-1);
+  /* 与 Radix 的 --color-overlay 同源（black-a6）；保留本行是为了钉住「遮罩色由项目决定」这件事。 */
   --color-overlay: var(--black-a6);
+  /* 圆角跟着 <Theme radius> 走：--radius-N 只定义在 [data-radius] 上（即本元素），
+     :root 解析不到，所以主题子树内再声明一次**不带兜底**的值；两条路径当前同值。 */
+  --radius-control: var(--radius-3);
+  --radius-card: var(--radius-4);
   /* 项目间距刻度（4px 网格，5/6/8 档与 Radix 的 24/32/48 不同）。 */
   --space-1: 4px;
   --space-2: 8px;

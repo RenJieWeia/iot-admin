@@ -116,4 +116,15 @@ describe('Radix Themes 基座', () => {
       expect(block, `未钉回 ${space}`).toContain(space);
     }
   });
+
+  it('圆角令牌引用 Radix 刻度（control=radius-3 / card=radius-4 / pill 保留字面值）', () => {
+    // --radius-N 定义在 [data-radius] 上，:root 取不到 → :root 带库默认值兜底，子树内不带。
+    expect(tokens, ':root 未引用 --radius-3').toContain('--radius-control: var(--radius-3, 6px);');
+    expect(tokens, ':root 未引用 --radius-4').toContain('--radius-card: var(--radius-4, 8px);');
+    const block = tokens.slice(tokens.indexOf('.radix-themes {'));
+    expect(block, '主题子树内未走 --radius-3').toContain('--radius-control: var(--radius-3);');
+    expect(block, '主题子树内未走 --radius-4').toContain('--radius-card: var(--radius-4);');
+    // Radix 没有通用的 --radius-full 变量，药丸圆角只能用字面值（注释里已说明）。
+    expect(tokens, '--radius-pill 应保留字面值').toContain('--radius-pill: 999px;');
+  });
 });
