@@ -1,3 +1,11 @@
+/*
+ * 层序声明放在整个样式树的最前面（本文件在 main.tsx 里先于 tailwind.css 引入）：
+ * 层序由「首次出现」决定，声明必须在任何 @layer 规则之前，否则 base 会先注册成最低层。
+ * radix 排最底：`@radix-ui/themes/styles.css` 的 reset/调色板/组件样式都收在这一层里，
+ * 同元素冲突时本项目的 base/components/utilities 才能压过它。
+ */
+@layer radix, theme, base, components, utilities;
+
 @import "./tokens.css";
 
 /*
@@ -35,6 +43,24 @@
 
   button {
     font: inherit;
+  }
+
+  /*
+   * Radix 主题容器（<Theme> 渲染的 .radix-themes）自带一套排版声明：
+   * font-size: 16px、line-height: 1.5、color: --gray-12、Radix 自己的字体栈，
+   * 外加 overflow-wrap: break-word 与 font-smoothing: antialiased。
+   * 这些是**元素自身的声明**，会盖掉从 body 继承下来的值（层序管不到继承），
+   * 不钉回就是全站字号放大、字体栈替换、长词换行位置变化。这里一律回到继承值：
+   * 字体/字号/行高/字重与 body 完全一致，换行策略与平滑方式保持浏览器默认。
+   */
+  .radix-themes {
+    font: inherit;
+    color: inherit;
+    overflow-wrap: normal;
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
+    -webkit-text-size-adjust: auto;
+    text-size-adjust: auto;
   }
 
   /* 双层 focus ring：surface 内圈 + primary 外圈。

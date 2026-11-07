@@ -8,8 +8,17 @@
  *   引入 preflight 会让既有页面产生像素漂移。
  * - 不定义 `--background` / `--card` / `--popover` 之类的第二套语义变量。
  */
-@layer theme, base, components, utilities;
-
+/*
+ * 样式引入顺序（1107016）：radix 的样式表**必须**用 layer(radix) 收进最底层。
+ * `@radix-ui/themes/styles.css` 未分层，直接 `@import` 会让它的 `:root` / `.radix-themes`
+ * 声明压过本文件与 global.css 的 `@layer base`（body 边距、a 下划线、button 字体、
+ * ul 缩进、h1/h2 字号都会被它的 reset 改掉）。
+ *
+ * 层序语句 `@layer radix, theme, base, components, utilities;` 写在 global.css 的**第一行**：
+ * 层序由首次出现决定，而 global.css 先于本文件被 main.tsx 引入；写在这里会排到
+ * `@layer base{…}` 之后，base 反而成了最低层（实测过）。
+ */
+@import '@radix-ui/themes/styles.css' layer(radix);
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 
