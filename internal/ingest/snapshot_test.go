@@ -2,6 +2,7 @@ package ingest_test
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -44,17 +45,21 @@ func enableSlots(t *testing.T, e *testEnv, slots map[string]int) {
 	}
 }
 
-// bind 写一条绑定：terminalID 为空 = 类型级（该类型下所有终端），否则 = 实例级。
-func bind(t *testing.T, e *testEnv, terminalID, itemCode string) {
+// bind 写一条绑定（一条 = 一个目标 + 一个数据项数组）：
+// terminalID 为空 = 类型级（该类型下所有终端），否则 = 实例级。
+func bind(t *testing.T, e *testEnv, terminalID string, itemCodes ...string) {
 	t.Helper()
 	ctx := context.Background()
-	var err error
+	raw, err := json.Marshal(itemCodes)
+	if err != nil {
+		t.Fatalf("序列化 item_codes: %v", err)
+	}
 	if terminalID == "" {
 		_, err = e.pool.Exec(ctx,
-			`insert into snapshot_binding (device_type_id, item_code) values ($1, $2)`, e.typeID, itemCode)
+			`insert into snapshot_binding (device_type_id, item_codes) values ($1, $2::jsonb)`, e.typeID, raw)
 	} else {
 		_, err = e.pool.Exec(ctx,
-			`insert into snapshot_binding (terminal_id, item_code) values ($1, $2)`, terminalID, itemCode)
+			`insert into snapshot_binding (terminal_id, item_codes) values ($1, $2::jsonb)`, terminalID, raw)
 	}
 	if err != nil {
 		t.Fatalf("写绑定: %v", err)
@@ -373,5 +378,28 @@ func TestSnapshotPartitionMaintenance(t *testing.T) {
 	}
 	if !exists("snapshot_second_" + time.Now().In(staging.Zone).Format("20060102")) {
 		t.Fatal("当天分区不应被清理")
+	}
+}
+
+// 一条绑定可含多个数据项：类型级绑定 ["temp","power"] → 两个序列都产生快照行。
+func TestSnapshotBindingMultiCodesAreExpanded(t *testing.T) {
+	e := newEnv(t)
+	setupSnapshot(t, e)
+	enableSlots(t, e, map[string]int{"hour": 1})
+	bind(t, e, "", "temp", "power")
+
+	at := baseTime.Add(5 * time.Minute)
+	e.clock.Set(at.Add(10 * time.Second))
+	if r := resultOf(t, e.handle(single(testTerminalID,
+		it("temp", 20.0, "C", at), it("power", 1.0, "kW", at))), testTerminalID); !r.Accepted {
+		t.Fatalf("报文应被接收: %+v", r)
+	}
+	if n := e.count(`select count(*) from snapshot_coarse where terminal_id = $1`, testTerminalID); n != 2 {
+		t.Fatalf("小时档行数 = %d，期望 2（temp 与 power 各一行）", n)
+	}
+	for _, code := range []string{"temp", "power"} {
+		if n := e.count(`select count(*) from snapshot_coarse where terminal_id = $1 and item_code = $2`, testTerminalID, code); n != 1 {
+			t.Fatalf("%s 的快照行数 = %d，期望 1", code, n)
+		}
 	}
 }

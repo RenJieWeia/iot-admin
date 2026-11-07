@@ -94,67 +94,210 @@ func validateSlotStep(e Entity, granularity string, body map[string]any) error {
 	return nil
 }
 
-// validateBindingBody 校验绑定：作用域二选一 + item_code 必须属于目标的物模型。
+// bindingDuplicateTarget 是「目标已有绑定」的唯一文案：
+// 校验阶段先查到、和 create 时 DB 唯一索引抛 23505，两条来源都必须落成这一句。
+const bindingDuplicateTarget = "该目标已有一条绑定，请编辑那一条"
+
+// bindingTarget 是解析出的绑定作用域（以及用于物模型校验的实际类型）。
+type bindingTarget struct {
+	deviceTypeID *int64
+	terminalID   *string
+	typeID       int64
+	label        string
+}
+
+// validateBindingBody 校验绑定的写入体，create 与 update 共用同一套规则：
 //
-// 为什么要连库校验：绑定是"纳入快照"的唯一开关，存进一条指向不存在数据项的绑定，
-// 会让这台终端永远静默不产生快照——错误应该在被拒的那一次请求里说清楚。
-func (a *API) validateBindingBody(ctx context.Context, e Entity, body map[string]any) error {
+//   - currentID 非空表示更新：先读库里的现有行，body 里缺的 device_type_id / terminal_id /
+//     item_codes 用它补齐再校验（部分更新只传 item_codes 也必须能过）；
+//   - 作用域二选一、item_codes 去重且非空、每个 code 必须在目标类型的物模型里（缺失的全部列出）；
+//   - 目标重复 → 统一文案 bindingDuplicateTarget。
+//
+// 通过时把去重后的 item_codes 写回 body，写库用的是同一份规范化结果。
+func (a *API) validateBindingBody(ctx context.Context, e Entity, body map[string]any, currentID string) error {
 	if e.Name != "snapshot-bindings" {
 		return nil
 	}
-	typeID, hasType := body["device_type_id"]
-	terminalID, hasTerminal := body["terminal_id"]
-	typeSet := hasType && typeID != nil
-	terminalSet := hasTerminal && terminalID != nil
-	if typeSet == terminalSet {
-		return invalidQuery("绑定作用域二选一：device_type_id（类型级）与 terminal_id（实例级）必须且只能给一个")
+
+	merged := map[string]any{}
+	if currentID != "" {
+		var (
+			typeID     *int64
+			terminalID *string
+			raw        []byte
+		)
+		if err := a.Pool.QueryRow(ctx,
+			`select device_type_id, terminal_id, item_codes from snapshot_binding where id::text = $1`,
+			currentID).Scan(&typeID, &terminalID, &raw); err != nil {
+			return err // pgx.ErrNoRows 由 handler 转 404
+		}
+		if typeID != nil {
+			merged["device_type_id"] = *typeID
+		}
+		if terminalID != nil {
+			merged["terminal_id"] = *terminalID
+		}
+		var codes []string
+		if err := json.Unmarshal(raw, &codes); err == nil {
+			merged["item_codes"] = codes
+		}
+	}
+	for k, v := range body {
+		merged[k] = v
 	}
 
-	var zone string
-	var target int64
-	if typeSet {
-		id, ok := toInt(typeID)
-		if !ok {
-			return invalidQuery("device_type_id 不是整数: %v", typeID)
-		}
-		target = id
-		zone = "设备类型"
-	} else {
-		id, ok := terminalID.(string)
-		if !ok || id == "" {
-			return invalidQuery("terminal_id 必须是非空字符串: %v", terminalID)
-		}
-		if err := a.Pool.QueryRow(ctx, `select type_id from terminal where id = $1`, id).Scan(&target); err != nil {
-			if errors.Is(err, pgx.ErrNoRows) {
-				return invalidQuery("终端 %q 不存在，无法绑定", id)
-			}
-			return err
-		}
-		zone = "终端 " + id + " 所属类型"
+	target, err := a.resolveBindingTarget(ctx, merged)
+	if err != nil {
+		return err
 	}
 
-	code, ok := body["item_code"].(string)
-	if !ok || code == "" {
-		return invalidQuery("item_code 必须是非空字符串: %v", body["item_code"])
+	codes, err := bindingCodes(merged["item_codes"], currentID == "")
+	if err != nil {
+		return err
 	}
+
 	var typeCode string
-	if err := a.Pool.QueryRow(ctx, `select code from device_type where id = $1`, target).Scan(&typeCode); err != nil {
+	if err := a.Pool.QueryRow(ctx, `select code from device_type where id = $1`, target.typeID).Scan(&typeCode); err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
-			return invalidQuery("设备类型 #%d 不存在，无法绑定", target)
+			return invalidQuery("设备类型 #%d 不存在，无法绑定", target.typeID)
 		}
 		return err
 	}
-	var exists bool
-	if err := a.Pool.QueryRow(ctx,
-		`select exists(select 1 from thing_model_property where type_id = $1 and item_code = $2)`,
-		target, code).Scan(&exists); err != nil {
+	missing, err := a.missingItemCodes(ctx, target.typeID, codes)
+	if err != nil {
 		return err
 	}
-	if !exists {
-		return invalidQuery("%s（%s）的物模型里没有数据项 %q，请先在该类型的物模型里声明它",
-			zone, typeCode, code)
+	if len(missing) > 0 {
+		quoted, _ := json.Marshal(missing)
+		return invalidQuery("%s（%s）的物模型里没有这些数据项：%s，请先在该类型的物模型里声明它们",
+			target.label, typeCode, string(quoted))
 	}
+
+	// 目标唯一：同一类型 / 同一终端只能有一条绑定（与 0014 的部分唯一索引同口径）。
+	var (
+		dupID int64
+		q     string
+		arg   any
+	)
+	if target.deviceTypeID != nil {
+		q, arg = `select id from snapshot_binding where device_type_id = $1`, *target.deviceTypeID
+	} else {
+		q, arg = `select id from snapshot_binding where terminal_id = $1`, *target.terminalID
+	}
+	err = a.Pool.QueryRow(ctx, q, arg).Scan(&dupID)
+	switch {
+	case err == nil:
+		if currentID == "" || strconv.FormatInt(dupID, 10) != currentID {
+			return invalidQuery("%s", bindingDuplicateTarget)
+		}
+	case errors.Is(err, pgx.ErrNoRows):
+	default:
+		return err
+	}
+
+	body["item_codes"] = codes
 	return nil
+}
+
+// resolveBindingTarget 解析作用域：类型级直接用 device_type_id，实例级先查终端的 type_id。
+func (a *API) resolveBindingTarget(ctx context.Context, merged map[string]any) (bindingTarget, error) {
+	typeRaw, hasType := merged["device_type_id"]
+	termRaw, hasTerminal := merged["terminal_id"]
+	typeSet := hasType && typeRaw != nil
+	terminalSet := hasTerminal && termRaw != nil
+	if typeSet == terminalSet {
+		return bindingTarget{}, invalidQuery("绑定作用域二选一：device_type_id（类型级）与 terminal_id（实例级）必须且只能给一个")
+	}
+	if typeSet {
+		id, ok := toInt(typeRaw)
+		if !ok {
+			return bindingTarget{}, invalidQuery("device_type_id 不是整数: %v", typeRaw)
+		}
+		return bindingTarget{deviceTypeID: &id, typeID: id, label: "设备类型"}, nil
+	}
+	id, ok := termRaw.(string)
+	if !ok || id == "" {
+		return bindingTarget{}, invalidQuery("terminal_id 必须是非空字符串: %v", termRaw)
+	}
+	var typeID int64
+	if err := a.Pool.QueryRow(ctx, `select type_id from terminal where id = $1`, id).Scan(&typeID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return bindingTarget{}, invalidQuery("终端 %q 不存在，无法绑定", id)
+		}
+		return bindingTarget{}, err
+	}
+	return bindingTarget{terminalID: &id, typeID: typeID, label: "终端 " + id + " 所属类型"}, nil
+}
+
+// bindingCodes 规整 item_codes：接受 JSON 数组（[]any / []string），去重保序，拒绝空串与空数组。
+// create 时缺失也算错（required=true）；update 时缺失会先用库里现有值补齐，走不到这里。
+func bindingCodes(raw any, required bool) ([]string, error) {
+	if raw == nil {
+		if required {
+			return nil, invalidQuery("item_codes 必填：至少绑定一个数据项")
+		}
+		return nil, nil
+	}
+	items, ok := raw.([]any)
+	if !ok {
+		if strs, isStrs := raw.([]string); isStrs {
+			items = make([]any, len(strs))
+			for i, s := range strs {
+				items[i] = s
+			}
+		} else {
+			return nil, invalidQuery("item_codes 必须是字符串数组: %v", raw)
+		}
+	}
+	seen := make(map[string]struct{}, len(items))
+	out := make([]string, 0, len(items))
+	for _, it := range items {
+		code, isStr := it.(string)
+		if !isStr {
+			return nil, invalidQuery("item_codes 必须是字符串数组，里面混入了非字符串元素: %v", it)
+		}
+		code = strings.TrimSpace(code)
+		if code == "" {
+			return nil, invalidQuery("item_codes 不能包含空字符串")
+		}
+		if _, dup := seen[code]; dup {
+			continue
+		}
+		seen[code] = struct{}{}
+		out = append(out, code)
+	}
+	if len(out) == 0 {
+		return nil, invalidQuery("item_codes 不能为空：至少绑定一个数据项")
+	}
+	return out, nil
+}
+
+// missingItemCodes 返回 codes 中不在该类型物模型里的那些（一次列全，别让用户改一个提交一次）。
+func (a *API) missingItemCodes(ctx context.Context, typeID int64, codes []string) ([]string, error) {
+	rows, err := a.Pool.Query(ctx,
+		`select item_code from thing_model_property where type_id = $1 and item_code = any($2)`, typeID, codes)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	present := make(map[string]struct{}, len(codes))
+	for rows.Next() {
+		var code string
+		if err := rows.Scan(&code); err != nil {
+			return nil, err
+		}
+		present[code] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	var missing []string
+	for _, code := range codes {
+		if _, ok := present[code]; !ok {
+			missing = append(missing, code)
+		}
+	}
+	return missing, nil
 }
 
 // toInt 把 JSON 数字/字符串统一成 int64。
@@ -174,6 +317,17 @@ func toInt(v any) (int64, bool) {
 		return n, true
 	}
 	return 0, false
+}
+
+// writeEntityDBError 把绑定表的唯一索引冲突（23505）落成与校验阶段同一句话，
+// 避免用户看到两种说法；其余交给 writeDBError。
+func writeEntityDBError(w http.ResponseWriter, e Entity, err error) {
+	var pgErr *pgconn.PgError
+	if e.Name == "snapshot-bindings" && errors.As(err, &pgErr) && pgErr.Code == "23505" {
+		writeError(w, http.StatusBadRequest, bindingDuplicateTarget)
+		return
+	}
+	writeDBError(w, err)
 }
 
 // writeValidateError 把校验错误分流：QueryError → 400（原因写给前端），其余按平台故障。
@@ -199,9 +353,12 @@ var Entities = []Entity{
 	// 档位本身不可新增（行集固定），步长白名单与 0013 的 CHECK 同源。
 	{Name: "snapshot-slots", FixedRows: true, PKey: "granularity",
 		Table: "snapshot_slot_config", Cols: []string{"enabled", "step"}},
-	// 绑定：一条 = 一个数据项被纳入快照；作用域二选一（类型级或实例级）。
+	// 绑定：一条 = 一个作用域目标 + 一个数据项数组（jsonb）；作用域二选一（类型级或实例级）。
+	// item_codes 走已有的 ::jsonb 转换；列表额外下发派生列「字段数」供前端显示。
 	{Name: "snapshot-bindings", Hidden: true, Table: "snapshot_binding",
-		Cols: []string{"device_type_id", "terminal_id", "item_code"}},
+		Cols:        []string{"device_type_id", "terminal_id", "item_codes"},
+		JSONB:       []string{"item_codes"},
+		ExtraSelect: []string{"jsonb_array_length(item_codes) as item_count"}},
 	// 表级保留期：三行由迁移预置，只允许改 retention_days（禁增删），不进导航。
 	{Name: "snapshot-settings", Hidden: true, FixedRows: true, PKey: "table_name",
 		Table: "snapshot_settings", Cols: []string{"retention_days"}},
@@ -323,7 +480,7 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 绑定的物模型校验要连库，放在建行之前：不合法就 400，不存进去等运行时静默失效。
-	if err := a.validateBindingBody(r.Context(), e, body); err != nil {
+	if err := a.validateBindingBody(r.Context(), e, body, ""); err != nil {
 		writeValidateError(w, err)
 		return
 	}
@@ -343,7 +500,7 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 	row, err := a.queryOne(r, e, fmt.Sprintf("insert into %s (%s) values (%s) returning *",
 		e.Table, strings.Join(cols, ", "), strings.Join(placeholders, ", ")), vals...)
 	if err != nil {
-		writeDBError(w, err)
+		writeEntityDBError(w, e, err)
 		return
 	}
 	a.invalidate()
@@ -370,6 +527,15 @@ func (a *API) update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	// 绑定的部分更新：校验函数自己读库补齐缺的字段（只传 item_codes 也能过）。
+	if err := a.validateBindingBody(r.Context(), e, body, r.PathValue("id")); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			writeError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		writeValidateError(w, err)
+		return
+	}
 	cols, vals, err := e.columns(body)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
@@ -390,7 +556,7 @@ func (a *API) update(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err != nil {
-		writeDBError(w, err)
+		writeEntityDBError(w, e, err)
 		return
 	}
 	a.invalidate()

@@ -476,6 +476,7 @@ func TestRequiredMatchesDDL(t *testing.T) {
 		"0001_datasource.sql",
 		"0010_snapshot_six_granularities.sql",
 		"0013_snapshot_slots_and_bindings.sql",
+		"0014_snapshot_binding_multi_items.sql",
 	} {
 		for tbl, cols := range ddlColumns(t, string(mustReadMigrations(t, name))) {
 			table[tbl] = cols
@@ -568,7 +569,8 @@ func ddlColumns(t *testing.T, ddl string) map[string]map[string]ddlColumn {
 	out := map[string]map[string]ddlColumn{}
 	// 块尾可能是 `);` 也可能是 `) partition by range (...);`（0010 的六档快照表）：
 	// 用 `\n\)[^;]*;` 收尾，既不吃掉下一张表，也能覆盖分区表。
-	tableRe := regexp.MustCompile(`(?ms)create table if not exists (\w+) \((.*?)\n\)[^;]*;`)
+	// 「if not exists」可省略（0014 重建 snapshot_binding 时就是裸 create table）。
+	tableRe := regexp.MustCompile(`(?ms)create table (?:if not exists )?(\w+) \((.*?)\n\)[^;]*;`)
 	columnRe := regexp.MustCompile(`(?m)^\s{4}([a-z_]+)\s+(.+?),?$`)
 	skip := map[string]bool{"unique": true, "constraint": true, "primary": true, "check": true, "foreign": true, "exclude": true}
 

@@ -347,7 +347,8 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "none", WidthStrategy: "min"},
 		},
 	},
-	// 绑定：一条 = 一个数据项被纳入快照；作用域二选一（类型级或实例级）。
+	// 绑定：一条 = 一个作用域目标 + 一个数据项数组；item_codes 与 quality_rule.params 同为 jsonb。
+	// item_count 是列表派生列（jsonb_array_length，SQL 计算），不可排序/筛选/编辑。
 	"snapshot-bindings": {
 		fields: []FieldMeta{
 			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
@@ -355,8 +356,10 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
 			{Key: "terminal_id", Label: "终端（实例级）", Type: "relation", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
-			{Key: "item_code", Label: "数据项编码", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
-				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
+			{Key: "item_codes", Label: "数据项编码（可多个）", Type: "json", Visible: true, Sortable: false, Filterable: false,
+				FilterType: "none", WidthStrategy: "flex"},
+			{Key: "item_count", Label: "字段数", Type: "number", Visible: true, Sortable: false, Filterable: false,
+				FilterType: "none", WidthStrategy: "fixed", Derived: true},
 			{Key: "created_at", Label: "创建时间", Type: "datetime", Visible: true, Sortable: true, Filterable: false,
 				FilterType: "none", WidthStrategy: "min"},
 		},

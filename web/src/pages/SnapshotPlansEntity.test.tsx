@@ -83,79 +83,161 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     expect(writeCalls).toHaveLength(0);
   });
 
-  it('绑定列表渲染「作用域/目标/数据项/创建时间」，类型级与实例级各一行', async () => {
+  it('绑定列表：一行一个目标，列含「字段数」；类型级与实例级各一行', async () => {
     renderApp('/snapshot-slots');
     await waitForPage();
 
     const bindings = await screen.findByRole('region', { name: '绑定' });
     await waitFor(() => expect(document.querySelectorAll('tbody tr')).toHaveLength(2));
 
-    for (const head of ['作用域', '目标', '数据项', '创建时间', '操作']) {
+    for (const head of ['作用域', '目标', '字段数', '创建时间', '操作']) {
       expect(within(bindings).getByRole('columnheader', { name: head })).toBeInTheDocument();
     }
     const rows = Array.from(document.querySelectorAll('tbody tr')).map((row) => row.textContent ?? '');
-    // 类型级：作用域=终端类型，目标=类型名（泵站）；实例级：目标是终端 ID。
     expect(rows[0]).toContain('终端类型');
     expect(rows[0]).toContain('泵站');
-    expect(rows[0]).toContain('temp');
+    expect(rows[0]).toContain('2'); // 类型级：temp + power 两个字段
     expect(rows[1]).toContain('终端');
     expect(rows[1]).toContain('t-001');
-    expect(rows[1]).toContain('power');
+    expect(rows[1]).toContain('1');
+    // 每行都有编辑与删除入口。
+    expect(within(bindings).getAllByRole('button', { name: '编辑' })).toHaveLength(2);
   });
 
-  it('绑定表单：切作用域换目标控件；选类型后数据项来自该类型的属性', async () => {
+  it('多选保存：body.item_codes 为数组；已选计数与标签外显', async () => {
+    const user = userEvent.setup();
     renderApp('/snapshot-slots');
     await waitForPage();
-    const { user, dialog } = await openBindingForm();
-
-    // 默认类型级：先选类型（远程下拉），数据项候选随后来自该类型。
-    const typeTrigger = within(dialog).getByRole('combobox', { name: '终端类型' });
-    await user.click(typeTrigger);
-    const listbox = await screen.findByRole('listbox', { name: '终端类型选项' });
-    await user.click(within(listbox).getByRole('option', { name: '泵站' }));
-
-    const itemSelect = within(dialog).getByLabelText('数据项');
-    await waitFor(() => expect(itemSelect).toBeEnabled());
-    const values = Array.from((itemSelect as HTMLSelectElement).options).map((option) => option.value);
-    expect(values).toEqual(expect.arrayContaining(['temp', 'power', 'status', 'online']));
-
-    // 切到实例级：类型下拉消失，出现终端搜索。
-    await user.click(within(dialog).getByRole('radio', { name: /终端（单个）/ }));
-    expect(within(dialog).queryByRole('combobox', { name: '终端类型' })).not.toBeInTheDocument();
-    const search = within(dialog).getByLabelText('终端');
-    await user.type(search, 't-001');
-    await waitFor(async () => {
-      const candidate = await within(dialog).findByRole('button', { name: /t-001/ }, { timeout: 3000 });
-      expect(candidate).toBeInTheDocument();
-    }, { timeout: 5000 });
-    await user.click(within(dialog).getByRole('button', { name: /t-001/ }));
-    // 选终端后按该终端的 type_id（t-001 → 1）取候选。
-    await waitFor(() => {
-      const options = Array.from((within(dialog).getByLabelText('数据项') as HTMLSelectElement).options).map(
-        (option) => option.value,
-      );
-      expect(options).toEqual(expect.arrayContaining(['temp', 'power']));
-    });
-  });
-
-  it('后端 400（数据项不属于该类型）显示在表单内，抽屉不关', async () => {
-    server.use(
-      http.post('/admin/v1/snapshot-bindings', () =>
-        HttpResponse.json({ code: 400, message: '数据项 temp 不属于该终端类型' }, { status: 400 }),
-      ),
-    );
-    renderApp('/snapshot-slots');
-    await waitForPage();
-    const { user, dialog } = await openBindingForm();
+    const { dialog } = await openBindingForm();
 
     await user.click(within(dialog).getByRole('combobox', { name: '终端类型' }));
-    const listbox = await screen.findByRole('listbox', { name: '终端类型选项' });
-    await user.click(within(listbox).getByRole('option', { name: '泵站' }));
-    await waitFor(() => expect(within(dialog).getByLabelText('数据项')).toBeEnabled());
-    await user.selectOptions(within(dialog).getByLabelText('数据项'), 'temp');
+    const typeList = await screen.findByRole('listbox', { name: '终端类型选项' });
+    await user.click(within(typeList).getByRole('option', { name: '泵站' }));
+
+    // 打开字段多选（复用 FilterMultiSelect），逐项勾选。
+    await user.click(within(dialog).getByRole('combobox', { name: '字段' }));
+    const fieldList = await screen.findByRole('listbox', { name: '字段选项' });
+    await user.click(within(fieldList).getByRole('option', { name: /temp/ }));
+    await user.click(within(fieldList).getByRole('option', { name: /power/ }));
+
+    expect(within(dialog).getByText('已选 2 个字段')).toBeInTheDocument();
+    // 已选项以标签外显、可单个移除。
+    const chips = within(dialog).getByLabelText('已选字段');
+    expect(within(chips).getByRole('button', { name: /移除字段 temp/ })).toBeInTheDocument();
+
+    await user.click(within(dialog).getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(writeCalls).toHaveLength(1));
+    expect(writeCalls[0]?.method).toBe('POST');
+    expect(writeCalls[0]?.path).toBe('snapshot-bindings');
+    expect(writeCalls[0]?.body).toMatchObject({ device_type_id: '1', item_codes: ['temp', 'power'] });
+  });
+
+  it('支持全选 / 反选（FilterMultiSelect 的可选能力）', async () => {
+    const user = userEvent.setup();
+    renderApp('/snapshot-slots');
+    await waitForPage();
+    const { dialog } = await openBindingForm();
+
+    await user.click(within(dialog).getByRole('combobox', { name: '终端类型' }));
+    const typeList = await screen.findByRole('listbox', { name: '终端类型选项' });
+    await user.click(within(typeList).getByRole('option', { name: '泵站' }));
+    await user.click(within(dialog).getByRole('combobox', { name: '字段' }));
+    await screen.findByRole('listbox', { name: '字段选项' });
+
+    await user.click(screen.getByRole('button', { name: '全选' }));
+    expect(within(dialog).getByText('已选 4 个字段')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: '反选' }));
+    expect(within(dialog).getByText('已选 0 个字段')).toBeInTheDocument();
+  });
+
+  it('N=0 时禁用保存并说明原因', async () => {
+    const user = userEvent.setup();
+    renderApp('/snapshot-slots');
+    await waitForPage();
+    const { dialog } = await openBindingForm();
+
+    await user.click(within(dialog).getByRole('combobox', { name: '终端类型' }));
+    const typeList = await screen.findByRole('listbox', { name: '终端类型选项' });
+    await user.click(within(typeList).getByRole('option', { name: '泵站' }));
+
+    expect(within(dialog).getByText('已选 0 个字段')).toBeInTheDocument();
+    expect(within(dialog).getByText('至少选择一个字段后才能保存。')).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: '保存' })).toBeDisabled();
+  });
+
+  it('切作用域清空目标+已选；换目标只清空已选、保留作用域', async () => {
+    const user = userEvent.setup();
+    renderApp('/snapshot-slots');
+    await waitForPage();
+    const { dialog } = await openBindingForm();
+
+    // 选类型 + 两个字段。
+    await user.click(within(dialog).getByRole('combobox', { name: '终端类型' }));
+    const typeList = await screen.findByRole('listbox', { name: '终端类型选项' });
+    await user.click(within(typeList).getByRole('option', { name: '泵站' }));
+    await user.click(within(dialog).getByRole('combobox', { name: '字段' }));
+    const fieldList = await screen.findByRole('listbox', { name: '字段选项' });
+    await user.click(within(fieldList).getByRole('option', { name: /temp/ }));
+    expect(within(dialog).getByText('已选 1 个字段')).toBeInTheDocument();
+
+    // 换目标（同作用域）：只清已选字段，作用域仍是「终端类型」。
+    await user.keyboard('{Escape}');
+    await user.click(within(dialog).getByRole('combobox', { name: '终端类型' }));
+    const typeList2 = await screen.findByRole('listbox', { name: '终端类型选项' });
+    await user.click(within(typeList2).getByRole('option', { name: '阀门' }));
+    expect(within(dialog).getByText('已选 0 个字段')).toBeInTheDocument();
+    expect(within(dialog).getByRole('radio', { name: /终端类型（整类）/ })).toBeChecked();
+
+    // 切作用域：目标与已选一起清空。
+    await user.click(within(dialog).getByRole('radio', { name: /终端（单个）/ }));
+    expect(within(dialog).getByLabelText('终端')).toHaveValue('');
+    expect(within(dialog).getByText('已选 0 个字段')).toBeInTheDocument();
+  });
+
+  it('编辑态：提示只影响后续写入，回填字段并可改（PUT）', async () => {
+    const user = userEvent.setup();
+    renderApp('/snapshot-slots');
+    await waitForPage();
+
+    await user.click(screen.getAllByRole('button', { name: '编辑' })[0]!);
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('修改只影响后续写入，已产生的快照不变。')).toBeInTheDocument();
+    // 回填：类型级目标「泵站」+ 两个已选字段。
+    expect(within(dialog).getByText('已选 2 个字段')).toBeInTheDocument();
+
+    // 再勾一个字段后保存 → PUT。
+    await user.click(within(dialog).getByRole('combobox', { name: '字段' }));
+    const fieldList = await screen.findByRole('listbox', { name: '字段选项' });
+    await user.click(within(fieldList).getByRole('option', { name: /status/ }));
     await user.click(within(dialog).getByRole('button', { name: '保存' }));
 
-    expect(await within(dialog).findByText(/数据项 temp 不属于该终端类型/)).toBeInTheDocument();
+    await waitFor(() => expect(writeCalls).toHaveLength(1));
+    expect(writeCalls[0]?.method).toBe('PUT');
+    expect(writeCalls[0]?.path).toBe('snapshot-bindings/1');
+    expect(writeCalls[0]?.body).toMatchObject({ device_type_id: '1' });
+    expect((writeCalls[0]?.body as { item_codes: string[] }).item_codes).toHaveLength(3);
+  });
+
+  it('后端 400（目标重复 / 字段不存在）渲染在表单内，抽屉不关', async () => {
+    server.use(
+      http.post('/admin/v1/snapshot-bindings', () =>
+        HttpResponse.json({ code: 400, message: '该目标已有一条绑定，请编辑那一条' }, { status: 400 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderApp('/snapshot-slots');
+    await waitForPage();
+    const { dialog } = await openBindingForm();
+
+    await user.click(within(dialog).getByRole('combobox', { name: '终端类型' }));
+    const typeList = await screen.findByRole('listbox', { name: '终端类型选项' });
+    await user.click(within(typeList).getByRole('option', { name: '阀门' }));
+    await user.click(within(dialog).getByRole('combobox', { name: '字段' }));
+    const fieldList = await screen.findByRole('listbox', { name: '字段选项' });
+    await user.click(within(fieldList).getByRole('option', { name: /temp/ }));
+    await user.click(within(dialog).getByRole('button', { name: '保存' }));
+
+    expect(await within(dialog).findByText(/该目标已有一条绑定，请编辑那一条/)).toBeInTheDocument();
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 

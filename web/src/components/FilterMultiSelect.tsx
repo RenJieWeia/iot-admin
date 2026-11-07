@@ -13,6 +13,11 @@ interface Props {
   selected: string[];
   /** 勾选/取消后立即写回 QueryState。 */
   onChange: (values: string[]) => void;
+  /**
+   * 可选：弹层里提供「全选 / 反选」（作用于当前搜索结果）。
+   * 默认 false —— 既有调用方（筛选条）不传，DOM 与行为完全不变。
+   */
+  allowSelectAll?: boolean;
 }
 
 /**
@@ -24,7 +29,7 @@ interface Props {
  * - ↑↓ 移动高亮、Enter 切换选中且**不关闭**（多选要连续操作）、Esc 关闭并把焦点还给触发按钮；
  * - 组件内只有「搜索词 / 高亮项 / 开合」这类瞬时状态，选中值不进本地状态。
  */
-export function FilterMultiSelect({ id, label, options, selected, onChange }: Props) {
+export function FilterMultiSelect({ id, label, options, selected, onChange, allowSelectAll = false }: Props) {
   const [open, setOpen] = useState(false);
   const [keyword, setKeyword] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -131,6 +136,39 @@ export function FilterMultiSelect({ id, label, options, selected, onChange }: Pr
             aria-autocomplete="list"
             aria-activedescendant={activeOption ? optionId(activeOption.value) : undefined}
           />
+          {allowSelectAll && filtered.length > 0 && (
+            <div className="mb-2 flex items-center gap-2">
+              <button
+                type="button"
+                className="btn btn-link"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  // 全选：把当前搜索结果并入已选（不取消已选但被搜索隐藏的项）。
+                  const merged = new Set([...selected, ...filtered.map((option) => option.value)]);
+                  onChange(Array.from(merged));
+                }}
+              >
+                全选
+              </button>
+              <button
+                type="button"
+                className="btn btn-link"
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  // 反选：在当前搜索结果范围内翻转选中状态。
+                  const visible = new Set(filtered.map((option) => option.value));
+                  const kept = selected.filter((value) => !visible.has(value));
+                  const added = filtered
+                    .map((option) => option.value)
+                    .filter((value) => !selectedSet.has(value));
+                  onChange([...kept, ...added]);
+                }}
+              >
+                反选
+              </button>
+              <span className="text-sm text-muted">作用于当前搜索结果</span>
+            </div>
+          )}
           {selected.length > 0 && (
             <div className="mb-2 flex flex-wrap items-center gap-1" aria-label={`${label}已选项`}>
               {selected.map((value) => (

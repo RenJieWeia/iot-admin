@@ -685,6 +685,7 @@ export const allSnapshotSlots = [
 
 /** 绑定：类型级一条、实例级一条。 */
 export const allSnapshotBindings = [
-  { id: 1, device_type_id: '1', terminal_id: null, item_code: 'temp', created_at: '2026-11-06T10:00:00+08:00' },
-  { id: 2, device_type_id: null, terminal_id: 't-001', item_code: 'power', created_at: '2026-11-06T10:05:00+08:00' },
+  // 一行 = 一个目标 + 多个字段；fields_count 是后端派生列（测试里也按数组长度算兜底）。
+  { id: 1, device_type_id: '1', terminal_id: null, item_codes: ['temp', 'power'], fields_count: 2, created_at: '2026-11-06T10:00:00+08:00' },
+  { id: 2, device_type_id: null, terminal_id: 't-001', item_codes: ['power'], fields_count: 1, created_at: '2026-11-06T10:05:00+08:00' },
 ];

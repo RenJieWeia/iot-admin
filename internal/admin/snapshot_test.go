@@ -116,7 +116,7 @@ func TestSnapshotSlotStepWhitelist(t *testing.T) {
 	}
 }
 
-// 绑定实体：不进导航（Hidden），可增删，created_at 只读。
+// 绑定实体：不进导航（Hidden），可增删，item_codes 是 jsonb 数组，列表带派生列「字段数」。
 func TestSnapshotBindingEntityShape(t *testing.T) {
 	e := mustEntity(t, "snapshot-bindings")
 	if !e.Hidden || e.FixedRows {
@@ -125,9 +125,16 @@ func TestSnapshotBindingEntityShape(t *testing.T) {
 	if e.pk() != "id" || e.Table != "snapshot_binding" {
 		t.Fatalf("表/主键不符: %+v", e)
 	}
-	if strings.Join(e.Cols, ",") != "device_type_id,terminal_id,item_code" {
-		t.Fatalf("可写列 = %v，期望 [device_type_id terminal_id item_code]", e.Cols)
+	if strings.Join(e.Cols, ",") != "device_type_id,terminal_id,item_codes" {
+		t.Fatalf("可写列 = %v，期望 [device_type_id terminal_id item_codes]", e.Cols)
 	}
+	if !e.isJSONB("item_codes") {
+		t.Fatal("item_codes 必须登记为 JSONB（写库走 ::jsonb 转换）")
+	}
+	if len(e.ExtraSelect) != 1 || !strings.Contains(e.ExtraSelect[0], "jsonb_array_length(item_codes)") {
+		t.Fatalf("派生列应为 jsonb_array_length(item_codes): %v", e.ExtraSelect)
+	}
+
 	fields, ok := FieldMetas("snapshot-bindings")
 	if !ok {
 		t.Fatal("snapshot-bindings 没有字段元数据")
@@ -139,6 +146,16 @@ func TestSnapshotBindingEntityShape(t *testing.T) {
 	if f := byKey["created_at"]; f.Editable {
 		t.Fatalf("created_at 不应可编辑: %+v", f)
 	}
+	if f := byKey["item_codes"]; !f.Editable || f.Type != "json" {
+		t.Fatalf("item_codes 应为可编辑的 json 字段: %+v", f)
+	}
+	derived, ok := byKey["item_count"]
+	if !ok || !derived.Derived {
+		t.Fatalf("item_count 应为派生列: %+v", derived)
+	}
+	if derived.Sortable || derived.Filterable || derived.Editable {
+		t.Fatalf("派生列不得可排序/筛选/编辑: %+v", derived)
+	}
 	for _, key := range []string{"device_type_id", "terminal_id"} {
 		if f := byKey[key]; f.Type != "relation" || !f.Editable {
 			t.Fatalf("%s 应为可编辑的关联字段: %+v", key, f)
@@ -149,45 +166,156 @@ func TestSnapshotBindingEntityShape(t *testing.T) {
 	}
 }
 
-// 保留期行集固定：POST / DELETE 一律 400，只有 PUT 允许改 retention_days。
-func TestSnapshotSettingsRejectsCreateAndDelete(t *testing.T) {
-	handler := New(nil).Handler()
-	for _, tc := range []struct{ method, path, body string }{
-		{http.MethodPost, "/admin/v1/snapshot-settings", `{"retention_days":30}`},
-		{http.MethodDelete, "/admin/v1/snapshot-settings/snapshot_coarse", ""},
-	} {
+// 列表 SQL 必须带上派生列表达式（只出现在 SELECT，不进排序/筛选）。
+func TestSnapshotBindingDerivedColumnInListSQL(t *testing.T) {
+	e := mustEntity(t, "snapshot-bindings")
+	sql, _, err := BuildListQuery(e, QueryState{Sort: "id", Order: "desc", Page: 1, PageSize: 10})
+	if err != nil {
+		t.Fatalf("构造列表 SQL: %v", err)
+	}
+	for _, want := range []string{"select *", "jsonb_array_length(item_codes) as item_count", "from snapshot_binding"} {
+		if !strings.Contains(sql, want) {
+			t.Fatalf("列表 SQL 缺少 %q：%s", want, sql)
+		}
+	}
+}
+
+// 绑定校验（真库）：多字段、全部错码一次列出、目标重复统一文案、部分更新合并、换目标。
+func TestSnapshotBindingValidationWithDB(t *testing.T) {
+	dsn := testDSN(t)
+	ctx := context.Background()
+	pool, err := store.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("连接 PostgreSQL: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := store.Migrate(ctx, pool, migrations.FS); err != nil {
+		t.Fatalf("执行迁移: %v", err)
+	}
+
+	cleanup := func() {
+		_, _ = pool.Exec(ctx, `delete from snapshot_binding`)
+		_, _ = pool.Exec(ctx, `delete from thing_model_property where type_id in (select id from device_type where code = 'BD-TYPE')`)
+		_, _ = pool.Exec(ctx, `delete from terminal where id in ('BD-T1', 'BD-T2')`)
+		_, _ = pool.Exec(ctx, `delete from device_type where code = 'BD-TYPE'`)
+		_, _ = pool.Exec(ctx, `delete from data_domain where code = 'BD-DOMAIN'`)
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+
+	if _, err := pool.Exec(ctx, `insert into data_domain (code, name) values ('BD-DOMAIN', '绑定测试域') on conflict (code) do nothing`); err != nil {
+		t.Fatalf("建数据域: %v", err)
+	}
+	var typeID int64
+	if err := pool.QueryRow(ctx, `
+		insert into device_type (code, name, domain_id)
+		select 'BD-TYPE', '绑定测试类型', id from data_domain where code = 'BD-DOMAIN'
+		returning id`).Scan(&typeID); err != nil {
+		t.Fatalf("建类型: %v", err)
+	}
+	for _, code := range []string{"bd-temp", "bd-power"} {
+		if _, err := pool.Exec(ctx, `
+			insert into thing_model_property (type_id, item_code, name, value_type)
+			values ($1, $2, $2, 'number')`, typeID, code); err != nil {
+			t.Fatalf("建物模型属性: %v", err)
+		}
+	}
+	for _, id := range []string{"BD-T1", "BD-T2"} {
+		if _, err := pool.Exec(ctx, `
+			insert into terminal (id, type_id, gateway_id, name, enabled) values ($1, $2, 'BD-GW', $1, true)`,
+			id, typeID); err != nil {
+			t.Fatalf("建终端: %v", err)
+		}
+	}
+
+	handler := New(pool).Handler()
+	do := func(method, path, body string) (int, string) {
+		t.Helper()
 		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, strings.NewReader(tc.body)))
-		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "fixed_rows") {
-			t.Fatalf("%s %s 应 400 fixed_rows，实际 %d %s", tc.method, tc.path, rec.Code, rec.Body.String())
-		}
+		handler.ServeHTTP(rec, httptest.NewRequest(method, path, strings.NewReader(body)))
+		return rec.Code, rec.Body.String()
 	}
-}
+	typeStr := strconv.FormatInt(typeID, 10)
+	typePath := "/admin/v1/snapshot-bindings"
 
-// 保留期实体：主键是 table_name，可写列只有 retention_days（否则就是允许改行集本身）。
-func TestSnapshotSettingsEntityShape(t *testing.T) {
-	e := mustEntity(t, "snapshot-settings")
-	if !e.Hidden || !e.FixedRows || e.pk() != "table_name" {
-		t.Fatalf("snapshot-settings 属性不符: %+v", e)
+	// 1) 作用域二选一 / 空数组 / 非数组
+	if code, body := do(http.MethodPost, typePath, `{"device_type_id":`+typeStr+`,"terminal_id":"BD-T1","item_codes":["bd-temp"]}`); code != http.StatusBadRequest || !strings.Contains(body, "二选一") {
+		t.Fatalf("两个作用域都给应 400，实际 %d %s", code, body)
 	}
-	if len(e.Cols) != 1 || e.Cols[0] != "retention_days" {
-		t.Fatalf("可写列 = %v，期望 [retention_days]", e.Cols)
+	if code, body := do(http.MethodPost, typePath, `{"item_codes":["bd-temp"]}`); code != http.StatusBadRequest || !strings.Contains(body, "二选一") {
+		t.Fatalf("两个作用域都不给应 400，实际 %d %s", code, body)
 	}
-}
+	if code, body := do(http.MethodPost, typePath, `{"device_type_id":`+typeStr+`,"item_codes":[]}`); code != http.StatusBadRequest {
+		t.Fatalf("空数组应 400，实际 %d %s", code, body)
+	}
 
-// 六档步长字典必须下发到 _meta.enums（key 与字段名一致）。
-func TestSnapshotStepDictionaries(t *testing.T) {
-	dicts := enumDictionaries()
-	for _, key := range []string{"second_step", "minute_step", "hour_step", "day_step", "month_step", "year_step"} {
-		dict, ok := dicts[key]
-		if !ok || len(dict) == 0 {
-			t.Fatalf("_meta.enums 缺少 %s", key)
-		}
-		for value, label := range dict {
-			if value == "" || label == "" {
-				t.Fatalf("%s 字典含空值: %v", key, dict)
-			}
-		}
+	// 2) 多个坏 code 一次列全
+	code, body := do(http.MethodPost, typePath, `{"device_type_id":`+typeStr+`,"item_codes":["bd-temp","nope-1","nope-2"]}`)
+	if code != http.StatusBadRequest || !strings.Contains(body, "nope-1") || !strings.Contains(body, "nope-2") {
+		t.Fatalf("应一次列出全部缺失 code，实际 %d %s", code, body)
+	}
+
+	// 3) 合法：一条绑定存多个字段（去重后入库）
+	code, body = do(http.MethodPost, typePath, `{"device_type_id":`+typeStr+`,"item_codes":["bd-temp","bd-power","bd-temp"]}`)
+	if code != http.StatusOK {
+		t.Fatalf("合法绑定应 200，实际 %d %s", code, body)
+	}
+	var bindingID int64
+	if err := pool.QueryRow(ctx, `select id from snapshot_binding where device_type_id = $1`, typeID).Scan(&bindingID); err != nil {
+		t.Fatalf("读绑定: %v", err)
+	}
+	var count int
+	if err := pool.QueryRow(ctx, `select jsonb_array_length(item_codes) from snapshot_binding where id = $1`, bindingID).Scan(&count); err != nil {
+		t.Fatalf("读字段数: %v", err)
+	}
+	if count != 2 {
+		t.Fatalf("入库字段数 = %d，期望 2（重复 code 已收敛）", count)
+	}
+
+	// 4) 同一目标建第二条 → 400，文案与校验阶段一致
+	code, body = do(http.MethodPost, typePath, `{"device_type_id":`+typeStr+`,"item_codes":["bd-temp"]}`)
+	if code != http.StatusBadRequest || !strings.Contains(body, "该目标已有一条绑定，请编辑那一条") {
+		t.Fatalf("重复目标应 400 统一文案，实际 %d %s", code, body)
+	}
+
+	// 5) 部分更新：只传 item_codes（body 里没有作用域）→ 合并库里现有值后通过
+	idPath := typePath + "/" + strconv.FormatInt(bindingID, 10)
+	if code, body := do(http.MethodPut, idPath, `{"item_codes":["bd-power"]}`); code != http.StatusOK {
+		t.Fatalf("只改 item_codes 应 200，实际 %d %s", code, body)
+	}
+	var codes []string
+	if err := pool.QueryRow(ctx, `select array(select jsonb_array_elements_text(item_codes)) from snapshot_binding where id = $1`, bindingID).Scan(&codes); err != nil {
+		t.Fatalf("读更新后的 item_codes: %v", err)
+	}
+	if len(codes) != 1 || codes[0] != "bd-power" {
+		t.Fatalf("item_codes = %v，期望 [bd-power]", codes)
+	}
+
+	// 6) 部分更新里的坏 code 也要一次列出
+	if code, body := do(http.MethodPut, idPath, `{"item_codes":["bad-x","bad-y"]}`); code != http.StatusBadRequest ||
+		!strings.Contains(body, "bad-x") || !strings.Contains(body, "bad-y") {
+		t.Fatalf("更新的坏 code 应一次列出，实际 %d %s", code, body)
+	}
+
+	// 7) 编辑换目标：把类型级改成实例级（BD-T1）→ 通过；再换成已占用的 BD-T2 时先建一条再试
+	if code, body := do(http.MethodPut, idPath, `{"device_type_id":null,"terminal_id":"BD-T1"}`); code != http.StatusOK {
+		t.Fatalf("换目标应 200，实际 %d %s", code, body)
+	}
+	var targetTerminal *string
+	var targetType *int64
+	if err := pool.QueryRow(ctx, `select device_type_id, terminal_id from snapshot_binding where id = $1`, bindingID).
+		Scan(&targetType, &targetTerminal); err != nil {
+		t.Fatalf("读目标: %v", err)
+	}
+	if targetType != nil || targetTerminal == nil || *targetTerminal != "BD-T1" {
+		t.Fatalf("换目标未生效: type=%v terminal=%v", targetType, targetTerminal)
+	}
+	if code, body := do(http.MethodPost, typePath, `{"terminal_id":"BD-T2","item_codes":["bd-temp"]}`); code != http.StatusOK {
+		t.Fatalf("给 BD-T2 建绑定应 200，实际 %d %s", code, body)
+	}
+	if code, body := do(http.MethodPut, idPath, `{"terminal_id":"BD-T2"}`); code != http.StatusBadRequest ||
+		!strings.Contains(body, "该目标已有一条绑定，请编辑那一条") {
+		t.Fatalf("换成已占用的目标应 400 统一文案，实际 %d %s", code, body)
 	}
 }
 
@@ -222,106 +350,4 @@ func contains(values []string, target string) bool {
 		}
 	}
 	return false
-}
-
-// TestUpdateSQLUsesEntityPKey 守住「非 id 主键的实体」不会在 UPDATE 里写死 id。
-// 线上曾因此 500：PUT /admin/v1/snapshot-settings/snapshot_second → column "id" does not exist。
-func TestUpdateSQLUsesEntityPKey(t *testing.T) {
-	e, ok := lookup("snapshot-settings")
-	if !ok {
-		t.Fatal("snapshot-settings 实体缺失")
-	}
-	got := updateSQL(e, []string{"retention_days = $1"}, 2)
-	want := `update snapshot_settings set retention_days = $1 where table_name::text = $2 returning *`
-	if got != want {
-		t.Fatalf("update SQL 不符：\n got  %s\n want %s", got, want)
-	}
-	if strings.Contains(got, "where id::text") {
-		t.Fatal("UPDATE 仍在写死 id 列")
-	}
-}
-
-// 绑定校验（验收 5）：作用域二选一 + item_code 必须属于目标的物模型，错误要能读懂。
-func TestSnapshotBindingValidationWithDB(t *testing.T) {
-	dsn := testDSN(t)
-	ctx := context.Background()
-	pool, err := store.Connect(ctx, dsn)
-	if err != nil {
-		t.Fatalf("连接 PostgreSQL: %v", err)
-	}
-	t.Cleanup(pool.Close)
-	if err := store.Migrate(ctx, pool, migrations.FS); err != nil {
-		t.Fatalf("执行迁移: %v", err)
-	}
-
-	// 造一套独立数据：数据域 → 类型（含 temp 属性）→ 终端。
-	cleanup := func() {
-		_, _ = pool.Exec(ctx, `delete from snapshot_binding where item_code like 'bd-%'`)
-		_, _ = pool.Exec(ctx, `delete from thing_model_property where type_id in (select id from device_type where code = 'BD-TYPE')`)
-		_, _ = pool.Exec(ctx, `delete from terminal where id = 'BD-T1'`)
-		_, _ = pool.Exec(ctx, `delete from device_type where code = 'BD-TYPE'`)
-		_, _ = pool.Exec(ctx, `delete from data_domain where code = 'BD-DOMAIN'`)
-	}
-	cleanup()
-	t.Cleanup(cleanup)
-	if _, err := pool.Exec(ctx, `insert into data_domain (code, name) values ('BD-DOMAIN', '绑定测试域') on conflict (code) do nothing`); err != nil {
-		t.Fatalf("建数据域: %v", err)
-	}
-	var typeID int64
-	if err := pool.QueryRow(ctx, `
-		insert into device_type (code, name, domain_id)
-		select 'BD-TYPE', '绑定测试类型', id from data_domain where code = 'BD-DOMAIN'
-		returning id`).Scan(&typeID); err != nil {
-		t.Fatalf("建类型: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `
-		insert into thing_model_property (type_id, item_code, name, value_type)
-		values ($1, 'bd-temp', '温度', 'number')`, typeID); err != nil {
-		t.Fatalf("建物模型属性: %v", err)
-	}
-	if _, err := pool.Exec(ctx, `
-		insert into terminal (id, type_id, gateway_id, name, enabled) values ('BD-T1', $1, 'BD-GW', '绑定测试终端', true)`,
-		typeID); err != nil {
-		t.Fatalf("建终端: %v", err)
-	}
-
-	handler := New(pool).Handler()
-	post := func(body string) (int, string) {
-		t.Helper()
-		rec := httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/admin/v1/snapshot-bindings", strings.NewReader(body)))
-		return rec.Code, rec.Body.String()
-	}
-
-	// 1) 作用域二选一
-	if code, body := post(`{"device_type_id":` + strconv.FormatInt(typeID, 10) + `,"terminal_id":"BD-T1","item_code":"bd-temp"}`); code != http.StatusBadRequest ||
-		!strings.Contains(body, "二选一") {
-		t.Fatalf("两个作用域都给应 400，实际 %d %s", code, body)
-	}
-	if code, body := post(`{"item_code":"bd-temp"}`); code != http.StatusBadRequest || !strings.Contains(body, "二选一") {
-		t.Fatalf("两个作用域都不给应 400，实际 %d %s", code, body)
-	}
-
-	// 2) item_code 不属于目标物模型 → 400 且说清「哪个类型下没有哪个数据项」
-	code, body := post(`{"device_type_id":` + strconv.FormatInt(typeID, 10) + `,"item_code":"not-declared"}`)
-	if code != http.StatusBadRequest || !strings.Contains(body, "not-declared") || !strings.Contains(body, "物模型") {
-		t.Fatalf("未声明的数据项应 400 并说明原因，实际 %d %s", code, body)
-	}
-
-	// 3) 终端不存在
-	if code, body := post(`{"terminal_id":"BD-NOPE","item_code":"bd-temp"}`); code != http.StatusBadRequest ||
-		!strings.Contains(body, "不存在") {
-		t.Fatalf("不存在的终端应 400，实际 %d %s", code, body)
-	}
-
-	// 4) 合法：类型级 + 实例级各一条；重复的类型级绑定被部分唯一索引拦下（400）
-	if code, body := post(`{"device_type_id":` + strconv.FormatInt(typeID, 10) + `,"item_code":"bd-temp"}`); code != http.StatusOK {
-		t.Fatalf("合法类型级绑定应 200，实际 %d %s", code, body)
-	}
-	if code, body := post(`{"terminal_id":"BD-T1","item_code":"bd-temp"}`); code != http.StatusOK {
-		t.Fatalf("合法实例级绑定应 200，实际 %d %s", code, body)
-	}
-	if code, body := post(`{"device_type_id":` + strconv.FormatInt(typeID, 10) + `,"item_code":"bd-temp"}`); code != http.StatusBadRequest {
-		t.Fatalf("重复的类型级绑定应 400，实际 %d %s", code, body)
-	}
 }

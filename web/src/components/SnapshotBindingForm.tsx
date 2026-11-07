@@ -1,14 +1,15 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useEffect, useState } from 'react';
-import { ApiError, createRow, fetchList } from '../api/client';
+import { useEffect, useMemo, useState } from 'react';
+import { ApiError, createRow, fetchList, fetchOne, updateRow } from '../api/client';
 import type { FieldMeta, RowData } from '../api/types';
 import { Drawer } from './Drawer';
+import { FilterMultiSelect } from './FilterMultiSelect';
 import { RelationSelect } from './RelationSelect';
 
 const BINDINGS_ENTITY = 'snapshot-bindings';
 const PROPERTIES_ENTITY = 'thing-model-properties';
 
-/** 终端类型下拉：这是一个专用表单，不需要通用字段元数据，直接给 RelationSelect 造一个字段描述。 */
+/** 终端类型下拉：专用表单直接给 RelationSelect 造一个字段描述。 */
 const TYPE_FIELD: FieldMeta = {
   key: 'device_type_id',
   label: '终端类型',
@@ -32,18 +33,28 @@ type Scope = 'type' | 'terminal';
 interface Props {
   open: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onSaved: () => void;
+  /** 编辑态：传入现有绑定行；不传即新增。 */
+  editing?: RowData | null;
+}
+
+/** 兼容两种形态：新模型 `item_codes` 数组、旧模型单个 `item_code`。 */
+function codesOf(row: RowData | null | undefined): string[] {
+  const raw = row?.item_codes;
+  if (Array.isArray(raw)) return raw.map((value) => String(value));
+  if (typeof row?.item_code === 'string' && row.item_code !== '') return [row.item_code];
+  return [];
 }
 
 /**
- * 绑定专用表单：作用域（类型级 / 实例级）→ 目标 → 数据项。
+ * 绑定表单（新增与编辑共用）：单目标 + 多字段。
  *
- * 级联顺序是硬约束：
- *   类型级：选类型 → 用该类型过滤 `thing-model-properties` 取 item_code；
- *   实例级：先搜终端 → 从终端行里拿 `type_id` → 再取该类型的 item_code。
- * 顺序反了会拿到空候选（终端本身不带物模型）。
+ * 级联约束（两处清空都必须做）：
+ *   1) 切作用域（类型 ↔ 终端）→ 清空「目标 + 已选字段」；
+ *   2) 同作用域内换目标 → **只清空已选字段**（作用域保留）。
+ * 字段候选来自目标类型的终端属性；选终端时先由终端行拿 type_id 再取候选。
  */
-export function SnapshotBindingForm({ open, onClose, onCreated }: Props) {
+export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: Props) {
   const queryClient = useQueryClient();
   const [scope, setScope] = useState<Scope>('type');
   const [typeID, setTypeID] = useState('');
@@ -51,15 +62,47 @@ export function SnapshotBindingForm({ open, onClose, onCreated }: Props) {
   const [terminalTypeID, setTerminalTypeID] = useState('');
   const [keyword, setKeyword] = useState('');
   const [debounced, setDebounced] = useState('');
-  const [itemCode, setItemCode] = useState('');
+  const [codes, setCodes] = useState<string[]>([]);
   const [formError, setFormError] = useState<string | null>(null);
+
+  const isEdit = editing !== null;
+  const editingID = editing ? String(editing.id ?? '') : '';
+
+  // 打开时按编辑态初始化：目标与已选字段从行里回填；新增则清空。
+  useEffect(() => {
+    if (!open) return;
+    setFormError(null);
+    setKeyword('');
+    setDebounced('');
+    if (editing) {
+      const isType = editing.device_type_id !== null && editing.device_type_id !== undefined;
+      setScope(isType ? 'type' : 'terminal');
+      setTypeID(isType ? String(editing.device_type_id) : '');
+      setTerminalID(isType ? '' : String(editing.terminal_id ?? ''));
+      setTerminalTypeID('');
+      setCodes(codesOf(editing));
+    } else {
+      setScope('type');
+      setTypeID('');
+      setTerminalID('');
+      setTerminalTypeID('');
+      setCodes([]);
+    }
+  }, [open, editing]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => setDebounced(keyword.trim()), 300);
     return () => window.clearTimeout(timer);
   }, [keyword]);
 
-  // 终端搜索：按 ID 或名称，选中后把 type_id 一起带回来（级联的第二跳）。
+  // 编辑实例级绑定时，行里只有 terminal_id：查一次终端拿 type_id，才能取字段候选。
+  const terminalRow = useQuery({
+    queryKey: ['bindings', 'terminal', terminalID],
+    queryFn: ({ signal }) => fetchOne('terminals', terminalID, signal),
+    enabled: open && scope === 'terminal' && terminalID !== '' && terminalTypeID === '',
+  });
+  const resolvedTerminalTypeID = terminalTypeID || String(terminalRow.data?.type_id ?? '');
+
   const terminals = useQuery({
     queryKey: ['bindings', 'terminals', debounced],
     queryFn: ({ signal }) => fetchList('terminals', { q: debounced, pageSize: 10 }, signal),
@@ -67,9 +110,8 @@ export function SnapshotBindingForm({ open, onClose, onCreated }: Props) {
     placeholderData: (prev) => prev,
   });
 
-  const effectiveTypeID = scope === 'type' ? typeID : terminalTypeID;
+  const effectiveTypeID = scope === 'type' ? typeID : resolvedTerminalTypeID;
 
-  // 数据项候选：所选类型的物模型声明（按 type_id 固定过滤）。
   const properties = useQuery({
     queryKey: ['bindings', 'properties', effectiveTypeID],
     queryFn: ({ signal }) =>
@@ -81,33 +123,51 @@ export function SnapshotBindingForm({ open, onClose, onCreated }: Props) {
     enabled: open && effectiveTypeID !== '',
     placeholderData: (prev) => prev,
   });
-  const itemOptions = (properties.data?.rows ?? []).map((row) => ({
-    value: String(row.item_code ?? ''),
-    label: row.name ? `${String(row.item_code)}（${String(row.name)}）` : String(row.item_code ?? ''),
-  }));
+
+  const fieldOptions = useMemo(
+    () =>
+      (properties.data?.rows ?? []).map((row) => ({
+        value: String(row.item_code ?? ''),
+        label: row.name ? `${String(row.item_code)}（${String(row.name)}）` : String(row.item_code ?? ''),
+      })),
+    [properties.data],
+  );
+  const labelOf = (code: string) => fieldOptions.find((option) => option.value === code)?.label ?? code;
 
   const save = useMutation({
-    mutationFn: (body: RowData) => createRow(BINDINGS_ENTITY, body),
+    mutationFn: (body: RowData) =>
+      isEdit ? updateRow(BINDINGS_ENTITY, editingID, body) : createRow(BINDINGS_ENTITY, body),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['list', BINDINGS_ENTITY] });
-      onCreated();
+      onSaved();
       onClose();
-      reset();
     },
     onError: (error) => {
-      // 后端会因「数据项不属于该类型」返回 400 + 原因：原样显示在表单内，抽屉不关。
+      // 目标重复、字段不属于该类型等 400：原因原样显示在表单内，抽屉不关。
       setFormError(error instanceof ApiError ? error.detail : String(error));
     },
   });
 
-  const reset = () => {
-    setScope('type');
+  const switchScope = (next: Scope) => {
+    // 作用域变化：目标与已选字段都作废（候选集完全换了）。
+    setScope(next);
     setTypeID('');
     setTerminalID('');
     setTerminalTypeID('');
     setKeyword('');
     setDebounced('');
-    setItemCode('');
+    setCodes([]);
+    setFormError(null);
+  };
+
+  const changeTarget = (nextTypeID: string, nextTerminalID = '', nextTerminalType = '') => {
+    // 同作用域内换目标：只清空已选字段，作用域保留。
+    setTypeID(nextTypeID);
+    if (nextTerminalID !== '') {
+      setTerminalID(nextTerminalID);
+      setTerminalTypeID(nextTerminalType);
+    }
+    setCodes([]);
     setFormError(null);
   };
 
@@ -116,32 +176,25 @@ export function SnapshotBindingForm({ open, onClose, onCreated }: Props) {
       setFormError(scope === 'type' ? '请选择终端类型' : '请先选择终端');
       return;
     }
-    if (itemCode === '') {
-      setFormError('请选择数据项');
-      return;
-    }
     setFormError(null);
     const body: RowData =
       scope === 'type'
-        ? { device_type_id: typeID, item_code: itemCode }
-        : { terminal_id: terminalID, item_code: itemCode };
+        ? { device_type_id: typeID, item_codes: codes }
+        : { terminal_id: terminalID, item_codes: codes };
     save.mutate(body);
   };
 
-  const switchScope = (next: Scope) => {
-    setScope(next);
-    setItemCode('');
-    setFormError(null);
-  };
+  const canSave = codes.length > 0 && !save.isPending;
 
   return (
     <Drawer
       open={open}
-      title="新建快照绑定"
+      title={isEdit ? '编辑快照绑定' : '新建快照绑定'}
       onClose={onClose}
-      description="作用域二选一：整类终端或单个终端；数据项来自所选终端类型的终端属性。"
+      description="一条绑定 = 一个目标（终端类型或终端）+ 多个数据项；字段候选来自目标类型的终端属性。"
       footer={
         <>
+          <span className="mr-auto text-meta text-muted">已选 {codes.length} 个字段</span>
           <button type="button" className="btn" onClick={onClose} disabled={save.isPending}>
             取消
           </button>
@@ -149,14 +202,21 @@ export function SnapshotBindingForm({ open, onClose, onCreated }: Props) {
             type="button"
             className="btn btn-primary"
             onClick={submit}
-            disabled={save.isPending}
+            disabled={!canSave}
             aria-busy={save.isPending}
+            title={codes.length === 0 ? '至少选择一个字段后才能保存' : undefined}
           >
             保存
           </button>
         </>
       }
     >
+      {isEdit && (
+        <p className="m-0 rounded-sm border border-warning bg-warning-weak px-3 py-2 text-warning" role="status">
+          修改只影响后续写入，已产生的快照不变。
+        </p>
+      )}
+
       <fieldset className="field m-0 border-0 p-0">
         <legend className="mb-1 p-0 text-body">作用域</legend>
         <div className="flex gap-4">
@@ -182,10 +242,7 @@ export function SnapshotBindingForm({ open, onClose, onCreated }: Props) {
             field={TYPE_FIELD}
             id="binding-type"
             value={typeID}
-            onChange={(next) => {
-              setTypeID(next);
-              setItemCode('');
-            }}
+            onChange={(next) => changeTarget(next)}
             allowEmpty={false}
           />
         </div>
@@ -203,7 +260,7 @@ export function SnapshotBindingForm({ open, onClose, onCreated }: Props) {
           {terminalID !== '' && (
             <p className="m-0 text-meta text-muted">
               已选终端：{terminalID}
-              {terminalTypeID ? `（类型 ${terminalTypeID}）` : ''}
+              {effectiveTypeID ? `（类型 ${effectiveTypeID}）` : ''}
             </p>
           )}
           {debounced !== '' && terminals.isFetching && (
@@ -217,12 +274,7 @@ export function SnapshotBindingForm({ open, onClose, onCreated }: Props) {
                     type="button"
                     className="btn btn-link"
                     aria-pressed={String(row.id) === terminalID}
-                    onClick={() => {
-                      setTerminalID(String(row.id));
-                      setTerminalTypeID(String(row.type_id ?? ''));
-                      setItemCode('');
-                      setFormError(null);
-                    }}
+                    onClick={() => changeTarget('', String(row.id), String(row.type_id ?? ''))}
                   >
                     {String(row.id)}（{String(row.name ?? '未命名')}）
                   </button>
@@ -237,22 +289,40 @@ export function SnapshotBindingForm({ open, onClose, onCreated }: Props) {
       )}
 
       <div className="field">
-        <label htmlFor="binding-item">数据项</label>
-        <select
-          id="binding-item"
-          className="select h-8"
-          value={itemCode}
-          disabled={effectiveTypeID === ''}
-          onChange={(event) => setItemCode(event.target.value)}
-        >
-          <option value="">{effectiveTypeID === '' ? '先选择目标' : '选择数据项'}</option>
-          {itemOptions.map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
-        <p className="m-0 text-meta text-muted">候选来自该终端类型的终端属性（物模型声明）。</p>
+        <span className="text-body" id="binding-fields-label">字段</span>
+        <FilterMultiSelect
+          label="字段"
+          options={fieldOptions}
+          selected={codes}
+          onChange={(next) => {
+            setCodes(next);
+            setFormError(null);
+          }}
+          allowSelectAll
+        />
+        {codes.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1" aria-label="已选字段">
+            {codes.map((code) => (
+              <button
+                key={code}
+                type="button"
+                className="btn btn-link"
+                aria-label={`移除字段 ${code}`}
+                onClick={() => setCodes((prev) => prev.filter((item) => item !== code))}
+              >
+                {labelOf(code)} ✕
+              </button>
+            ))}
+          </div>
+        )}
+        <p className="m-0 text-meta text-muted">
+          {effectiveTypeID === ''
+            ? '先选择目标，字段候选来自目标类型的终端属性。'
+            : `候选来自终端类型 ${effectiveTypeID} 的终端属性；可搜索，支持全选/反选。`}
+        </p>
+        {codes.length === 0 && (
+          <p className="m-0 text-meta text-warning">至少选择一个字段后才能保存。</p>
+        )}
       </div>
 
       {formError && (

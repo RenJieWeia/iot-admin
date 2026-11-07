@@ -2,6 +2,8 @@ package snapshot
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -43,11 +45,13 @@ func (l *PGLoader) Load(ctx context.Context) (Config, Bindings, error) {
 		return nil, Bindings{}, err
 	}
 
+	// 一条绑定 = 一个目标 + 一个 item_codes 数组：加载时把数组展开进 set，
+	// 缓存对外形状（Types[typeID]→set、Terminals[terminalID]→set）与并集判定都不变。
 	binds := Bindings{
 		Types:     map[int64]map[string]struct{}{},
 		Terminals: map[string]map[string]struct{}{},
 	}
-	rows, err = l.Pool.Query(ctx, `select device_type_id, terminal_id, item_code from snapshot_binding`)
+	rows, err = l.Pool.Query(ctx, `select device_type_id, terminal_id, item_codes from snapshot_binding`)
 	if err != nil {
 		return nil, Bindings{}, err
 	}
@@ -55,25 +59,35 @@ func (l *PGLoader) Load(ctx context.Context) (Config, Bindings, error) {
 	for rows.Next() {
 		var typeID *int64
 		var terminalID *string
-		var itemCode string
-		if err := rows.Scan(&typeID, &terminalID, &itemCode); err != nil {
+		var raw []byte
+		if err := rows.Scan(&typeID, &terminalID, &raw); err != nil {
 			return nil, Bindings{}, err
 		}
-		switch {
-		case typeID != nil:
-			set := binds.Types[*typeID]
-			if set == nil {
-				set = map[string]struct{}{}
-				binds.Types[*typeID] = set
+		var codes []string
+		if err := json.Unmarshal(raw, &codes); err != nil {
+			// 数据库 CHECK 保证是数组；解不出来说明数据被外部改坏了 → 按平台故障上报。
+			return nil, Bindings{}, fmt.Errorf("解析 snapshot_binding.item_codes: %w", err)
+		}
+		for _, code := range codes {
+			if code == "" {
+				continue
 			}
-			set[itemCode] = struct{}{}
-		case terminalID != nil:
-			set := binds.Terminals[*terminalID]
-			if set == nil {
-				set = map[string]struct{}{}
-				binds.Terminals[*terminalID] = set
+			switch {
+			case typeID != nil:
+				set := binds.Types[*typeID]
+				if set == nil {
+					set = map[string]struct{}{}
+					binds.Types[*typeID] = set
+				}
+				set[code] = struct{}{}
+			case terminalID != nil:
+				set := binds.Terminals[*terminalID]
+				if set == nil {
+					set = map[string]struct{}{}
+					binds.Terminals[*terminalID] = set
+				}
+				set[code] = struct{}{}
 			}
-			set[itemCode] = struct{}{}
 		}
 	}
 	return cfg, binds, rows.Err()

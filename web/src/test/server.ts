@@ -78,6 +78,40 @@ function filterTerminals(url: URL) {
   return rows;
 }
 
+/** 模拟后端校验：目标唯一 + 字段必须属于目标类型的物模型；返回 400 响应或 null。 */
+function bindingFailure(body: RowData, selfID = '') {
+  const codes = Array.isArray(body.item_codes) ? body.item_codes.map(String) : [];
+  if (codes.length === 0) {
+    return HttpResponse.json({ code: 400, message: '至少需要一个字段' }, { status: 400 });
+  }
+  const typeID =
+    body.device_type_id != null
+      ? String(body.device_type_id)
+      : String(allTerminals.find((t) => t.id === body.terminal_id)?.type_id ?? '');
+  const unknown = codes.filter(
+    (code) => !allProperties.some((row) => row.type_id === typeID && row.item_code === code),
+  );
+  if (unknown.length > 0) {
+    return HttpResponse.json(
+      { code: 400, message: `以下字段不属于该终端类型：${unknown.join(', ')}` },
+      { status: 400 },
+    );
+  }
+  const duplicate = allSnapshotBindings.some(
+    (row) =>
+      String(row.id) !== selfID &&
+      ((body.device_type_id != null && String(row.device_type_id) === String(body.device_type_id)) ||
+        (body.terminal_id != null && String(row.terminal_id) === String(body.terminal_id))),
+  );
+  if (duplicate) {
+    return HttpResponse.json(
+      { code: 400, message: '该目标已有一条绑定，请编辑那一条' },
+      { status: 400 },
+    );
+  }
+  return null;
+}
+
 export const server = setupServer(
   http.get('/admin/v1/_meta', () => ok(metaFixture)),
 
@@ -297,20 +331,16 @@ export const server = setupServer(
   http.post('/admin/v1/snapshot-bindings', async ({ request }) => {
     const body = (await request.json()) as RowData;
     writeCalls.push({ method: 'POST', path: 'snapshot-bindings', body });
-    // 模拟后端校验：数据项必须属于目标类型（类型级看 device_type_id，实例级先查终端类型）。
-    const typeID =
-      body.device_type_id != null
-        ? String(body.device_type_id)
-        : String(allTerminals.find((t) => t.id === body.terminal_id)?.type_id ?? '');
-    const belongs = allProperties.some(
-      (row) => row.type_id === typeID && row.item_code === body.item_code,
-    );
-    if (!belongs) {
-      return HttpResponse.json(
-        { code: 400, message: `数据项 ${String(body.item_code)} 不属于该终端类型` },
-        { status: 400 },
-      );
-    }
+    const failure = bindingFailure(body);
+    if (failure) return failure;
+    return ok({});
+  }),
+
+  http.put('/admin/v1/snapshot-bindings/:id', async ({ params, request }) => {
+    const body = (await request.json()) as RowData;
+    writeCalls.push({ method: 'PUT', path: `snapshot-bindings/${String(params.id)}`, body });
+    const failure = bindingFailure(body, String(params.id));
+    if (failure) return failure;
     return ok({});
   }),
 
