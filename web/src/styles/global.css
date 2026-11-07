@@ -10,7 +10,7 @@
 
 /*
  * 全局样式分层：base < components < utilities（顺序由 tailwind.css 的 @layer 声明固定）。
- * 这样组件里的工具类能覆盖 .input 的 width:100%、nav 链接的默认颜色等；
+ * 这样组件里的工具类能覆盖 nav 链接的默认颜色等；
  * 颜色仍只来自 tokens.css 的 :root。
  */
 @layer base {
@@ -85,78 +85,6 @@
 }
 
 @layer components {
-  /* ---------------------------------------------------------------------------
-   * 1107019 起 `.btn` / `.btn-primary` / `.btn-danger` / `.btn-link` 在全站 TSX 里**已无引用**
-   * （按钮统一换成 Radix `<Button>`，见 components/ 与 pages/）。
-   * 1107020 起 `.select` 也已清零（三处原生下拉换成 Radix `<Select>`），
-   * 现在 `.btn*` / `.input` / `.select` 三段手写控件样式**全站无引用**，
-   * 只剩表格内部的少量样式依赖同一段声明；整段删除留到 P5 统一清理。新增代码不要再用这些类。
-   * ------------------------------------------------------------------------- */
-  /* 通用按钮：主次分明，触摸目标 44px。 */
-  .btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: var(--space-1);
-    /* 视觉高度由令牌决定（40px）；触摸热区靠下面的 ::after 撑到 44，两者解耦。 */
-    position: relative;
-    height: var(--control-height);
-    padding: 0 var(--space-4);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--color-border);
-    background: var(--color-surface);
-    color: var(--color-text);
-    cursor: pointer;
-  }
-
-  /* 触摸热区扩展：视觉仍 40，命中区 ≥44（与 .touch-hit 工具类同源）。 */
-  /* 只给 .btn 撑热区：input/select 是替换元素，::after 不渲染，写了也不生效。 */
-  @media (pointer: coarse) {
-    .btn::after {
-      content: '';
-      position: absolute;
-      width: max(100%, var(--touch-target));
-      height: max(100%, var(--touch-target));
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-    }
-  }
-
-  .btn:hover {
-    background: var(--color-neutral-bg);
-  }
-
-  .btn:disabled {
-    cursor: not-allowed;
-    color: var(--color-muted);
-    background: var(--color-neutral-bg);
-  }
-
-  .btn-primary {
-    border-color: var(--color-primary);
-    background: var(--color-primary);
-    color: var(--color-on-primary);
-  }
-
-  .btn-primary:hover {
-    background: var(--color-primary-hover);
-  }
-
-  .btn-danger {
-    border-color: var(--color-negative-text);
-    color: var(--color-negative-text);
-  }
-
-  .btn-link {
-    border: none;
-    background: none;
-    color: var(--color-primary);
-    padding: 0 var(--space-1);
-    min-height: var(--touch-target);
-    cursor: pointer;
-  }
-
   /* 表单元素统一高度与边框，标签始终与控件显式关联（<label for>）。 */
   .field {
     display: flex;
@@ -167,32 +95,6 @@
   .field > label {
     font-size: var(--font-sm);
     color: var(--color-muted);
-  }
-
-  /* `.input` 自 1107019 起无 TSX 引用（文本输入已换 Radix TextField）；
-     `.select` 自 1107020 起也无引用（三处原生下拉换成 Radix Select）。
-     整块保留到 P5 与 `.btn*` 一起删除——删除前需确认表格内部没有再引用这段声明。 */
-  .input,
-  .select {
-    height: var(--control-height);
-    padding: 0 var(--space-2);
-    border: 1px solid var(--color-border);
-    border-radius: var(--radius-sm);
-    background: var(--color-surface);
-    color: var(--color-text);
-    font: inherit;
-    width: 100%;
-  }
-
-  .select[multiple] {
-    height: auto;
-    min-height: 96px;
-    padding: var(--space-1);
-  }
-
-  .input:invalid,
-  .field-error .input {
-    border-color: var(--color-negative-text);
   }
 
   .preset-row {
