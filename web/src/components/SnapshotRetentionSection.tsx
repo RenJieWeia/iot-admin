@@ -4,6 +4,7 @@ import { ApiError, fetchList, updateRow } from '../api/client';
 import { useMeta } from '../api/meta';
 import type { RowData } from '../api/types';
 import { Card, CardHeader } from './Card';
+import { Button } from '@radix-ui/themes';
 
 /** 只读源 `snapshot-settings`：三行固定（粗/分/秒），只能改 retention_days。 */
 const SETTINGS_ENTITY = 'snapshot-settings';
@@ -144,15 +145,9 @@ export function SnapshotRetentionSection() {
               有未保存修改
             </span>
           )}
-          <button
-            type="button"
-            className="btn"
-            onClick={submit}
-            disabled={!dirty || save.isPending}
-            aria-busy={save.isPending}
-          >
+          <Button type="button" onClick={submit} disabled={!dirty || save.isPending} aria-busy={save.isPending} variant="surface" size="3">
             保存
-          </button>
+          </Button>
         </>
         }
       />
@@ -163,9 +158,9 @@ export function SnapshotRetentionSection() {
       {list.isError ? (
         <p className="m-0 text-negative-text" role="alert">
           保留期加载失败：{errorText(list.error)}
-          <button type="button" className="btn btn-link" onClick={() => void list.refetch()}>
+          <Button type="button" onClick={() => void list.refetch()} variant="ghost" size="3" className="h-10">
             重试
-          </button>
+          </Button>
         </p>
       ) : list.isPending ? (
         <p className="m-0 text-sm text-muted" role="status">正在加载保留期…</p>

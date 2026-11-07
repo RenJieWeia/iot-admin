@@ -28,6 +28,7 @@ import {
 import { groupCrumb } from '../lib/navGroups';
 import { rememberScroll, takeScroll } from '../lib/scroll';
 import { getScrollPane } from '../lib/scrollPane';
+import { Button } from '@radix-ui/themes';
 
 /** 父实体与子资源名固定：一个终端类型下的属性列表（`_meta.subresources`）。 */
 const PARENT_ENTITY = 'device-types';
@@ -245,9 +246,9 @@ export function DeviceTypeDetailPage() {
           text={`${errorDetail(typeQuery.error) ?? '未知错误'}。请返回列表重新选择终端类型。`}
           onRetry={() => void typeQuery.refetch()}
           extra={
-            <button type="button" className="btn" onClick={backToList}>
+            <Button type="button" onClick={backToList} variant="surface" size="3">
               返回列表
-            </button>
+            </Button>
           }
         />
       </AppShell>
@@ -276,30 +277,20 @@ export function DeviceTypeDetailPage() {
       actions={
         <div className="flex items-center gap-2">
           {writable && (
-            <button
-              type="button"
-              className="btn"
-              data-action="edit-type"
-              onClick={() => {
+            <Button type="button" data-action="edit-type" onClick={() => {
                 editTypeMutation.reset();
                 setEditingType(true);
-              }}
-            >
+              }} variant="surface" size="3">
               编辑基本信息
-            </button>
+            </Button>
           )}
           {writable && (
-            <button
-              type="button"
-              className="btn btn-primary"
-              data-action="new-property"
-              onClick={() => {
+            <Button type="button" data-action="new-property" onClick={() => {
                 saveMutation.reset();
                 setDrawer({ mode: 'new', row: null });
-              }}
-            >
+              }} variant="solid" size="3">
               新建属性
-            </button>
+            </Button>
           )}
         </div>
       }
@@ -311,9 +302,9 @@ export function DeviceTypeDetailPage() {
         {typeQuery.isError ? (
           <p className="m-0 text-negative-text" role="alert">
             终端类型信息加载失败：{errorDetail(typeQuery.error) ?? '未知错误'}
-            <button type="button" className="btn btn-link" onClick={() => void typeQuery.refetch()}>
+            <Button type="button" onClick={() => void typeQuery.refetch()} variant="ghost" size="3" className="h-10">
               重试
-            </button>
+            </Button>
           </p>
         ) : (
           <dl className="m-0 grid grid-cols-1 gap-2 sm:grid-cols-3">
@@ -345,9 +336,9 @@ export function DeviceTypeDetailPage() {
           role="status"
         >
           <span>{pageNotice}</span>
-          <button type="button" className="btn" onClick={() => setPageNotice(null)}>
+          <Button type="button" onClick={() => setPageNotice(null)} variant="surface" size="3">
             知道了
-          </button>
+          </Button>
         </p>
       )}
       <Card>
@@ -376,9 +367,9 @@ export function DeviceTypeDetailPage() {
             text="用右上角「新建属性」录入第一条；type_id 会自动锁定为当前终端类型。"
             action={
               writable ? (
-                <button type="button" className="btn" onClick={() => setDrawer({ mode: 'new', row: null })}>
+                <Button type="button" onClick={() => setDrawer({ mode: 'new', row: null })} variant="surface" size="3">
                   新建{property.title}
-                </button>
+                </Button>
               ) : undefined
             }
           />
@@ -387,9 +378,9 @@ export function DeviceTypeDetailPage() {
             title="当前页暂时没有数据"
             text="这一页正好取不到数据（总数仍大于 0）。已尝试回到第一页，也可以直接重试。"
             action={
-              <button type="button" className="btn" onClick={() => void list.refetch()}>
+              <Button type="button" onClick={() => void list.refetch()} variant="surface" size="3">
                 刷新
-              </button>
+              </Button>
             }
           />
         ) : (

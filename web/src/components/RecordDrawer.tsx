@@ -6,6 +6,7 @@ import { toFormValue, toSubmitValue } from '../lib/format';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import { Drawer } from './Drawer';
 import { RelationSelect } from './RelationSelect';
+import { Button } from '@radix-ui/themes';
 
 interface Props {
   entity: EntityMeta;
@@ -223,28 +224,17 @@ export function RecordDrawer({
       footer={
         <>
           {mode === 'edit' && writable && (
-            <button
-              type="button"
-              className="btn btn-danger touch-hit mr-auto"
-              onClick={onDelete}
-              disabled={saving || deleting}
-            >
+            <Button type="button" onClick={onDelete} disabled={saving || deleting} variant="soft" size="3" color="red" className="touch-hit mr-auto">
               删除
-            </button>
+            </Button>
           )}
-          <button type="button" className="btn touch-hit" onClick={onClose} disabled={saving}>
+          <Button type="button" onClick={onClose} disabled={saving} variant="surface" size="3" className="touch-hit">
             取消
-          </button>
+          </Button>
           {/* 文案固定「保存」，忙碌态只由 disabled + aria-busy 表达，宽度不跳动（§5.1）。 */}
-          <button
-            type="button"
-            className="btn btn-primary touch-hit"
-            onClick={submit}
-            disabled={saving}
-            aria-busy={saving}
-          >
+          <Button type="button" onClick={submit} disabled={saving} aria-busy={saving} variant="solid" size="3" className="touch-hit">
             保存
-          </button>
+          </Button>
         </>
       }
     >

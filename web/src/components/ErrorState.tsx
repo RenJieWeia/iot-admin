@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { StatePanel } from './StatePanel';
+import { Button } from '@radix-ui/themes';
 
 interface Props {
   title: string;
@@ -19,9 +20,9 @@ export function ErrorState({ title, text, onRetry, retryLabel = '重试', extra 
       tone="error"
       actions={
         <>
-          <button type="button" className="btn" onClick={onRetry}>
+          <Button type="button" onClick={onRetry} variant="surface" size="3">
             {retryLabel}
-          </button>
+          </Button>
           {extra}
         </>
       }

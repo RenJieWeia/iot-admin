@@ -2,6 +2,7 @@ import * as Popover from '@radix-ui/react-popover';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useFieldOptions, useOptionSearch } from '../api/entities';
 import type { FieldMeta, OptionItem } from '../api/types';
+import { Button } from '@radix-ui/themes';
 
 interface Props {
   field: FieldMeta;
@@ -198,14 +199,9 @@ export function RelationSelect({
         </Popover.Portal>
       </Popover.Root>
       {allowEmpty && value !== '' && (
-        <button
-          type="button"
-          className="btn shrink-0"
-          onClick={clear}
-          aria-label={`清除${field.label}`}
-        >
+        <Button type="button" onClick={clear} aria-label={`清除${field.label}`} variant="surface" size="3" className="shrink-0">
           清除
-        </button>
+        </Button>
       )}
       {search.isError && (
         <p className="m-0 text-sm text-muted" role="status">

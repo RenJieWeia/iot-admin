@@ -19,7 +19,6 @@ import { FilterBar } from '../components/FilterBar';
 import { Pagination } from '../components/Pagination';
 import { RecordDrawer, objectLabel } from '../components/RecordDrawer';
 import { Toast, type ToastMessage } from '../components/Toast';
-import { cn } from '../lib/cn';
 import { defaultSort, isWritable, relationTarget } from '../lib/fieldMeta';
 import {
   clearFilters,
@@ -45,32 +44,6 @@ import { getScrollPane } from '../lib/scrollPane';
  */
 const PilotUiContext = createContext(false);
 
-/** 按钮：试点实体用 Radix Button（solid=主 / soft=次 / ghost=文字链），其它实体保持 .btn 系列。 */
-function PilotActionButton({
-  weight,
-  className,
-  ...rest
-}: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'color'> & {
-  weight: 'solid' | 'soft' | 'ghost';
-}) {
-  const pilot = useContext(PilotUiContext);
-  if (pilot) {
-    // ghost 原生只有 32px（padding 6 + 行高 20），补 h-10 拉回 40px。
-    return (
-      <Button
-        {...rest}
-        type="button"
-        variant={weight}
-        size="3"
-        className={cn(weight === 'ghost' && 'h-10', className)}
-      />
-    );
-  }
-  const legacy = weight === 'solid' ? 'btn btn-primary' : weight === 'ghost' ? 'btn btn-link' : 'btn';
-  return <button {...rest} type="button" className={cn(legacy, className)} />;
-}
-
-/** 卡片：试点实体用 Radix <Card size="3">（带 data-card），其它实体继续用本地 <Card>。 */
 function ListCard({ children }: { children: ReactNode }) {
   const pilot = useContext(PilotUiContext);
   if (pilot) return <RadixCard size="3" data-card>{children}</RadixCard>;
@@ -380,14 +353,14 @@ export function EntityListPage() {
         <CardHeader
           title="筛选"
           actions={
-            <PilotActionButton
-              weight="soft"
+            <Button
+              type="button" variant="surface" size="3"
               data-action="clear-filters"
               disabled={!activeFilters}
               onClick={() => setQuery(patchQuery(clearFilters(query), { page: 1 }))}
             >
               清除筛选
-            </PilotActionButton>
+            </Button>
           }
         />
         <FilterBar
@@ -406,8 +379,8 @@ export function EntityListPage() {
           title="数据"
           actions={
             writable ? (
-              <PilotActionButton
-                weight="solid"
+              <Button
+                type="button" variant="solid" size="3"
                 data-action="new"
                 onClick={(event) => {
                   saveMutation.reset();
@@ -415,7 +388,7 @@ export function EntityListPage() {
                 }}
               >
                 新建
-              </PilotActionButton>
+              </Button>
             ) : undefined
           }
         />
@@ -424,14 +397,14 @@ export function EntityListPage() {
           <span className="text-sm" role="status">
             {pageNotice}
           </span>
-          <PilotActionButton
-            weight="ghost"
-            className="ml-auto"
+          <Button
+            type="button" variant="ghost" size="3"
+            className="ml-auto h-10"
             aria-label="关闭纠偏提示"
             onClick={() => setPageNotice(null)}
           >
             知道了
-          </PilotActionButton>
+          </Button>
         </div>
       )}
 
@@ -442,9 +415,9 @@ export function EntityListPage() {
         >
           <span>刷新失败，显示的是上次数据</span>
           <span className="text-muted">{errorDetail(list.error) ?? '未知错误'}</span>
-          <PilotActionButton weight="soft" onClick={() => void list.refetch()}>
+          <Button type="button" variant="surface" size="3" onClick={() => void list.refetch()}>
             重试
-          </PilotActionButton>
+          </Button>
         </div>
       )}
 
@@ -456,14 +429,14 @@ export function EntityListPage() {
           extra={
             <>
               {activeFilters ? (
-                <PilotActionButton weight="soft" onClick={() => setQuery(clearFilters(query))}>
+                <Button type="button" variant="surface" size="3" onClick={() => setQuery(clearFilters(query))}>
                   清除筛选
-                </PilotActionButton>
+                </Button>
               ) : null}
               {dirtyQuery ? (
-                <PilotActionButton weight="soft" onClick={() => setQuery(resetQuery(query))}>
+                <Button type="button" variant="surface" size="3" onClick={() => setQuery(resetQuery(query))}>
                   重置查询
-                </PilotActionButton>
+                </Button>
               ) : null}
             </>
           }
@@ -474,13 +447,13 @@ export function EntityListPage() {
           text="该实体下暂无记录。可用右上角「新建」录入第一条，或通过管理接口写入后再刷新。"
           action={
             writable ? (
-              <PilotActionButton
-                weight="soft"
+              <Button
+                type="button" variant="surface" size="3"
                 data-action="new"
                 onClick={(event) => openDrawer('new', { trigger: event.currentTarget })}
               >
                 新建{entity.title}
-              </PilotActionButton>
+              </Button>
             ) : undefined
           }
         />
@@ -489,9 +462,9 @@ export function EntityListPage() {
           title="没有匹配的记录"
           text="当前关键词或筛选条件排除了全部结果。可逐个移除条件，或清除全部筛选后重新查询。"
           action={
-            <PilotActionButton weight="soft" onClick={() => setQuery(clearFilters(query))}>
+            <Button type="button" variant="surface" size="3" onClick={() => setQuery(clearFilters(query))}>
               清除筛选
-            </PilotActionButton>
+            </Button>
           }
         />
       ) : listState === 'stale' ? (
@@ -500,9 +473,9 @@ export function EntityListPage() {
           title="当前页暂时没有数据"
           text={`总数显示仍有 ${listMeta.total} 条，但这一页取不到数据：可能刚被删除，或数据在变化，请刷新或重试。`}
           action={
-            <PilotActionButton weight="soft" onClick={() => void list.refetch()}>
+            <Button type="button" variant="surface" size="3" onClick={() => void list.refetch()}>
               刷新
-            </PilotActionButton>
+            </Button>
           }
         />
       ) : (
@@ -549,7 +522,6 @@ export function EntityListPage() {
             pageSizeOptions={pageSizeOptions}
             onPage={(page) => setQuery(patchQuery(query, { page }))}
             onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
-            pilot={radixPilot}
           />
         </>
       )}

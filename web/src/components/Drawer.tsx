@@ -1,6 +1,7 @@
 import * as Dialog from '@radix-ui/react-dialog';
 import type { ReactNode } from 'react';
 import { cn } from '../lib/cn';
+import { Button } from '@radix-ui/themes';
 
 interface Props {
   open: boolean;
@@ -38,9 +39,9 @@ export function Drawer({ open, title, children, footer, onClose, onOpenChange, d
           <div className="flex items-center justify-between gap-3 border-b border-border p-4">
             <Dialog.Title className="m-0 text-lg">{title}</Dialog.Title>
             <Dialog.Close asChild>
-              <button type="button" className="btn" aria-label="关闭">
+              <Button type="button" aria-label="关闭" variant="surface" size="3">
                 ✕
-              </button>
+              </Button>
             </Dialog.Close>
           </div>
           {description && (

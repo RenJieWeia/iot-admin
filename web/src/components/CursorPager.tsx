@@ -1,3 +1,5 @@
+import { Button } from '@radix-ui/themes';
+
 interface Props {
   hasMore: boolean;
   loading: boolean;
@@ -20,15 +22,9 @@ export function CursorPager({ hasMore, loading, limit, loaded, onMore }: Props) 
       </span>
       {hasMore ? (
         // 文案固定，避免「加载中…」让按钮变窄引起跳动；忙碌态只由 disabled + aria-busy 表达。
-        <button
-          type="button"
-          className="btn touch-hit"
-          onClick={onMore}
-          disabled={loading}
-          aria-busy={loading}
-        >
+        <Button type="button" onClick={onMore} disabled={loading} aria-busy={loading} variant="surface" size="3" className="touch-hit">
           加载更多
-        </button>
+        </Button>
       ) : (
         <span className="range-text text-muted">已到末尾</span>
       )}

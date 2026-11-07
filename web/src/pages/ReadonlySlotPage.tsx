@@ -25,6 +25,7 @@ import {
   toSearchParams,
   type QueryState,
 } from '../lib/queryState';
+import { Button } from '@radix-ui/themes';
 
 /**
  * 快照页 = 一个页面 + 三个存储（粗/分/秒）。存储切换写在 URL 路径里
@@ -173,15 +174,9 @@ export function ReadonlySlotPage({ source }: Props) {
         <CardHeader
           title="筛选"
           actions={
-            <button
-              type="button"
-              className="btn"
-              data-action="clear-filters"
-              disabled={!activeFilters}
-              onClick={() => setQuery(patchQuery(clearFilters(query), { page: 1 }))}
-            >
+            <Button type="button" data-action="clear-filters" disabled={!activeFilters} onClick={() => setQuery(patchQuery(clearFilters(query), { page: 1 }))} variant="surface" size="3">
               清除筛选
-            </button>
+            </Button>
           }
         />
         <FilterBar entity={holder} query={query} relationOptions={{}} onChange={setQuery} />
@@ -216,9 +211,9 @@ export function ReadonlySlotPage({ source }: Props) {
         >
           <span>刷新失败，显示的是上次数据</span>
           <span className="text-muted">{errorDetail(activeList.error) ?? '未知错误'}</span>
-          <button type="button" className="btn" onClick={() => void activeList.refetch()}>
+          <Button type="button" onClick={() => void activeList.refetch()} variant="surface" size="3">
             重试
-          </button>
+          </Button>
         </div>
       )}
 
@@ -230,9 +225,9 @@ export function ReadonlySlotPage({ source }: Props) {
             onRetry={() => void activeList.refetch()}
             extra={
               activeFilters ? (
-                <button type="button" className="btn" onClick={() => setQuery(clearFilters(query))}>
+                <Button type="button" onClick={() => setQuery(clearFilters(query))} variant="surface" size="3">
                   清除筛选
-                </button>
+                </Button>
               ) : undefined
             }
           />
@@ -241,9 +236,9 @@ export function ReadonlySlotPage({ source }: Props) {
             title={`暂无${holder.title}`}
             text="这个数据源当前没有任何记录。数据写入后会自动出现在这里，可稍后刷新再看。"
             action={
-              <button type="button" className="btn" onClick={() => void activeList.refetch()}>
+              <Button type="button" onClick={() => void activeList.refetch()} variant="surface" size="3">
                 刷新
-              </button>
+              </Button>
             }
           />
         ) : listState === 'nomatch' ? (
@@ -251,9 +246,9 @@ export function ReadonlySlotPage({ source }: Props) {
             title="没有匹配的记录"
             text="当前关键词或筛选条件排除了全部结果。可逐个移除条件，或清除全部筛选后重新查询。"
             action={
-              <button type="button" className="btn" onClick={() => setQuery(clearFilters(query))}>
+              <Button type="button" onClick={() => setQuery(clearFilters(query))} variant="surface" size="3">
                 清除筛选
-              </button>
+              </Button>
             }
           />
         ) : listState === 'stale' ? (
@@ -262,9 +257,9 @@ export function ReadonlySlotPage({ source }: Props) {
             title="当前页暂时没有数据"
             text={`总数显示仍有 ${listMeta.total} 条，但这一页取不到数据：可能刚被删除，或数据在变化，请刷新或重试。`}
             action={
-              <button type="button" className="btn" onClick={() => void activeList.refetch()}>
+              <Button type="button" onClick={() => void activeList.refetch()} variant="surface" size="3">
                 刷新
-              </button>
+              </Button>
             }
           />
         ) : (

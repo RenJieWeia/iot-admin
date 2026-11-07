@@ -19,6 +19,7 @@ import { NAV_GROUP_LABEL, type BreadcrumbItem } from '../lib/navGroups';
 import { setScrollPane } from '../lib/scrollPane';
 import { Drawer } from './Drawer';
 import { Breadcrumb } from './Breadcrumb';
+import { Button } from '@radix-ui/themes';
 
 interface Props {
   title: string;
@@ -207,17 +208,9 @@ export function AppShell({ title, subtitle, actions, breadcrumb, children }: Pro
             {/* 窄屏菜单按钮独立一行（1107012）：放在标题区上方，
                 避免它占住行首把面包屑/标题右推 54.6px、与摘要行和卡片左边缘错开。 */}
             {narrow && (
-              <button
-                type="button"
-                ref={menuButtonRef}
-                className="btn shrink-0 self-start"
-                aria-label="打开导航菜单"
-                aria-expanded={menuOpen}
-                aria-controls="nav-drawer"
-                onClick={() => setMenuOpen(true)}
-              >
+              <Button type="button" ref={menuButtonRef} aria-label="打开导航菜单" aria-expanded={menuOpen} aria-controls="nav-drawer" onClick={() => setMenuOpen(true)} variant="surface" size="3" className="shrink-0 self-start">
                 <Menu size={16} aria-hidden="true" />
-              </button>
+              </Button>
             )}
             <div className="flex min-w-0 items-start gap-2">
               <div className="min-w-0">

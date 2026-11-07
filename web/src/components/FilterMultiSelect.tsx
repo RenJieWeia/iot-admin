@@ -3,6 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Option } from '../api/types';
 import { optionMatches } from '../lib/format';
 import { cn } from '../lib/cn';
+import { Button } from '@radix-ui/themes';
 
 interface Props {
   /** 触发按钮的 id：让外层 `<label htmlFor>` 指到可交互元素。 */
@@ -138,22 +139,15 @@ export function FilterMultiSelect({ id, label, options, selected, onChange, allo
           />
           {allowSelectAll && filtered.length > 0 && (
             <div className="mb-2 flex items-center gap-2">
-              <button
-                type="button"
-                className="btn btn-link"
-                onMouseDown={(event) => {
+              <Button type="button" onMouseDown={(event) => {
                   event.preventDefault();
                   // 全选：把当前搜索结果并入已选（不取消已选但被搜索隐藏的项）。
                   const merged = new Set([...selected, ...filtered.map((option) => option.value)]);
                   onChange(Array.from(merged));
-                }}
-              >
+                }} variant="ghost" size="3" className="h-10">
                 全选
-              </button>
-              <button
-                type="button"
-                className="btn btn-link"
-                onMouseDown={(event) => {
+              </Button>
+              <Button type="button" onMouseDown={(event) => {
                   event.preventDefault();
                   // 反选：在当前搜索结果范围内翻转选中状态。
                   const visible = new Set(filtered.map((option) => option.value));
@@ -162,40 +156,29 @@ export function FilterMultiSelect({ id, label, options, selected, onChange, allo
                     .map((option) => option.value)
                     .filter((value) => !selectedSet.has(value));
                   onChange([...kept, ...added]);
-                }}
-              >
+                }} variant="ghost" size="3" className="h-10">
                 反选
-              </button>
+              </Button>
               <span className="text-sm text-muted">作用于当前搜索结果</span>
             </div>
           )}
           {selected.length > 0 && (
             <div className="mb-2 flex flex-wrap items-center gap-1" aria-label={`${label}已选项`}>
               {selected.map((value) => (
-                <button
-                  key={value}
-                  type="button"
-                  className="btn btn-link"
-                  aria-label={`移除${label} ${labelOf(value)}`}
-                  onMouseDown={(event) => {
+                <Button key={value} type="button" aria-label={`移除${label} ${labelOf(value)}`} onMouseDown={(event) => {
                     event.preventDefault();
                     toggle(value);
-                  }}
-                >
+                  }} variant="ghost" size="3" className="h-10">
                   {labelOf(value)} ✕
-                </button>
+                </Button>
               ))}
               <span className="text-sm text-muted">已选 {selected.length} 项</span>
-              <button
-                type="button"
-                className="btn btn-link"
-                onMouseDown={(event) => {
+              <Button type="button" onMouseDown={(event) => {
                   event.preventDefault();
                   onChange([]);
-                }}
-              >
+                }} variant="ghost" size="3" className="h-10">
                 清空
-              </button>
+              </Button>
             </div>
           )}
           <ul

@@ -1,4 +1,5 @@
 import * as AlertDialog from '@radix-ui/react-alert-dialog';
+import { Button } from '@radix-ui/themes';
 
 interface Props {
   open: boolean;
@@ -27,19 +28,13 @@ export function ConfirmDialog({ open, objectName, busy = false, onCancel, onConf
           </AlertDialog.Description>
           <div className="mt-2 flex justify-end gap-2">
             <AlertDialog.Cancel asChild>
-              <button type="button" className="btn" disabled={busy}>
+              <Button type="button" disabled={busy} variant="surface" size="3">
                 取消
-              </button>
+              </Button>
             </AlertDialog.Cancel>
-            <button
-              type="button"
-              className="btn btn-danger"
-              onClick={onConfirm}
-              disabled={busy}
-              aria-label={`删除 ${objectName}`}
-            >
+            <Button type="button" onClick={onConfirm} disabled={busy} aria-label={`删除 ${objectName}`} variant="soft" size="3" color="red">
               删除 {objectName}
-            </button>
+            </Button>
           </div>
         </AlertDialog.Content>
       </AlertDialog.Portal>

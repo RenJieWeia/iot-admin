@@ -14,6 +14,7 @@ import {
   TR_ROW,
 } from './tableStyles';
 import { SnapshotBindingForm } from './SnapshotBindingForm';
+import { Button } from '@radix-ui/themes';
 
 const BINDINGS_ENTITY = 'snapshot-bindings';
 
@@ -82,18 +83,18 @@ export function SnapshotBindingsSection() {
         title="数据项绑定"
         description="一行 = 一个目标 + 多个字段；作用域二选一"
         actions={
-        <button type="button" className="btn btn-primary" data-action="new-binding" onClick={openCreate}>
+        <Button type="button" data-action="new-binding" onClick={openCreate} variant="solid" size="3">
           新建绑定
-        </button>
+        </Button>
         }
       />
 
       {list.isError ? (
         <p className="m-0 text-negative-text" role="alert">
           绑定加载失败：{errorText(list.error) ?? '未知错误'}
-          <button type="button" className="btn btn-link" onClick={() => void list.refetch()}>
+          <Button type="button" onClick={() => void list.refetch()} variant="ghost" size="3" className="h-10">
             重试
-          </button>
+          </Button>
         </p>
       ) : list.isPending ? (
         <p className="m-0 text-sm text-muted" role="status">正在加载绑定…</p>
