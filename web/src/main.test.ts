@@ -35,16 +35,16 @@ describe('main.tsx 的首帧取色时机', () => {
     expect(order).toEqual(['before-import:(none)', 'render:graphite']);
   });
 
-  it('存储里是非法值时，渲染时已经是 teal', async () => {
+  it('存储里是非法值时，渲染时已经是默认主题 blue', async () => {
     window.localStorage.setItem('iot-theme', 'neon');
     vi.resetModules();
     await import('./main');
-    expect(order.at(-1)).toBe('render:teal');
+    expect(order.at(-1)).toBe('render:blue');
   });
 
-  it('存储为空时，渲染时是 teal（回退默认）', async () => {
+  it('存储为空时，渲染时是默认主题 blue', async () => {
     vi.resetModules();
     await import('./main');
-    expect(order.at(-1)).toBe('render:teal');
+    expect(order.at(-1)).toBe('render:blue');
   });
 });

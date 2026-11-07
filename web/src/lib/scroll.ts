@@ -8,6 +8,11 @@ function key(url: string): string {
   return PREFIX + url;
 }
 
+/** 读一个滚动容器的当前纵向偏移；容器缺省取当前内容区（见 lib/scrollPane.ts）。 */
+export function scrollTopOf(container: HTMLElement): number {
+  return container.scrollTop;
+}
+
 export function rememberScroll(url: string, y: number): void {
   try {
     window.sessionStorage.setItem(key(url), String(Math.max(0, Math.round(y))));

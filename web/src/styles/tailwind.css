@@ -168,7 +168,11 @@
 @utility shell {
   display: grid;
   grid-template-columns: var(--nav-width) 1fr;
+  /* 三段式外壳固定：视口高度锁死、overflow hidden，滚动交给内容区与侧栏各自处理。
+     min-height 保留作兜底（老浏览器 / 打印等不认 height:100vh 的场景）。 */
+  height: 100vh;
   min-height: 100vh;
+  overflow: hidden;
   background: var(--color-bg);
 
   /* 与 lib/breakpoint.ts 的 NARROW_QUERY 同口径（max-xl / <1280）：
@@ -188,6 +192,8 @@
   border-radius: var(--radius-card);
   border: 1px solid var(--color-border);
   background: var(--color-surface);
+  /* 内边距只在这一层（main 不再带 padding）：少一层嵌套，内容宽度多出 48px。 */
+  padding: var(--space-6);
 }
 
 /* 活跃态只用语义色（§3.2）：不加粗、不加色条。 */

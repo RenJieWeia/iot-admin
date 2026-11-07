@@ -1,6 +1,6 @@
 import { screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { HttpResponse, http } from 'msw';
 import { renderApp } from '../test/utils';
 import { propertyQueries, server, writeCalls } from '../test/server';
@@ -68,12 +68,13 @@ describe('终端类型详情页（task-016）', () => {
 
   it('返回列表：history.back 恢复原 URL（筛选/排序/分页），并按列表页的键恢复滚动位置', async () => {
     const user = userEvent.setup();
-    const scrollTo = vi.spyOn(window, 'scrollTo').mockImplementation(() => {});
     const listURL = '/device-types?sort=name&order=asc&pageSize=20';
     // 列表页的滚动键是「window.location.pathname + 查询串」；MemoryRouter 不会写 window.location，
     // 所以这里按它实际算出的键（'/?sort=…'）预置位置。真实浏览器里该键就是 /device-types?…
     window.sessionStorage.setItem('iot-admin:scroll:/?sort=name&order=asc&pageSize=20', '420');
-    Object.defineProperty(window, 'scrollY', { value: 420, configurable: true, writable: true });
+    // 外壳固定后 window 不再滚动：恢复位置写的是内容区容器（<main>）的 scrollTop，
+    // 由 AppShell 在挂载时登记。这里直接断言那个 DOM 节点，不注入假容器
+    // （注入了也会被 AppShell 的注册覆盖，反而测不到真实链路）。
 
     const view = renderApp(listURL);
     const openButtons = await screen.findAllByRole('button', { name: '查看属性' }, { timeout: 5000 });
@@ -84,10 +85,9 @@ describe('终端类型详情页（task-016）', () => {
     await user.click(screen.getByRole('button', { name: '返回列表' }));
     await waitFor(() => expect(view.location()).toBe(listURL));
     // 列表页按自己的键恢复滚动位置（详情页用 /device-types/:id 自己的键，互不覆盖）。
-    await waitFor(() => expect(scrollTo).toHaveBeenCalledWith(0, 420), { timeout: 5000 });
-
-    scrollTo.mockRestore();
-    Object.defineProperty(window, 'scrollY', { value: 0, configurable: true, writable: true });
+    await waitFor(() => expect(document.getElementById('main')?.scrollTop).toBe(420), {
+      timeout: 5000,
+    });
   });
 
   it('顶部摘要可编辑：编辑入口改的是终端类型本身，不是属性', async () => {

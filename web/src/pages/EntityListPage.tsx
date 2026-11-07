@@ -29,6 +29,7 @@ import {
   type QueryState,
 } from '../lib/queryState';
 import { rememberScroll, takeScroll } from '../lib/scroll';
+import { getScrollPane } from '../lib/scrollPane';
 
 function rangeText(meta: ListMeta, rowCount: number): string {
   if (meta.total === 0) return '共 0 条';
@@ -242,16 +243,18 @@ export function EntityListPage() {
   const scrollKey = `${window.location.pathname}?${listParams.toString()}`;
   useEffect(() => {
     if (!list.data) return;
+    const pane = getScrollPane();
     const y = takeScroll(scrollKey);
-    if (y !== null && y > 0) window.scrollTo(0, y);
+    if (y !== null && y > 0) pane.scrollTop = y;
   }, [scrollKey, list.data]);
 
   useEffect(() => {
-    const onScroll = () => rememberScroll(scrollKey, window.scrollY);
-    window.addEventListener('scroll', onScroll, { passive: true });
+    const pane = getScrollPane();
+    const onScroll = () => rememberScroll(scrollKey, pane.scrollTop);
+    pane.addEventListener('scroll', onScroll, { passive: true });
     return () => {
-      window.removeEventListener('scroll', onScroll);
-      rememberScroll(scrollKey, window.scrollY);
+      pane.removeEventListener('scroll', onScroll);
+      rememberScroll(scrollKey, pane.scrollTop);
     };
   }, [scrollKey]);
 
@@ -315,6 +318,21 @@ export function EntityListPage() {
         )
       }
     >
+      {/* 摘要行：只消费现成数据（meta.total + 是否有筛选），不新增接口。
+          高度固定（h-6 = 24px）：0 条 / 有数据 / 有筛选三种状态都占位，避免布局跳动。 */}
+      <p
+        className="m-0 mb-3 flex h-6 items-center gap-2 text-sm text-muted"
+        data-testid="list-summary"
+      >
+        <span>共 {listMeta.total} 条</span>
+        {activeFilters && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span>已筛选</span>
+          </>
+        )}
+      </p>
+
       <FilterBar
         entity={entity}
         query={query}

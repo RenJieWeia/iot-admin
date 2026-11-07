@@ -10,7 +10,9 @@
 export const THEMES = ['teal', 'blue', 'graphite'] as const;
 export type Theme = (typeof THEMES)[number];
 
-export const DEFAULT_THEME: Theme = 'teal';
+// 默认电蓝（:root 里仍放 teal 的变量做 CSS 兜底，但首帧由 main.tsx 同步落 blue，
+// 所以用户看到的从来不是 teal——除非禁用 JS）。
+export const DEFAULT_THEME: Theme = 'blue';
 /** localStorage 键名（稳定契约，别改）。 */
 export const THEME_STORAGE_KEY = 'iot-theme';
 

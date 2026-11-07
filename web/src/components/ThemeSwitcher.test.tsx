@@ -16,13 +16,13 @@ afterEach(() => {
 });
 
 describe('顶栏配色主题切换', () => {
-  it('三个按钮同属一个 group，默认深青 aria-pressed=true', async () => {
+  it('三个按钮同属一个 group，默认电蓝 aria-pressed=true', async () => {
     renderApp('/terminals');
     const group = await screen.findByRole('group', { name: '配色主题' });
     const buttons = within(group).getAllByRole('button');
     expect(buttons.map((button) => button.textContent)).toEqual(['深青', '电蓝', '石墨']);
-    expect(within(group).getByRole('button', { name: '深青' })).toHaveAttribute('aria-pressed', 'true');
-    expect(within(group).getByRole('button', { name: '电蓝' })).toHaveAttribute('aria-pressed', 'false');
+    expect(within(group).getByRole('button', { name: '电蓝' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(group).getByRole('button', { name: '深青' })).toHaveAttribute('aria-pressed', 'false');
   });
 
   it('点「电蓝」立即改 data-theme 并写 localStorage，aria-pressed 跟随', async () => {
@@ -53,9 +53,9 @@ describe('顶栏配色主题切换', () => {
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('blue');
   });
 
-  it('localStorage 无偏好（被清空）时回落到深青', async () => {
+  it('localStorage 无偏好（被清空）时回落到电蓝', async () => {
     renderApp('/terminals');
     const group = await screen.findByRole('group', { name: '配色主题' });
-    expect(within(group).getByRole('button', { name: '深青' })).toHaveAttribute('aria-pressed', 'true');
+    expect(within(group).getByRole('button', { name: '电蓝' })).toHaveAttribute('aria-pressed', 'true');
   });
 });

@@ -25,6 +25,7 @@ import {
   type QueryState,
 } from '../lib/queryState';
 import { rememberScroll, takeScroll } from '../lib/scroll';
+import { getScrollPane } from '../lib/scrollPane';
 
 /** 父实体与子资源名固定：一个终端类型下的属性列表（`_meta.subresources`）。 */
 const PARENT_ENTITY = 'device-types';
@@ -195,15 +196,17 @@ export function DeviceTypeDetailPage() {
   const scrollKey = `${location.pathname}?${searchParams.toString()}`;
   useEffect(() => {
     if (!list.data) return;
+    const pane = getScrollPane();
     const y = takeScroll(scrollKey);
-    if (y !== null && y > 0) window.scrollTo(0, y);
+    if (y !== null && y > 0) pane.scrollTop = y;
   }, [scrollKey, list.data]);
   useEffect(() => {
-    const onScroll = () => rememberScroll(scrollKey, window.scrollY);
-    window.addEventListener('scroll', onScroll, { passive: true });
+    const pane = getScrollPane();
+    const onScroll = () => rememberScroll(scrollKey, pane.scrollTop);
+    pane.addEventListener('scroll', onScroll, { passive: true });
     return () => {
-      window.removeEventListener('scroll', onScroll);
-      rememberScroll(scrollKey, window.scrollY);
+      pane.removeEventListener('scroll', onScroll);
+      rememberScroll(scrollKey, pane.scrollTop);
     };
   }, [scrollKey]);
 

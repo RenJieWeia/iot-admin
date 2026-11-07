@@ -15,6 +15,7 @@ import { NavLink } from 'react-router';
 import { useMeta } from '../api/meta';
 import { cn } from '../lib/cn';
 import { NARROW_QUERY } from '../lib/breakpoint';
+import { setScrollPane } from '../lib/scrollPane';
 import { Drawer } from './Drawer';
 import { ThemeSwitcher } from './ThemeSwitcher';
 
@@ -142,6 +143,12 @@ function SidebarNav({ id, onNavigate }: { id?: string; onNavigate?: () => void }
 export function AppShell({ title, subtitle, actions, children }: Props) {
   const narrow = useIsNarrow();
   const [menuOpen, setMenuOpen] = useState(false);
+  // 内容区滚动容器的登记：外壳固定后 window 不滚动，滚动记忆必须读它（lib/scrollPane.ts）。
+  const scrollPaneRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    setScrollPane(scrollPaneRef.current);
+    return () => setScrollPane(null);
+  }, []);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const restoreFocusRef = useRef(false);
 
@@ -177,13 +184,14 @@ export function AppShell({ title, subtitle, actions, children }: Props) {
           <SidebarNav id="nav-drawer" onNavigate={closeMenu} />
         </Drawer>
       ) : (
-        <aside className="col-start-1 border-r border-border bg-surface-2 px-3 py-4 max-xl:border-b max-xl:border-r-0">
+        <aside className="col-start-1 min-h-0 overflow-y-auto border-r border-border bg-surface-2 px-3 py-4 max-xl:border-b max-xl:border-r-0">
           <p className="mb-4 mt-0 px-3 text-lg font-semibold">IoT 管理后台</p>
           <SidebarNav />
         </aside>
       )}
 
-      <div className="col-start-2 flex min-w-0 flex-col max-xl:col-start-1">
+      {/* min-h-0 是关键：flex 子项默认 min-height:auto，不压成 0 就永远不会出现滚动条。 */}
+      <div className="col-start-2 flex min-h-0 min-w-0 flex-col max-xl:col-start-1">
         <header className="app-header flex items-center justify-between gap-4 px-6 max-xl:px-4">
           <div className="flex min-w-0 items-center gap-2">
             {narrow && (
@@ -209,8 +217,14 @@ export function AppShell({ title, subtitle, actions, children }: Props) {
             {actions}
           </div>
         </header>
-        <main id="main" className="min-w-0 flex-1 p-6 max-xl:p-4">
-          <section className="content-card p-5">{children}</section>
+        <main
+          id="main"
+          ref={scrollPaneRef}
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto"
+        >
+          {/* 单层内边距：内边距全在卡片上（p-6 / max-xl:p-4），main 与卡片之间不再留外边距，
+              内容区因此拿到完整的宽度（比"main padding + 卡片 padding"两层多 40px）。 */}
+          <section className="content-card min-h-full p-6 max-xl:p-4">{children}</section>
         </main>
       </div>
     </div>

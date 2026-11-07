@@ -18,7 +18,7 @@ describe('主题解析（纯函数）', () => {
     expect(resolveTheme('graphite')).toBe('graphite');
   });
 
-  it('非法值 / 缺失 / 空串 → 默认 teal', () => {
+  it('非法值 / 缺失 / 空串 → 默认 blue', () => {
     for (const raw of ['', 'red', 'TEAL', 'graphite ', 'null', null, undefined]) {
       expect(resolveTheme(raw)).toBe(DEFAULT_THEME);
     }
@@ -32,10 +32,10 @@ describe('主题持久化与应用', () => {
     expect(window.localStorage.getItem(THEME_STORAGE_KEY)).toBe('blue');
   });
 
-  it('localStorage 被清空后回到 teal', () => {
+  it('localStorage 被清空后回到 blue', () => {
     setTheme('graphite');
     window.localStorage.clear();
-    expect(readStoredTheme()).toBe('teal');
+    expect(readStoredTheme()).toBe('blue');
   });
 
   it('存储写入失败也不影响视觉切换', () => {
