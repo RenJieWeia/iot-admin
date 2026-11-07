@@ -24,6 +24,7 @@ import {
   toSearchParams,
   type QueryState,
 } from '../lib/queryState';
+import { groupCrumb } from '../lib/navGroups';
 import { rememberScroll, takeScroll } from '../lib/scroll';
 import { getScrollPane } from '../lib/scrollPane';
 
@@ -261,11 +262,10 @@ export function DeviceTypeDetailPage() {
   return (
     <AppShell
       title={`终端类型 · ${typeName}`}
+      // 三级：实体 / 终端类型（可点，回列表）/ 当前类型名（aria-current=page）。
+      breadcrumb={[...groupCrumb('entities'), { label: '终端类型', href: '/device-types' }, { label: typeName }]}
       actions={
         <div className="flex items-center gap-2">
-          <button type="button" className="btn" onClick={backToList}>
-            返回列表
-          </button>
           {writable && (
             <button
               type="button"

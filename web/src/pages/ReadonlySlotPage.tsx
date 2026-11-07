@@ -5,6 +5,7 @@ import { useSlotCursorList, useSlotList, type SlotSource } from '../api/exceptio
 import { useMeta } from '../api/meta';
 import type { CursorMeta, ListMeta, ReadonlyMeta } from '../api/types';
 import { AppShell } from '../components/AppShell';
+import { groupCrumb } from '../lib/navGroups';
 import { DataTable } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
@@ -146,7 +147,12 @@ export function ReadonlySlotPage({ source }: Props) {
     : '只读页面 · 不提供新建、编辑或删除入口';
 
   return (
-    <AppShell title={holder.title} subtitle={readonlyNote}>
+    <AppShell
+      title={holder.title}
+      subtitle={readonlyNote}
+      // 只读页属「数据」组，异常页属「异常」组：分组名与侧栏同源（lib/navGroups.ts）。
+      breadcrumb={groupCrumb(source === 'exceptions' ? 'exceptions' : 'data')}
+    >
       {presets.length > 0 && (
         <div className="preset-row">
           {presets.map((preset) => (

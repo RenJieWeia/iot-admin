@@ -66,7 +66,7 @@ describe('终端类型详情页（task-016）', () => {
     });
   });
 
-  it('返回列表：history.back 恢复原 URL（筛选/排序/分页），并按列表页的键恢复滚动位置', async () => {
+  it('面包屑展开到「实体 / 终端类型 / 当前类型」，分组不可点、末项 aria-current', async () => {
     const user = userEvent.setup();
     const listURL = '/device-types?sort=name&order=asc&pageSize=20';
     // 列表页的滚动键是「window.location.pathname + 查询串」；MemoryRouter 不会写 window.location，
@@ -82,9 +82,26 @@ describe('终端类型详情页（task-016）', () => {
     await waitFor(() => expect(view.location()).toBe('/device-types/1'));
     await waitForRows(4);
 
-    await user.click(screen.getByRole('button', { name: '返回列表' }));
-    await waitFor(() => expect(view.location()).toBe(listURL));
-    // 列表页按自己的键恢复滚动位置（详情页用 /device-types/:id 自己的键，互不覆盖）。
+    // 页面内的「返回列表」按钮已删（1107009 追加：面包屑是唯一页面内返回路径）。
+    expect(screen.queryByRole('button', { name: '返回列表' })).not.toBeInTheDocument();
+    const crumb = screen.getByRole('navigation', { name: '面包屑' });
+    // 分组只是文本，没有落地页，不做成禁用按钮。
+    const groupCrumbText = within(crumb).getByText('实体');
+    expect(groupCrumbText.tagName).toBe('SPAN');
+    expect(within(crumb).queryByRole('link', { name: '实体' })).toBeNull();
+    // 末项是当前页：aria-current=page 且不是链接。
+    const current = within(crumb).getByText('泵站');
+    expect(current).toHaveAttribute('aria-current', 'page');
+    expect(current.closest('a')).toBeNull();
+    // 中间项「终端类型」可点，回列表页（不带筛选——带筛选的返回走浏览器后退）。
+    await user.click(within(crumb).getByRole('link', { name: '终端类型' }));
+    await waitFor(() => expect(view.location()).toBe('/device-types'));
+  });
+
+  it('列表页挂载时按自己的键恢复内容区滚动位置（外壳固定后的回归）', async () => {
+    // 外壳固定后 window 不再滚动：恢复写的是 <main>.scrollTop，由 AppShell 挂载时登记。
+    window.sessionStorage.setItem('iot-admin:scroll:/?sort=name&order=asc&pageSize=20', '420');
+    renderApp('/device-types?sort=name&order=asc&pageSize=20');
     await waitFor(() => expect(document.getElementById('main')?.scrollTop).toBe(420), {
       timeout: 5000,
     });

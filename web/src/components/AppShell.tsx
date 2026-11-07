@@ -15,8 +15,10 @@ import { NavLink } from 'react-router';
 import { useMeta } from '../api/meta';
 import { cn } from '../lib/cn';
 import { NARROW_QUERY } from '../lib/breakpoint';
+import { NAV_GROUP_LABEL, type BreadcrumbItem } from '../lib/navGroups';
 import { setScrollPane } from '../lib/scrollPane';
 import { Drawer } from './Drawer';
+import { Breadcrumb } from './Breadcrumb';
 import { ThemeSwitcher } from './ThemeSwitcher';
 
 interface Props {
@@ -24,6 +26,8 @@ interface Props {
   /** 标题下的副标题（面包屑或说明行）。 */
   subtitle?: string;
   actions?: ReactNode;
+  /** 面包屑：一级页只给分组名；详情页展开到子项。缺省不渲染。 */
+  breadcrumb?: BreadcrumbItem[];
   children: ReactNode;
 }
 
@@ -98,13 +102,13 @@ function SidebarNav({ id, onNavigate }: { id?: string; onNavigate?: () => void }
 
   return (
     <nav id={id} aria-label="主导航">
-      <GroupTitle>实体</GroupTitle>
+      <GroupTitle>{NAV_GROUP_LABEL.entities}</GroupTitle>
       <ul className="m-0 flex list-none flex-col gap-1 p-0">
         {entities.map((entity) => renderItem(entity.name, entity.title, `/${entity.name}`))}
       </ul>
       {readonly.length > 0 && (
         <>
-          <GroupTitle>数据</GroupTitle>
+          <GroupTitle>{NAV_GROUP_LABEL.data}</GroupTitle>
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
             {readonly.map((slot) => {
               // 快照页是「一个页面 + 三个存储」：后端下发三个 snapshot-* slot，
@@ -120,7 +124,7 @@ function SidebarNav({ id, onNavigate }: { id?: string; onNavigate?: () => void }
       )}
       {exceptions.length > 0 && (
         <>
-          <GroupTitle>异常</GroupTitle>
+          <GroupTitle>{NAV_GROUP_LABEL.exceptions}</GroupTitle>
           <ul className="m-0 flex list-none flex-col gap-1 p-0">
             {exceptions.map((slot) => renderItem(slot.name, slot.title, `/exceptions/${slot.slot}`))}
           </ul>
@@ -140,7 +144,7 @@ function SidebarNav({ id, onNavigate }: { id?: string; onNavigate?: () => void }
  * 窄屏（< 1024px，与 Tailwind `max-lg` 同口径）侧栏收进抽屉，由顶栏左侧的菜单按钮触发
  * （admin-ui-spec §3.1）。1024 及更宽走桌面布局。
  */
-export function AppShell({ title, subtitle, actions, children }: Props) {
+export function AppShell({ title, subtitle, actions, breadcrumb, children }: Props) {
   const narrow = useIsNarrow();
   const [menuOpen, setMenuOpen] = useState(false);
   // 内容区滚动容器的登记：外壳固定后 window 不滚动，滚动记忆必须读它（lib/scrollPane.ts）。
@@ -208,6 +212,7 @@ export function AppShell({ title, subtitle, actions, children }: Props) {
               </button>
             )}
             <div className="min-w-0">
+              {breadcrumb && breadcrumb.length > 0 && <Breadcrumb items={breadcrumb} />}
               <h1 className="m-0 truncate text-xl font-semibold leading-page">{title}</h1>
               {subtitle && <p className="m-0 text-sm leading-meta text-muted">{subtitle}</p>}
             </div>

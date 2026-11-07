@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { RESET_PAGE_NOTICE, computeListState, shouldResetPage } from '../lib/listState';
+import { groupCrumb } from '../lib/navGroups';
 import { ApiError, createRow, deleteRow, fetchList, fetchOne, updateRow } from '../api/client';
 import { toLabelMap, useFieldOptions } from '../api/entities';
 import { useMeta } from '../api/meta';
@@ -300,6 +301,8 @@ export function EntityListPage() {
   return (
     <AppShell
       title={entity.title}
+      // 一级页：只显示分组名，页面名由 h1 承担，避免与标题重复。
+      breadcrumb={groupCrumb('entities')}
       actions={
         writable ? (
           <button

@@ -7,6 +7,7 @@ import { DataTable } from '../components/DataTable';
 import { MetaGate, PagePlaceholder } from '../components/MetaGate';
 import { visibleFields } from '../lib/fieldMeta';
 import { parseQueryState } from '../lib/queryState';
+import { groupCrumb } from '../lib/navGroups';
 
 /** 页面按路由懒加载：首屏只下载外壳 + 表格骨架，抽屉（Radix/zod）随页面分包。 */
 const EntityListPage = lazy(() =>
@@ -24,6 +25,8 @@ const DeviceTypeDetailPage = lazy(() =>
 
 interface FallbackProps {
   title: string;
+  /** 骨架也属于某个导航分组：分组名与最终页面保持一致，避免加载瞬间面包屑跳一下。 */
+  group: 'entities' | 'data' | 'exceptions';
   fields: ReturnType<typeof visibleFields>;
   writable: boolean;
   sort: string;
@@ -35,9 +38,9 @@ interface FallbackProps {
  * Suspense fallback：直接复用 DataTable 的加载态，保证列数、列宽（widthStrategy）与
  * 真实表格一致、行高等于 `--row-height`（§6 布局稳定性）；不新造加载态组件。
  */
-function TableFallback({ title, fields, writable, sort, order, skeletonRows }: FallbackProps) {
+function TableFallback({ title, group, fields, writable, sort, order, skeletonRows }: FallbackProps) {
   return (
-    <AppShell title={title}>
+    <AppShell title={title} breadcrumb={groupCrumb(group)}>
       <DataTable
         fields={fields}
         rows={[]}
@@ -68,6 +71,7 @@ export function LazyEntityPage() {
           entity ? (
             <TableFallback
               title={entity.title}
+              group="entities"
               fields={visibleFields(entity)}
               writable={!entity.readOnly}
               sort={entity.defaultSort}
@@ -105,6 +109,7 @@ function LazySlotPage({ source }: { source: SlotSource }) {
           holder ? (
             <TableFallback
               title={holder.title}
+              group={source === 'exceptions' ? 'exceptions' : 'data'}
               fields={visibleFields(holder)}
               writable={false}
               sort={holder.defaultSort}
@@ -146,6 +151,7 @@ export function LazyDeviceTypeDetailPage() {
           property ? (
             <TableFallback
               title="终端类型"
+              group="entities"
               fields={visibleFields(property)}
               writable={!property.readOnly}
               sort={property.defaultSort}
@@ -171,7 +177,7 @@ export function LazySnapshotConfigPage() {
     <MetaGate>
       <Suspense
         fallback={
-          <AppShell title="快照计划">
+          <AppShell title="快照计划" breadcrumb={groupCrumb('entities')}>
             <PagePlaceholder status="正在加载快照配置…" />
           </AppShell>
         }
