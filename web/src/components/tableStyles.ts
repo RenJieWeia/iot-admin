@@ -40,9 +40,16 @@ export const TD_STICKY_RIGHT =
 /** 行：hover 提亮一档（表格行统一 hover）。 */
 export const TR_ROW = 'group hover:bg-surface-2';
 
-/** 操作列文字链（主操作）。 */
-export const ACTION_LINK = 'inline-flex h-8 items-center rounded-sm px-2 text-base text-text hover:bg-surface-2';
+/**
+ * 操作列文字链（主操作）。
+ *
+ * 必须显式 `border-0 bg-transparent cursor-pointer`：本仓**没有引入 Tailwind preflight**
+ * （见 tailwind.css 顶部注释），`<button>` 会带 UA 默认样式（2px outset 黑边 + #efefef 底色），
+ * 不加这几项看起来就是个描边按钮，与「文字链」的设计不一致。
+ */
+export const ACTION_LINK =
+  'inline-flex h-8 cursor-pointer items-center rounded-sm border-0 bg-transparent px-2 text-base text-text hover:bg-surface-2';
 
 /** 操作列文字链（危险操作）：默认 muted，hover 转危险色。 */
 export const ACTION_DANGER =
-  'inline-flex h-8 items-center rounded-sm px-2 text-base text-muted hover:bg-danger-weak hover:text-danger';
+  'inline-flex h-8 cursor-pointer items-center rounded-sm border-0 bg-transparent px-2 text-base text-muted hover:bg-danger-weak hover:text-danger';
