@@ -177,10 +177,12 @@ export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: 
       return;
     }
     setFormError(null);
+    // 两列始终带齐，不属于当前作用域的一侧显式给 null。
+    // 后端 update 会把库里旧值合并进校验视图，只传新作用域那一列会让两列同时非空 → 400。
     const body: RowData =
       scope === 'type'
-        ? { device_type_id: typeID, item_codes: codes }
-        : { terminal_id: terminalID, item_codes: codes };
+        ? { device_type_id: typeID, terminal_id: null, item_codes: codes }
+        : { device_type_id: null, terminal_id: terminalID, item_codes: codes };
     save.mutate(body);
   };
 

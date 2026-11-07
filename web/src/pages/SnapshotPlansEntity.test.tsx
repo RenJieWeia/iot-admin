@@ -214,7 +214,8 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     await waitFor(() => expect(writeCalls).toHaveLength(1));
     expect(writeCalls[0]?.method).toBe('PUT');
     expect(writeCalls[0]?.path).toBe('snapshot-bindings/1');
-    expect(writeCalls[0]?.body).toMatchObject({ device_type_id: '1' });
+    // 两列始终带齐：类型级时 terminal_id 显式 null（否则后端合并旧作用域会判"二选一"失败）。
+    expect(writeCalls[0]?.body).toMatchObject({ device_type_id: '1', terminal_id: null });
     expect((writeCalls[0]?.body as { item_codes: string[] }).item_codes).toHaveLength(3);
   });
 
@@ -249,5 +250,52 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     expect(
       within(section).getByText(/最小清理粒度 = 整月（粗表 \/ 分表）、整日（秒表），实际保留可能比设定值更长。/),
     ).toBeInTheDocument();
+  });
+
+  it('编辑切作用域：类型级 → 实例级，提交体里 device_type_id 显式为 null', async () => {
+    const user = userEvent.setup();
+    renderApp('/snapshot-slots');
+    await waitForPage();
+
+    // 第 0 行是类型级绑定（夹具顺序固定）。
+    await user.click(screen.getAllByRole('button', { name: '编辑' })[0]!);
+    const dialog = await screen.findByRole('dialog');
+
+    await user.click(within(dialog).getByRole('radio', { name: /终端（单个）/ }));
+    // 切作用域会清空目标与已选字段：先选终端再重选字段。
+    await user.type(within(dialog).getByLabelText('终端'), 't-001');
+    const candidates = await within(dialog).findByRole('list', { name: '终端候选' });
+    await user.click(within(candidates).getByRole('button', { name: /t-001/ }));
+    await user.click(within(dialog).getByRole('combobox', { name: '字段' }));
+    const list = await screen.findByRole('listbox', { name: '字段选项' });
+    await user.click(within(list).getByRole('option', { name: /temp/ }));
+
+    await user.click(within(dialog).getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(writeCalls).toHaveLength(1));
+    // 关键：type 侧必须显式 null，否则后端把库里旧 device_type_id 合并进来 → 两列同时非空。
+    expect(writeCalls[0]?.body).toMatchObject({ device_type_id: null, terminal_id: 't-001' });
+  });
+
+  it('编辑切作用域：实例级 → 类型级，提交体里 terminal_id 显式为 null', async () => {
+    const user = userEvent.setup();
+    renderApp('/snapshot-slots');
+    await waitForPage();
+
+    // 第 1 行是实例级绑定。
+    await user.click(screen.getAllByRole('button', { name: '编辑' })[1]!);
+    const dialog = await screen.findByRole('dialog');
+
+    await user.click(within(dialog).getByRole('radio', { name: /终端类型/ }));
+    await user.click(within(dialog).getByRole('combobox', { name: /终端类型/ }));
+    const typeList = await screen.findByRole('listbox');
+    await user.click(within(typeList).getAllByRole('option')[0]!);
+    await user.click(within(dialog).getByRole('combobox', { name: '字段' }));
+    const list = await screen.findByRole('listbox', { name: '字段选项' });
+    await user.click(within(list).getAllByRole('option')[0]!);
+
+    await user.click(within(dialog).getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(writeCalls).toHaveLength(1));
+    expect(writeCalls[0]?.body).toMatchObject({ terminal_id: null });
+    expect((writeCalls[0]?.body as { device_type_id?: unknown }).device_type_id).not.toBeNull();
   });
 });

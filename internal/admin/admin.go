@@ -358,7 +358,7 @@ var Entities = []Entity{
 	{Name: "snapshot-bindings", Hidden: true, Table: "snapshot_binding",
 		Cols:        []string{"device_type_id", "terminal_id", "item_codes"},
 		JSONB:       []string{"item_codes"},
-		ExtraSelect: []string{"jsonb_array_length(item_codes) as item_count"}},
+		ExtraSelect: []string{"jsonb_array_length(item_codes) as fields_count"}},
 	// 表级保留期：三行由迁移预置，只允许改 retention_days（禁增删），不进导航。
 	{Name: "snapshot-settings", Hidden: true, FixedRows: true, PKey: "table_name",
 		Table: "snapshot_settings", Cols: []string{"retention_days"}},

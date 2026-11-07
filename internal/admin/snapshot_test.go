@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"regexp"
@@ -149,9 +150,9 @@ func TestSnapshotBindingEntityShape(t *testing.T) {
 	if f := byKey["item_codes"]; !f.Editable || f.Type != "json" {
 		t.Fatalf("item_codes 应为可编辑的 json 字段: %+v", f)
 	}
-	derived, ok := byKey["item_count"]
+	derived, ok := byKey["fields_count"]
 	if !ok || !derived.Derived {
-		t.Fatalf("item_count 应为派生列: %+v", derived)
+		t.Fatalf("fields_count 应为派生列: %+v", derived)
 	}
 	if derived.Sortable || derived.Filterable || derived.Editable {
 		t.Fatalf("派生列不得可排序/筛选/编辑: %+v", derived)
@@ -173,11 +174,89 @@ func TestSnapshotBindingDerivedColumnInListSQL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("构造列表 SQL: %v", err)
 	}
-	for _, want := range []string{"select *", "jsonb_array_length(item_codes) as item_count", "from snapshot_binding"} {
+	for _, want := range []string{"select *", "jsonb_array_length(item_codes) as fields_count", "from snapshot_binding"} {
 		if !strings.Contains(sql, want) {
 			t.Fatalf("列表 SQL 缺少 %q：%s", want, sql)
 		}
 	}
+}
+
+// 列表响应里必须真的出现 fields_count（前端读的就是这个键）。
+// 只断言 SQL 不够——别名写错时 SQL 里看着对、返回的行里却是另一个键。
+func TestSnapshotBindingListReturnsFieldsCountWithDB(t *testing.T) {
+	dsn := testDSN(t)
+	ctx := context.Background()
+	pool, err := store.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("连接 PostgreSQL: %v", err)
+	}
+	t.Cleanup(pool.Close)
+	if err := store.Migrate(ctx, pool, migrations.FS); err != nil {
+		t.Fatalf("执行迁移: %v", err)
+	}
+	cleanup := func() {
+		_, _ = pool.Exec(ctx, `delete from snapshot_binding`)
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+
+	// 造一条类型级 + 三个字段的绑定（类型与物模型先备好）。
+	var typeID int64
+	if err := pool.QueryRow(ctx, `
+		insert into data_domain (code, name) values ('FC-DOMAIN', '字段数测试域')
+		on conflict (code) do update set name = excluded.name returning id`).Scan(new(int64)); err != nil {
+		// 已存在时走查询分支
+		if err := pool.QueryRow(ctx, `select id from data_domain where code = 'FC-DOMAIN'`).Scan(new(int64)); err != nil {
+			t.Fatalf("建数据域: %v", err)
+		}
+	}
+	if err := pool.QueryRow(ctx, `
+		insert into device_type (code, name, domain_id)
+		select 'FC-TYPE', '字段数测试类型', id from data_domain where code = 'FC-DOMAIN'
+		on conflict (code) do update set name = excluded.name
+		returning id`).Scan(&typeID); err != nil {
+		t.Fatalf("建类型: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `
+		insert into snapshot_binding (device_type_id, item_codes)
+		values ($1, '["a","b","c"]'::jsonb)`, typeID); err != nil {
+		t.Fatalf("建绑定: %v", err)
+	}
+
+	api := New(pool)
+	rec := httptest.NewRecorder()
+	api.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/snapshot-bindings", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("列表返回 %d：%s", rec.Code, rec.Body.String())
+	}
+	var payload struct {
+		Data []map[string]any `json:"data"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("解析响应: %v", err)
+	}
+	if len(payload.Data) == 0 {
+		t.Fatal("列表为空，无法验证 fields_count")
+	}
+	row := payload.Data[0]
+	got, ok := row["fields_count"]
+	if !ok {
+		t.Fatalf("列表行里没有 fields_count，实际键：%v", keysOf(row))
+	}
+	if n, _ := got.(float64); int(n) != 3 {
+		t.Fatalf("fields_count = %v，期望 3", got)
+	}
+	if _, hasOld := row["item_count"]; hasOld {
+		t.Fatal("旧别名 item_count 不应再出现")
+	}
+}
+
+func keysOf(m map[string]any) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
 }
 
 // 绑定校验（真库）：多字段、全部错码一次列出、目标重复统一文案、部分更新合并、换目标。
