@@ -5,7 +5,7 @@ import type { FieldMeta, RowData } from '../api/types';
 import { Drawer } from './Drawer';
 import { FilterMultiSelect } from './FilterMultiSelect';
 import { RelationSelect } from './RelationSelect';
-import { Button } from '@radix-ui/themes';
+import { Button, TextField } from '@radix-ui/themes';
 
 const BINDINGS_ENTITY = 'snapshot-bindings';
 const PROPERTIES_ENTITY = 'thing-model-properties';
@@ -201,7 +201,15 @@ export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: 
           <Button type="button" onClick={onClose} disabled={save.isPending} variant="surface" size="3">
             取消
           </Button>
-          <Button type="button" onClick={submit} disabled={!canSave} aria-busy={save.isPending} title={codes.length === 0 ? '至少选择一个字段后才能保存' : undefined} variant="solid" size="3">
+          <Button
+            type="button"
+            onClick={submit}
+            disabled={!canSave}
+            aria-busy={save.isPending}
+            title={codes.length === 0 ? '至少选择一个字段后才能保存' : undefined}
+            variant="solid"
+            size="3"
+          >
             保存
           </Button>
         </>
@@ -245,9 +253,9 @@ export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: 
       ) : (
         <div className="field">
           <label htmlFor="binding-terminal">终端</label>
-          <input
+          <TextField.Root
             id="binding-terminal"
-            className="input"
+            size="3"
             type="search"
             placeholder="按终端 ID 或名称搜索"
             value={keyword}
@@ -266,7 +274,14 @@ export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: 
             <ul className="m-0 flex list-none flex-col gap-1 p-0" aria-label="终端候选">
               {(terminals.data?.rows ?? []).map((row) => (
                 <li key={String(row.id)}>
-                  <Button type="button" aria-pressed={String(row.id) === terminalID} onClick={() => changeTarget('', String(row.id), String(row.type_id ?? ''))} variant="ghost" size="3" className="h-10">
+                  <Button
+                    type="button"
+                    aria-pressed={String(row.id) === terminalID}
+                    onClick={() => changeTarget('', String(row.id), String(row.type_id ?? ''))}
+                    variant="ghost"
+                    size="3"
+                    className="h-10"
+                  >
                     {String(row.id)}（{String(row.name ?? '未命名')}）
                   </Button>
                 </li>
@@ -294,7 +309,15 @@ export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: 
         {codes.length > 0 && (
           <div className="flex flex-wrap items-center gap-1" aria-label="已选字段">
             {codes.map((code) => (
-              <Button key={code} type="button" aria-label={`移除字段 ${code}`} onClick={() => setCodes((prev) => prev.filter((item) => item !== code))} variant="ghost" size="3" className="h-10">
+              <Button
+                key={code}
+                type="button"
+                aria-label={`移除字段 ${code}`}
+                onClick={() => setCodes((prev) => prev.filter((item) => item !== code))}
+                variant="ghost"
+                size="3"
+                className="h-10"
+              >
                 {labelOf(code)} ✕
               </Button>
             ))}

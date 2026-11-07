@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Button, TextField } from '@radix-ui/themes';
 import { z } from 'zod';
 import type { EntityMeta, FieldMeta, RowData } from '../api/types';
 import { formFields } from '../lib/fieldMeta';
@@ -6,7 +7,6 @@ import { toFormValue, toSubmitValue } from '../lib/format';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import { Drawer } from './Drawer';
 import { RelationSelect } from './RelationSelect';
-import { Button } from '@radix-ui/themes';
 
 interface Props {
   entity: EntityMeta;
@@ -126,9 +126,9 @@ export function RecordDrawer({
     if (isLocked(field)) {
       // 锁定值来自调用方传入的 row（新建属性时 type_id 由详情页固定注入）。
       return (
-        <input
+        <TextField.Root
           id={id}
-          className="input"
+          size="3"
           value={values[field.key] ?? ''}
           readOnly
           disabled
@@ -189,9 +189,11 @@ export function RecordDrawer({
     }
     if (field.type === 'json') {
       return (
+        // Radix Themes 没有 TextArea 组件：保留原生 textarea，用等价工具类维持与 TextField 一致的外观
+        // （同一套 surface 底 + 1px 边框 + 6px 圆角），P5 若引入 Radix 的 TextArea 再替换。
         <textarea
           id={id}
-          className="input"
+          className="min-h-24 w-full rounded-sm border border-border bg-surface px-2 py-1 text-base text-text"
           rows={4}
           value={values[field.key] ?? ''}
           onChange={(event) => setValue(field.key, event.target.value)}
@@ -199,9 +201,9 @@ export function RecordDrawer({
       );
     }
     return (
-      <input
+      <TextField.Root
         id={id}
-        className="input"
+        size="3"
         type={field.type === 'number' ? 'number' : 'text'}
         value={values[field.key] ?? ''}
         onChange={(event) => setValue(field.key, event.target.value)}
@@ -224,15 +226,38 @@ export function RecordDrawer({
       footer={
         <>
           {mode === 'edit' && writable && (
-            <Button type="button" onClick={onDelete} disabled={saving || deleting} variant="soft" size="3" color="red" className="touch-hit mr-auto">
+            <Button
+              type="button"
+              onClick={onDelete}
+              disabled={saving || deleting}
+              variant="soft"
+              size="3"
+              color="red"
+              className="touch-hit mr-auto"
+            >
               删除
             </Button>
           )}
-          <Button type="button" onClick={onClose} disabled={saving} variant="surface" size="3" className="touch-hit">
+          <Button
+            type="button"
+            onClick={onClose}
+            disabled={saving}
+            variant="surface"
+            size="3"
+            className="touch-hit"
+          >
             取消
           </Button>
           {/* 文案固定「保存」，忙碌态只由 disabled + aria-busy 表达，宽度不跳动（§5.1）。 */}
-          <Button type="button" onClick={submit} disabled={saving} aria-busy={saving} variant="solid" size="3" className="touch-hit">
+          <Button
+            type="button"
+            onClick={submit}
+            disabled={saving}
+            aria-busy={saving}
+            variant="solid"
+            size="3"
+            className="touch-hit"
+          >
             保存
           </Button>
         </>

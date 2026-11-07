@@ -2,7 +2,7 @@ import * as Popover from '@radix-ui/react-popover';
 import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { useFieldOptions, useOptionSearch } from '../api/entities';
 import type { FieldMeta, OptionItem } from '../api/types';
-import { Button } from '@radix-ui/themes';
+import { Button, TextField } from '@radix-ui/themes';
 
 interface Props {
   field: FieldMeta;
@@ -143,10 +143,11 @@ export function RelationSelect({
               inputRef.current?.focus();
             }}
           >
-            <input
+            <TextField.Root
               ref={inputRef}
+              size="3"
               type="text"
-              className="input mb-2"
+              className="mb-2"
               placeholder="输入关键词搜索"
               value={keyword}
               onChange={(event) => setKeyword(event.target.value)}
@@ -199,7 +200,14 @@ export function RelationSelect({
         </Popover.Portal>
       </Popover.Root>
       {allowEmpty && value !== '' && (
-        <Button type="button" onClick={clear} aria-label={`清除${field.label}`} variant="surface" size="3" className="shrink-0">
+        <Button
+          type="button"
+          onClick={clear}
+          aria-label={`清除${field.label}`}
+          variant="surface"
+          size="3"
+          className="shrink-0"
+        >
           清除
         </Button>
       )}

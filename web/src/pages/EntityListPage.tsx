@@ -370,7 +370,6 @@ export function EntityListPage() {
           onChange={setQuery}
           optionsError={optionsQuery.isError}
           onRetryOptions={() => void optionsQuery.refetch()}
-          pilot={radixPilot}
         />
       </ListCard>
 

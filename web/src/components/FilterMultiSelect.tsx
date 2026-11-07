@@ -3,7 +3,7 @@ import { useEffect, useId, useMemo, useRef, useState } from 'react';
 import type { Option } from '../api/types';
 import { optionMatches } from '../lib/format';
 import { cn } from '../lib/cn';
-import { Button } from '@radix-ui/themes';
+import { Button, TextField } from '@radix-ui/themes';
 
 interface Props {
   /** 触发按钮的 id：让外层 `<label htmlFor>` 指到可交互元素。 */
@@ -122,10 +122,11 @@ export function FilterMultiSelect({ id, label, options, selected, onChange, allo
             inputRef.current?.focus();
           }}
         >
-          <input
+          <TextField.Root
             ref={inputRef}
+            size="3"
             type="text"
-            className="input mb-2"
+            className="mb-2"
             placeholder="输入关键词搜索"
             value={keyword}
             onChange={(event) => setKeyword(event.target.value)}

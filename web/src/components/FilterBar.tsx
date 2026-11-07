@@ -1,7 +1,6 @@
-import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { Button, TextField } from '@radix-ui/themes';
-import { cn } from '../lib/cn';
 import type { FieldMeta, Option } from '../api/types';
 import { advancedFilters, quickFilters, type FieldHolder } from '../lib/fieldMeta';
 import { NARROW_QUERY } from '../lib/breakpoint';
@@ -15,30 +14,6 @@ import {
 import { formatFilterValue, operatorLabel } from '../lib/format';
 import { Drawer } from './Drawer';
 import { FilterMultiSelect } from './FilterMultiSelect';
-
-/**
- * P2 试点开关（1107018）：只有终端列表页（/terminals）传 `pilot`。
- * FilterBar 被 3 个列表页共用（实体列表 / 只读页 / 异常页），未传时**必须**渲染旧的
- * `.btn` / `.input` 实现 —— 否则「只换一页」就变成了全局换控件。
- */
-const PilotContext = createContext(false);
-
-/** 文本输入：试点页用 Radix TextField（size=3 = 40px），其它页保持 `.input`。 */
-function PilotTextField({
-  legacyClassName,
-  className,
-  ...rest
-}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'color' | 'defaultValue' | 'value' | 'type'> & {
-  /** 只用于单值输入框：值一律是字符串（Radix TextField 的 value 不接受数组）。 */
-  value?: string;
-  /** Radix TextField 支持的 input type 子集。 */
-  type?: 'text' | 'search' | 'number' | 'date';
-  legacyClassName?: string;
-}) {
-  const pilot = useContext(PilotContext);
-  if (pilot) return <TextField.Root {...rest} size="3" className={className} />;
-  return <input {...rest} className={cn('input', legacyClassName, className)} />;
-}
 
 interface Props {
  entity: FieldHolder;
@@ -289,10 +264,10 @@ function FilterControl({
  {/* 范围组只做横排容器：每个 TextField.Root 自带 40px 高度与 1px 内描边，
  容器不再加边框/内边距，否则同行 label 与输入框会底边错位。 */}
  <div className="flex flex-wrap items-center gap-2">
- <PilotTextField
+ <TextField.Root
  id={`${inputId}-gte`}
- className={problem ? 'option-group-field' : 'option-group-field'}
- legacyClassName={isNumber ? 'option-group-field number-input' : 'option-group-field date-input'}
+ size="3"
+ className="option-group-field"
  style={problem ? { boxShadow: 'inset 0 0 0 1px var(--color-negative-text)' } : undefined}
  type={isNumber ? 'number' : 'date'}
  placeholder={isNumber ? '最小值' : undefined}
@@ -307,9 +282,9 @@ function FilterControl({
  onBlur={(event) => commitRange(event.currentTarget.value, lteDraft.draft)}
  />
  <span aria-hidden="true">–</span>
- <PilotTextField
+ <TextField.Root
+ size="3"
  className="option-group-field"
- legacyClassName={isNumber ? 'option-group-field number-input' : 'option-group-field date-input'}
  style={problem ? { boxShadow: 'inset 0 0 0 1px var(--color-negative-text)' } : undefined}
  type={isNumber ? 'number' : 'date'}
  placeholder={isNumber ? '最大值' : undefined}
@@ -340,8 +315,9 @@ function FilterControl({
  return (
  <div className="field">
  <label htmlFor={inputId}>{field.label}</label>
- <PilotTextField
+ <TextField.Root
  id={inputId}
+ size="3"
  type="search"
  value={text.draft}
  placeholder={`按${field.label}筛选`}
@@ -418,7 +394,13 @@ export function ActiveFilterChips({ entity, query, relationOptions, onChange }: 
  </li>
  ))}
  <li>
- <Button type="button" variant="ghost" size="3" className="h-10" onClick={() => onChange(clearFilters(query))}>
+ <Button
+   type="button"
+   variant="ghost"
+   size="3"
+   className="h-10"
+   onClick={() => onChange(clearFilters(query))}
+ >
  清除全部筛选
  </Button>
  </li>
@@ -433,8 +415,7 @@ export function FilterBar({
  onChange,
  optionsError,
  onRetryOptions,
- pilot = false,
-}: Props & { /** P2 试点：只有终端列表页传 true，其它列表页保持旧控件。 */ pilot?: boolean }) {
+}: Props) {
  const quick = useMemo(() => quickFilters(entity), [entity]);
  const advanced = useMemo(() => advancedFilters(entity), [entity]);
  const [keyword, setKeyword] = useState(query.q);
@@ -459,8 +440,9 @@ export function FilterBar({
  const keywordField = (
  <div className="field filter-span-2">
  <label htmlFor="filter-keyword">关键词</label>
- <PilotTextField
+ <TextField.Root
  id="filter-keyword"
+ size="3"
  type="search"
  value={keyword}
  placeholder="在可搜索的文本列中匹配"
@@ -501,7 +483,6 @@ export function FilterBar({
  if (narrow) {
  // <1024px：筛选控件收进抽屉，页面上只留「筛选（N）」；已生效标签仍常驻页面外显（§14.1/§11.2）。
  return (
- <PilotContext.Provider value={pilot}>
  <>
  <div className="mb-3 flex items-end gap-3">
  <Button
@@ -539,12 +520,10 @@ export function FilterBar({
  </div>
  </Drawer>
  </>
- </PilotContext.Provider>
  );
  }
 
  return (
- <PilotContext.Provider value={pilot}>
  <>
  <div className="mb-3 flex items-end gap-3">
  <div className="filter-grid flex-1">
@@ -596,6 +575,5 @@ export function FilterBar({
  </Dialog.Portal>
  </Dialog.Root>
  </>
- </PilotContext.Provider>
  );
 }

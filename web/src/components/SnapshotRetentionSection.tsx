@@ -4,7 +4,7 @@ import { ApiError, fetchList, updateRow } from '../api/client';
 import { useMeta } from '../api/meta';
 import type { RowData } from '../api/types';
 import { Card, CardHeader } from './Card';
-import { Button } from '@radix-ui/themes';
+import { Button, TextField } from '@radix-ui/themes';
 
 /** 只读源 `snapshot-settings`：三行固定（粗/分/秒），只能改 retention_days。 */
 const SETTINGS_ENTITY = 'snapshot-settings';
@@ -145,7 +145,14 @@ export function SnapshotRetentionSection() {
               有未保存修改
             </span>
           )}
-          <Button type="button" onClick={submit} disabled={!dirty || save.isPending} aria-busy={save.isPending} variant="surface" size="3">
+          <Button
+            type="button"
+            onClick={submit}
+            disabled={!dirty || save.isPending}
+            aria-busy={save.isPending}
+            variant="surface"
+            size="3"
+          >
             保存
           </Button>
         </>
@@ -176,8 +183,9 @@ export function SnapshotRetentionSection() {
                 data-dirty={String(dirtyRows.some((item) => String(item.table_name) === table))}
               >
                 <span className="w-52 text-base">{STORAGE_LABELS[table] ?? table}</span>
-                <input
-                  className="input w-40"
+                <TextField.Root
+                  size="3"
+                  className="w-40"
                   type="number"
                   min={1}
                   placeholder="永久保留"
