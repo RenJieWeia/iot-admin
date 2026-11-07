@@ -1,7 +1,7 @@
 import { useMeta } from '../api/meta';
 import { AppShell } from '../components/AppShell';
+import { groupCrumb } from '../lib/navGroups';
 import { ErrorState } from '../components/ErrorState';
-import { Section } from '../components/Section';
 import { SnapshotBindingsSection } from '../components/SnapshotBindingsSection';
 import { SnapshotRetentionSection } from '../components/SnapshotRetentionSection';
 import { SnapshotSlotConfigSection } from '../components/SnapshotSlotConfigSection';
@@ -33,13 +33,14 @@ export function SnapshotConfigPage() {
   }
 
   return (
-    <AppShell title={entity.title} subtitle="存储策略 · 数据项绑定">
-      {/* 两段式：存储策略（六档 + 保留期两个子块） / 数据项绑定。 */}
-      <Section title="存储策略" description="全局六档配置与表级保留期，各自批量保存">
-        <SnapshotSlotConfigSection />
-        <hr className="m-0 border-0 border-t border-border-subtle" aria-hidden="true" />
-        <SnapshotRetentionSection />
-      </Section>
+    <AppShell
+      title={entity.title}
+      subtitle="六档配置 · 保留期 · 数据项绑定"
+      breadcrumb={groupCrumb('entities')}
+    >
+      {/* 三张平级卡（1107010）：各自带一个小标题与一个动作，页面外壳不画卡片、不套容器。 */}
+      <SnapshotSlotConfigSection />
+      <SnapshotRetentionSection />
       <SnapshotBindingsSection />
     </AppShell>
   );

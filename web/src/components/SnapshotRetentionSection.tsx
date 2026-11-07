@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { ApiError, fetchList, updateRow } from '../api/client';
 import { useMeta } from '../api/meta';
 import type { RowData } from '../api/types';
-import { Subsection } from './Section';
+import { Card, CardHeader } from './Card';
 
 /** 只读源 `snapshot-settings`：三行固定（粗/分/秒），只能改 retention_days。 */
 const SETTINGS_ENTITY = 'snapshot-settings';
@@ -133,11 +133,11 @@ export function SnapshotRetentionSection() {
   const failedKeys = new Set(Object.keys(failed));
 
   return (
-    <Subsection
-      title="保留期"
-      description="表级配置（三行固定，不能增删）；留空表示永久保留"
-      tone={failedKeys.size > 0 ? 'warning' : 'default'}
-      actions={
+    <Card label="保留期" tone={failedKeys.size > 0 ? 'warning' : 'default'}>
+      <CardHeader
+        title="保留期"
+        description="表级配置（三行固定，不能增删）；留空表示永久保留"
+        actions={
         <>
           {dirty && (
             <span className="text-sm text-warning" role="status">
@@ -154,8 +154,8 @@ export function SnapshotRetentionSection() {
             保存
           </button>
         </>
-      }
-    >
+        }
+      />
       <p className="mb-2 mt-0 text-sm text-muted">
         最小清理粒度 = 整月（粗表 / 分表）、整日（秒表），实际保留可能比设定值更长。
       </p>
@@ -210,6 +210,6 @@ export function SnapshotRetentionSection() {
           {notice}
         </p>
       )}
-    </Subsection>
+    </Card>
   );
 }

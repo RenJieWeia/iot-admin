@@ -23,12 +23,16 @@ const retentionSave = () =>
   within(screen.getByRole('group', { name: '保留期' })).getByRole('button', { name: '保存' });
 
 describe('快照配置页（存储策略 / 数据项绑定 两段式）', () => {
-  it('只有两段；保存按钮恰好两个，分别在「六档配置」「保留期」子块右上角', async () => {
+  it('三张平级卡（六档配置 / 保留期 / 数据项绑定），保存按钮恰好两个且各自在卡头右侧', async () => {
     renderApp('/snapshot-slots');
     await waitForPage();
 
-    expect(screen.getByRole('region', { name: '存储策略' })).toBeInTheDocument();
-    expect(screen.getByRole('region', { name: '数据项绑定' })).toBeInTheDocument();
+    // 1107010：不再有「存储策略」外壳，三张卡平级、互不嵌套。
+    expect(screen.queryByRole('region', { name: '存储策略' })).toBeNull();
+    for (const name of ['六档配置', '保留期', '数据项绑定']) {
+      expect(screen.getByRole('group', { name })).toBeInTheDocument();
+    }
+    expect(document.querySelectorAll('[data-card] [data-card]').length).toBe(0);
     // 全页只有两个「保存」（旧的 9 个逐行按钮已收成两个批量保存）。
     expect(screen.getAllByRole('button', { name: '保存' })).toHaveLength(2);
     expect(slotSave()).toBeInTheDocument();
@@ -133,7 +137,7 @@ describe('快照配置页（存储策略 / 数据项绑定 两段式）', () => 
     renderApp('/snapshot-slots');
     await waitForPage();
 
-    const bindings = screen.getByRole('region', { name: '数据项绑定' });
+    const bindings = screen.getByRole('group', { name: '数据项绑定' });
     await waitFor(() => expect(document.querySelectorAll('tbody tr')).toHaveLength(2));
     for (const head of ['作用域', '目标', '字段数', '创建时间', '操作']) {
       expect(within(bindings).getByRole('columnheader', { name: head })).toBeInTheDocument();

@@ -12,6 +12,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DataTable } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
+import { Card } from '../components/Card';
 import { FilterBar } from '../components/FilterBar';
 import { Pagination } from '../components/Pagination';
 import { RecordDrawer, objectLabel } from '../components/RecordDrawer';
@@ -336,15 +337,18 @@ export function EntityListPage() {
         )}
       </p>
 
-      <FilterBar
-        entity={entity}
-        query={query}
-        relationOptions={relationOptions}
-        onChange={setQuery}
-        optionsError={optionsQuery.isError}
-        onRetryOptions={() => void optionsQuery.refetch()}
-      />
+      <Card>
+        <FilterBar
+          entity={entity}
+          query={query}
+          relationOptions={relationOptions}
+          onChange={setQuery}
+          optionsError={optionsQuery.isError}
+          onRetryOptions={() => void optionsQuery.refetch()}
+        />
+      </Card>
 
+      <Card>
       {pageNotice && (
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-sm border border-border bg-neutral-bg px-3 py-2">
           <span className="text-sm" role="status">
@@ -479,6 +483,7 @@ export function EntityListPage() {
           />
         </>
       )}
+      </Card>
 
       {drawerParam && (
         <RecordDrawer

@@ -6,6 +6,7 @@ import { toLabelMap, useFieldOptions } from '../api/entities';
 import { useMeta } from '../api/meta';
 import type { EntityMeta, ListMeta, RowData } from '../api/types';
 import { AppShell } from '../components/AppShell';
+import { Card } from '../components/Card';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DataTable } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
@@ -349,128 +350,130 @@ export function DeviceTypeDetailPage() {
           </button>
         </p>
       )}
-      {listState === 'error' ? (
-        <ErrorState
-          title="终端属性加载失败"
-          text={`${errorDetail(list.error) ?? '未知错误'}。数据未丢失，可重试。`}
-          onRetry={() => void list.refetch()}
-        />
-      ) : listState === 'loading' ? (
-        <DataTable
-          fields={fields}
-          rows={[]}
-          state="loading"
-          sort={query.sort || fallbackSort}
-          order={query.order}
-          onSort={() => {}}
-          relationOptions={{}}
-          writable={writable}
-          skeletonRows={query.pageSize}
-          caption="当前筛选结果"
-        />
-      ) : listState === 'empty' ? (
-        <EmptyState
-          title="该终端类型下还没有属性"
-          text="用右上角「新建属性」录入第一条；type_id 会自动锁定为当前终端类型。"
-          action={
-            writable ? (
-              <button type="button" className="btn" onClick={() => setDrawer({ mode: 'new', row: null })}>
-                新建{property.title}
-              </button>
-            ) : undefined
-          }
-        />
-      ) : listState === 'stale' ? (
-        <EmptyState
-          title="当前页暂时没有数据"
-          text="这一页正好取不到数据（总数仍大于 0）。已尝试回到第一页，也可以直接重试。"
-          action={
-            <button type="button" className="btn" onClick={() => void list.refetch()}>
-              刷新
-            </button>
-          }
-        />
-      ) : (
-        <>
+      <Card>
+        {listState === 'error' ? (
+          <ErrorState
+            title="终端属性加载失败"
+            text={`${errorDetail(list.error) ?? '未知错误'}。数据未丢失，可重试。`}
+            onRetry={() => void list.refetch()}
+          />
+        ) : listState === 'loading' ? (
           <DataTable
             fields={fields}
-            rows={rows}
-            state="ready"
+            rows={[]}
+            state="loading"
             sort={query.sort || fallbackSort}
             order={query.order}
-            onSort={(field) => setQuery(setSort(query, field))}
+            onSort={() => {}}
             relationOptions={{}}
             writable={writable}
-            onEdit={(row) => {
-              saveMutation.reset();
-              setDrawer({ mode: 'edit', row });
-            }}
-            onDelete={(row) => {
-              deleteMutation.reset();
-              setPendingDelete(row);
-            }}
             skeletonRows={query.pageSize}
             caption="当前筛选结果"
           />
-          <Pagination
-            meta={listMeta}
-            rangeText={rangeText(listMeta, rows.length)}
-            outOfRange={listMeta.total > 0 && rows.length === 0}
-            pageSizeOptions={meta.data?.pagination?.options ?? [10, 20, 50]}
-            onPage={(page) => setQuery(patchQuery(query, { page }))}
-            onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
+        ) : listState === 'empty' ? (
+          <EmptyState
+            title="该终端类型下还没有属性"
+            text="用右上角「新建属性」录入第一条；type_id 会自动锁定为当前终端类型。"
+            action={
+              writable ? (
+                <button type="button" className="btn" onClick={() => setDrawer({ mode: 'new', row: null })}>
+                  新建{property.title}
+                </button>
+              ) : undefined
+            }
           />
-        </>
-      )}
+        ) : listState === 'stale' ? (
+          <EmptyState
+            title="当前页暂时没有数据"
+            text="这一页正好取不到数据（总数仍大于 0）。已尝试回到第一页，也可以直接重试。"
+            action={
+              <button type="button" className="btn" onClick={() => void list.refetch()}>
+                刷新
+              </button>
+            }
+          />
+        ) : (
+          <>
+            <DataTable
+              fields={fields}
+              rows={rows}
+              state="ready"
+              sort={query.sort || fallbackSort}
+              order={query.order}
+              onSort={(field) => setQuery(setSort(query, field))}
+              relationOptions={{}}
+              writable={writable}
+              onEdit={(row) => {
+                saveMutation.reset();
+                setDrawer({ mode: 'edit', row });
+              }}
+              onDelete={(row) => {
+                deleteMutation.reset();
+                setPendingDelete(row);
+              }}
+              skeletonRows={query.pageSize}
+              caption="当前筛选结果"
+            />
+            <Pagination
+              meta={listMeta}
+              rangeText={rangeText(listMeta, rows.length)}
+              outOfRange={listMeta.total > 0 && rows.length === 0}
+              pageSizeOptions={meta.data?.pagination?.options ?? [10, 20, 50]}
+              onPage={(page) => setQuery(patchQuery(query, { page }))}
+              onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
+            />
+          </>
+        )}
 
-      {drawer && (
-        <RecordDrawer
-          entity={property}
-          writable={writable}
-          mode={drawer.mode}
-          row={drawerRow}
-          saving={saveMutation.isPending}
-          deleting={deleteMutation.isPending}
-          error={errorDetail(saveMutation.error) ?? errorDetail(deleteMutation.error)}
-          lockedFields={[LOCK_FIELD]}
-          onClose={() => setDrawer(null)}
-          onSave={(body) =>
-            saveMutation.mutate({
-              mode: drawer.mode,
-              body,
-              id: drawer.mode === 'new' ? null : String(drawer.row?.id ?? ''),
-            })
-          }
-          onDelete={() => setPendingDelete(drawer.row)}
+        {drawer && (
+          <RecordDrawer
+            entity={property}
+            writable={writable}
+            mode={drawer.mode}
+            row={drawerRow}
+            saving={saveMutation.isPending}
+            deleting={deleteMutation.isPending}
+            error={errorDetail(saveMutation.error) ?? errorDetail(deleteMutation.error)}
+            lockedFields={[LOCK_FIELD]}
+            onClose={() => setDrawer(null)}
+            onSave={(body) =>
+              saveMutation.mutate({
+                mode: drawer.mode,
+                body,
+                id: drawer.mode === 'new' ? null : String(drawer.row?.id ?? ''),
+              })
+            }
+            onDelete={() => setPendingDelete(drawer.row)}
+          />
+        )}
+
+        {editingType && typeRow && (
+          <RecordDrawer
+            entity={parent}
+            writable
+            mode="edit"
+            row={typeRow}
+            saving={editTypeMutation.isPending}
+            deleting={false}
+            error={errorDetail(editTypeMutation.error)}
+            onClose={() => setEditingType(false)}
+            onSave={(body) => editTypeMutation.mutate(body)}
+            onDelete={() => {}}
+          />
+        )}
+
+        <ConfirmDialog
+          open={pendingDelete !== null}
+          objectName={pendingDelete ? objectLabel(property, pendingDelete) : property.title}
+          busy={deleteMutation.isPending}
+          onCancel={() => setPendingDelete(null)}
+          onConfirm={() => {
+            if (pendingDelete) deleteMutation.mutate(String(pendingDelete.id));
+          }}
         />
-      )}
 
-      {editingType && typeRow && (
-        <RecordDrawer
-          entity={parent}
-          writable
-          mode="edit"
-          row={typeRow}
-          saving={editTypeMutation.isPending}
-          deleting={false}
-          error={errorDetail(editTypeMutation.error)}
-          onClose={() => setEditingType(false)}
-          onSave={(body) => editTypeMutation.mutate(body)}
-          onDelete={() => {}}
-        />
-      )}
-
-      <ConfirmDialog
-        open={pendingDelete !== null}
-        objectName={pendingDelete ? objectLabel(property, pendingDelete) : property.title}
-        busy={deleteMutation.isPending}
-        onCancel={() => setPendingDelete(null)}
-        onConfirm={() => {
-          if (pendingDelete) deleteMutation.mutate(String(pendingDelete.id));
-        }}
-      />
-
-      <Toast message={toast} onDismiss={() => setToast(null)} />
+        <Toast message={toast} onDismiss={() => setToast(null)} />
+      </Card>
     </AppShell>
   );
 }

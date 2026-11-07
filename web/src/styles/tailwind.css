@@ -188,13 +188,8 @@
   background: var(--color-surface);
 }
 
-@utility content-card {
-  border-radius: var(--radius-card);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  /* 内边距只在这一层（main 不再带 padding）：少一层嵌套，内容宽度多出 48px。 */
-  padding: var(--space-6);
-}
+/* content-card 已废弃（1107010）：页面外壳不画卡片，内容用 components/Card.tsx 平铺。
+   这里保留一句注释而不是空 utility，避免有人以为它还能用。 */
 
 /* 活跃态只用语义色（§3.2）：不加粗、不加色条。 */
 @utility nav-item-active {

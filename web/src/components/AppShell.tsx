@@ -227,9 +227,9 @@ export function AppShell({ title, subtitle, actions, breadcrumb, children }: Pro
           ref={scrollPaneRef}
           className="min-h-0 min-w-0 flex-1 overflow-y-auto"
         >
-          {/* 单层内边距：内边距全在卡片上（p-6 / max-xl:p-4），main 与卡片之间不再留外边距，
-              内容区因此拿到完整的宽度（比"main padding + 卡片 padding"两层多 40px）。 */}
-          <section className="content-card min-h-full p-6 max-xl:p-4">{children}</section>
+          {/* 背景层：不画卡片（1107010）。内边距只在 main 上，卡片由页面自己平铺；
+              gap-4 统一卡片间距 16px，页面不必各自写 margin。 */}
+          <div className="flex flex-col gap-4 p-6 max-xl:p-4">{children}</div>
         </main>
       </div>
     </div>

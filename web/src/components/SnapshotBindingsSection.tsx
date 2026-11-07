@@ -5,7 +5,7 @@ import { toLabelMap, useFieldOptions } from '../api/entities';
 import type { FieldMeta, RowData } from '../api/types';
 import { formatCell } from '../lib/format';
 import { ConfirmDialog } from './ConfirmDialog';
-import { Section } from './Section';
+import { Card, CardHeader } from './Card';
 import {
   ACTION_DANGER,
   ACTION_LINK,
@@ -77,15 +77,16 @@ export function SnapshotBindingsSection() {
   };
 
   return (
-    <Section
-      title="数据项绑定"
-      description="一行 = 一个目标 + 多个字段；作用域二选一"
-      actions={
+    <Card label="数据项绑定">
+      <CardHeader
+        title="数据项绑定"
+        description="一行 = 一个目标 + 多个字段；作用域二选一"
+        actions={
         <button type="button" className="btn btn-primary h-8" data-action="new-binding" onClick={openCreate}>
           新建绑定
         </button>
-      }
-    >
+        }
+      />
 
       {list.isError ? (
         <p className="m-0 text-negative-text" role="alert">
@@ -164,6 +165,6 @@ export function SnapshotBindingsSection() {
           if (pendingDelete) remove.mutate(String(pendingDelete.id));
         }}
       />
-    </Section>
+    </Card>
   );
 }

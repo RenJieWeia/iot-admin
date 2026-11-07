@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { ApiError, fetchList, updateRow } from '../api/client';
 import { useMeta } from '../api/meta';
 import type { RowData } from '../api/types';
-import { Subsection } from './Section';
+import { Card, CardHeader } from './Card';
 
 const SLOTS_ENTITY = 'snapshot-slots';
 
@@ -196,11 +196,11 @@ export function SnapshotSlotConfigSection() {
   const failedKeys = new Set(Object.keys(failed));
 
   return (
-    <Subsection
-      title="六档配置"
-      description="六行固定，保存后全站生效（不用的档位关掉即可）"
-      tone={failedKeys.size > 0 ? 'warning' : 'default'}
-      actions={
+    <Card label="六档配置" tone={failedKeys.size > 0 ? 'warning' : 'default'}>
+      <CardHeader
+        title="六档配置"
+        description="六行固定，保存后全站生效（不用的档位关掉即可）"
+        actions={
         <>
           {dirty && (
             <span className="text-sm text-warning" role="status">
@@ -217,8 +217,8 @@ export function SnapshotSlotConfigSection() {
             保存
           </button>
         </>
-      }
-    >
+        }
+      />
       {list.isError ? (
         <p className="m-0 text-negative-text" role="alert">
           六档配置加载失败：{errorText(list.error)}
@@ -280,6 +280,6 @@ export function SnapshotSlotConfigSection() {
           {notice}
         </p>
       )}
-    </Subsection>
+    </Card>
   );
 }

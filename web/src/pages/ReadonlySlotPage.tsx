@@ -9,6 +9,7 @@ import { groupCrumb } from '../lib/navGroups';
 import { DataTable } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
+import { Card } from '../components/Card';
 import { FilterBar } from '../components/FilterBar';
 import { CursorPager } from '../components/CursorPager';
 import { Pagination } from '../components/Pagination';
@@ -168,7 +169,9 @@ export function ReadonlySlotPage({ source }: Props) {
         </div>
       )}
 
-      <FilterBar entity={holder} query={query} relationOptions={{}} onChange={setQuery} />
+      <Card>
+        <FilterBar entity={holder} query={query} relationOptions={{}} onChange={setQuery} />
+      </Card>
 
       {snapshotSlots.length > 0 && isCursor && (
         <nav className="mb-3 flex flex-wrap items-center gap-2" aria-label="快照存储">
@@ -205,85 +208,87 @@ export function ReadonlySlotPage({ source }: Props) {
         </div>
       )}
 
-      {listState === 'error' ? (
-        <ErrorState
-          title="列表加载失败"
-          text={`${errorDetail(activeList.error) ?? '未知错误'}。数据未丢失，可重试；若筛选条件非法，清除筛选后重试。`}
-          onRetry={() => void activeList.refetch()}
-          extra={
-            activeFilters ? (
+      <Card>
+        {listState === 'error' ? (
+          <ErrorState
+            title="列表加载失败"
+            text={`${errorDetail(activeList.error) ?? '未知错误'}。数据未丢失，可重试；若筛选条件非法，清除筛选后重试。`}
+            onRetry={() => void activeList.refetch()}
+            extra={
+              activeFilters ? (
+                <button type="button" className="btn" onClick={() => setQuery(clearFilters(query))}>
+                  清除筛选
+                </button>
+              ) : undefined
+            }
+          />
+        ) : listState === 'empty' ? (
+          <EmptyState
+            title={`暂无${holder.title}`}
+            text="这个数据源当前没有任何记录。数据写入后会自动出现在这里，可稍后刷新再看。"
+            action={
+              <button type="button" className="btn" onClick={() => void activeList.refetch()}>
+                刷新
+              </button>
+            }
+          />
+        ) : listState === 'nomatch' ? (
+          <EmptyState
+            title="没有匹配的记录"
+            text="当前关键词或筛选条件排除了全部结果。可逐个移除条件，或清除全部筛选后重新查询。"
+            action={
               <button type="button" className="btn" onClick={() => setQuery(clearFilters(query))}>
                 清除筛选
               </button>
-            ) : undefined
-          }
-        />
-      ) : listState === 'empty' ? (
-        <EmptyState
-          title={`暂无${holder.title}`}
-          text="这个数据源当前没有任何记录。数据写入后会自动出现在这里，可稍后刷新再看。"
-          action={
-            <button type="button" className="btn" onClick={() => void activeList.refetch()}>
-              刷新
-            </button>
-          }
-        />
-      ) : listState === 'nomatch' ? (
-        <EmptyState
-          title="没有匹配的记录"
-          text="当前关键词或筛选条件排除了全部结果。可逐个移除条件，或清除全部筛选后重新查询。"
-          action={
-            <button type="button" className="btn" onClick={() => setQuery(clearFilters(query))}>
-              清除筛选
-            </button>
-          }
-        />
-      ) : listState === 'stale' ? (
-        // 没设条件却取不到行，但总数仍 > 0：多半是数据刚被改/删，不能说「筛选排除了全部结果」。
-        <EmptyState
-          title="当前页暂时没有数据"
-          text={`总数显示仍有 ${listMeta.total} 条，但这一页取不到数据：可能刚被删除，或数据在变化，请刷新或重试。`}
-          action={
-            <button type="button" className="btn" onClick={() => void activeList.refetch()}>
-              刷新
-            </button>
-          }
-        />
-      ) : (
-        <>
-          <DataTable
-            fields={fields}
-            rows={rows}
-            state={listState === 'loading' ? 'loading' : 'ready'}
-            sort={query.sort || fallbackSort}
-            order={query.order}
-            onSort={(field) => setQuery(setSort(query, field))}
-            relationOptions={{}}
-            writable={isWritable(holder)}
-            skeletonRows={query.pageSize}
-            // §16.1 同一信息只出现一处：表格说明不报数，条数只在分页区报一次。
-            caption="当前筛选结果"
+            }
           />
-          {isCursor ? (
-            <CursorPager
-              hasMore={cursorMeta.hasMore}
-              loading={cursorList.isFetching}
-              limit={cursorMeta.limit}
-              loaded={rows.length}
-              onMore={() => setQuery(patchQuery(query, { cursor: cursorMeta.nextCursor ?? '' }))}
+        ) : listState === 'stale' ? (
+          // 没设条件却取不到行，但总数仍 > 0：多半是数据刚被改/删，不能说「筛选排除了全部结果」。
+          <EmptyState
+            title="当前页暂时没有数据"
+            text={`总数显示仍有 ${listMeta.total} 条，但这一页取不到数据：可能刚被删除，或数据在变化，请刷新或重试。`}
+            action={
+              <button type="button" className="btn" onClick={() => void activeList.refetch()}>
+                刷新
+              </button>
+            }
+          />
+        ) : (
+          <>
+            <DataTable
+              fields={fields}
+              rows={rows}
+              state={listState === 'loading' ? 'loading' : 'ready'}
+              sort={query.sort || fallbackSort}
+              order={query.order}
+              onSort={(field) => setQuery(setSort(query, field))}
+              relationOptions={{}}
+              writable={isWritable(holder)}
+              skeletonRows={query.pageSize}
+              // §16.1 同一信息只出现一处：表格说明不报数，条数只在分页区报一次。
+              caption="当前筛选结果"
             />
-          ) : (
-            <Pagination
-              meta={listMeta}
-              rangeText={rangeText(listMeta, rows.length)}
-              outOfRange={outOfRange}
-              pageSizeOptions={metaQuery.data?.pagination?.options ?? [10, 20, 50]}
-              onPage={(page) => setQuery(patchQuery(query, { page }))}
-              onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
-            />
-          )}
-        </>
-      )}
+            {isCursor ? (
+              <CursorPager
+                hasMore={cursorMeta.hasMore}
+                loading={cursorList.isFetching}
+                limit={cursorMeta.limit}
+                loaded={rows.length}
+                onMore={() => setQuery(patchQuery(query, { cursor: cursorMeta.nextCursor ?? '' }))}
+              />
+            ) : (
+              <Pagination
+                meta={listMeta}
+                rangeText={rangeText(listMeta, rows.length)}
+                outOfRange={outOfRange}
+                pageSizeOptions={metaQuery.data?.pagination?.options ?? [10, 20, 50]}
+                onPage={(page) => setQuery(patchQuery(query, { page }))}
+                onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
+              />
+            )}
+          </>
+        )}
+      </Card>
     </AppShell>
   );
 }
