@@ -191,14 +191,19 @@ export function ReadonlySlotPage({ source }: Props) {
             const search = params.toString();
             const active = item.slot === slot;
             return (
-              <Link
+              <Button
                 key={item.slot}
-                to={{ pathname: `/readonly/${item.slot}`, search: search ? `?${search}` : '' }}
-                className={active ? 'btn btn-primary' : 'btn'}
-                aria-current={active ? 'page' : undefined}
+                asChild
+                variant={active ? 'solid' : 'surface'}
+                size="3"
               >
-                {STORAGE_LABELS[item.slot] ?? item.title}
-              </Link>
+                <Link
+                  to={{ pathname: `/readonly/${item.slot}`, search: search ? `?${search}` : '' }}
+                  aria-current={active ? 'page' : undefined}
+                >
+                  {STORAGE_LABELS[item.slot] ?? item.title}
+                </Link>
+              </Button>
             );
           })}
         </nav>
