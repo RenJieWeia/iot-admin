@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Button } from '@radix-ui/themes';
+import { Button, Card as RadixCard } from '@radix-ui/themes';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { RESET_PAGE_NOTICE, computeListState, shouldResetPage } from '../lib/listState';
@@ -13,7 +13,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DataTable } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
-import { Card, CardHeader } from '../components/Card';
+import { CardHeader } from '../components/Card';
 import { FilterBar } from '../components/FilterBar';
 import { Pagination } from '../components/Pagination';
 import { RecordDrawer, objectLabel } from '../components/RecordDrawer';
@@ -321,7 +321,8 @@ export function EntityListPage() {
         )}
       </p>
 
-      <Card>
+      {/* P2 试点：卡片换 Radix <Card size="3">；data-card 必须保留（card-hierarchy 用例依赖）。 */}
+      <RadixCard size="3" data-card>
         <CardHeader
           title="筛选"
           actions={
@@ -346,9 +347,10 @@ export function EntityListPage() {
           onRetryOptions={() => void optionsQuery.refetch()}
           pilot
         />
-      </Card>
+      </RadixCard>
 
-      <Card>
+      {/* P2 试点：卡片换 Radix <Card size="3">；data-card 必须保留（card-hierarchy 用例依赖）。 */}
+      <RadixCard size="3" data-card>
         <CardHeader
           title="数据"
           actions={
@@ -506,7 +508,7 @@ export function EntityListPage() {
           />
         </>
       )}
-      </Card>
+      </RadixCard>
 
       {drawerParam && (
         <RecordDrawer
