@@ -9,7 +9,7 @@ import { server } from '../test/server';
 function stubViewport(narrow: boolean) {
   const mediaQueryList = {
     matches: narrow,
-    media: '(max-width: 1023.98px)',
+    media: '(max-width: 1279.98px)',
     onchange: null,
     addEventListener: () => {},
     removeEventListener: () => {},

@@ -37,7 +37,6 @@
   --color-border-strong: var(--color-border-strong);
   --color-border-subtle: var(--color-border-subtle);
   /* sticky 列的方向性投影基色（@utility sticky-shadow-* 直接用 var，这里补上 Tailwind 名以便复用） */
-  --shadow-sticky: var(--color-shadow-sticky);
   --color-faint: var(--color-faint);
   --color-primary-weak: var(--color-primary-weak);
   --color-success: var(--color-success);
@@ -78,6 +77,7 @@
   --radius-pill: var(--radius-pill);
   --radius-sm: var(--radius-control);
   --radius-md: var(--radius-card);
+  --shadow-sticky: var(--color-shadow-sticky);
   --shadow-card: var(--shadow-card);
   --shadow-overlay: var(--shadow-overlay);
 
@@ -172,7 +172,9 @@
   min-height: 100vh;
   background: var(--color-bg);
 
-  @media (max-width: 1023.98px) {
+  /* 与 lib/breakpoint.ts 的 NARROW_QUERY 同口径（max-xl / <1280）：
+     内容区放不下侧栏 + 表格时收起侧栏。 */
+  @media (max-width: 1279.98px) {
     grid-template-columns: 1fr;
   }
 }
@@ -218,8 +220,9 @@
   }
 }
 
-/* 触摸目标 ≥44×44（admin-ui-spec §14）：只约束窄屏（< 1024px，与 max-lg 同口径），
-   1024 起回到桌面密度，避免断点边界上导航项高度跳 8px。 */
+/* 触摸目标 ≥44×44（admin-ui-spec §14）：**按触摸密度**约束，阈值固定 1024，
+   与 lib/breakpoint.ts 的窄屏断点（1280）不是同一个语义——后者是"内容区放不下侧栏"，
+   这里是"这台设备是不是触摸优先"。两者独立演化，改一个不要顺手改另一个。 */
 @utility touch-target {
   @media (max-width: 1023.98px) {
     min-height: var(--touch-target);

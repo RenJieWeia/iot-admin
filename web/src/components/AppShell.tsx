@@ -177,14 +177,14 @@ export function AppShell({ title, subtitle, actions, children }: Props) {
           <SidebarNav id="nav-drawer" onNavigate={closeMenu} />
         </Drawer>
       ) : (
-        <aside className="col-start-1 border-r border-border bg-surface-2 px-3 py-4 max-lg:border-b max-lg:border-r-0">
+        <aside className="col-start-1 border-r border-border bg-surface-2 px-3 py-4 max-xl:border-b max-xl:border-r-0">
           <p className="mb-4 mt-0 px-3 text-lg font-semibold">IoT 管理后台</p>
           <SidebarNav />
         </aside>
       )}
 
-      <div className="col-start-2 flex min-w-0 flex-col max-lg:col-start-1">
-        <header className="app-header flex items-center justify-between gap-4 px-6 max-lg:px-4">
+      <div className="col-start-2 flex min-w-0 flex-col max-xl:col-start-1">
+        <header className="app-header flex items-center justify-between gap-4 px-6 max-xl:px-4">
           <div className="flex min-w-0 items-center gap-2">
             {narrow && (
               <button
@@ -209,7 +209,7 @@ export function AppShell({ title, subtitle, actions, children }: Props) {
             {actions}
           </div>
         </header>
-        <main id="main" className="min-w-0 flex-1 p-6 max-lg:p-4">
+        <main id="main" className="min-w-0 flex-1 p-6 max-xl:p-4">
           <section className="content-card p-5">{children}</section>
         </main>
       </div>
