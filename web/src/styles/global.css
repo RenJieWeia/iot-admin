@@ -85,6 +85,71 @@
 }
 
 @layer components {
+  /*
+   * ===== 动效（1107022）=====
+   * 只用 transform / opacity（不碰 width/height/top/left/margin），时长一律取令牌（≤200ms）。
+   * 关闭态靠 Radix Presence：它监听 `[data-state='closed']` 上的 CSS 动画，播完才卸载，
+   * 所以这里必须是 CSS 动画而不是 transition（transition 在两个状态间没有「结束事件」可用）。
+   */
+  @keyframes drawer-slide-in {
+    from {
+      opacity: 0;
+      transform: translateX(16px);
+    }
+    to {
+      opacity: 1;
+      transform: none;
+    }
+  }
+
+  @keyframes drawer-slide-out {
+    from {
+      opacity: 1;
+      transform: none;
+    }
+    to {
+      opacity: 0;
+      transform: translateX(16px);
+    }
+  }
+
+  @keyframes drawer-overlay-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes drawer-overlay-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
+  }
+
+  /* 面板：X 轴滑入滑出（Radix 自己的 content 是 Y 轴 + scale，不照搬）。
+     fillMode: both —— 播完保持在终态，避免关闭动画结束后闪回。 */
+  .drawer-panel[data-state='open'] {
+    animation: drawer-slide-in var(--dur-base) var(--ease-out) both;
+  }
+
+  .drawer-panel[data-state='closed'] {
+    animation: drawer-slide-out var(--dur-base) var(--ease-out) both;
+  }
+
+  /* 遮罩：纯透明度过渡。 */
+  .drawer-overlay[data-state='open'] {
+    animation: drawer-overlay-in var(--dur-base) var(--ease-out) both;
+  }
+
+  .drawer-overlay[data-state='closed'] {
+    animation: drawer-overlay-out var(--dur-base) var(--ease-out) both;
+  }
+
   /* 表单元素统一高度与边框，标签始终与控件显式关联（<label for>）。 */
   .field {
     display: flex;

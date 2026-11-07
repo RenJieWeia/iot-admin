@@ -18,6 +18,12 @@ interface Props {
 /**
  * 侧滑抽屉：Radix Dialog 提供 role=dialog / aria-modal / 焦点陷阱 / Esc 关闭 / 关闭后焦点归还。
  * 底部操作区固定，始终可见；没有底部操作的导航抽屉省略该区域（admin-ui-spec §5、§3.1）。
+ *
+ * 动效（1107022）：遮罩淡入淡出、面板沿 **X 轴** 滑入滑出，时长与曲线来自 --dur-base / --ease-out。
+ * 关闭时不是靠 JS 延时卸载，而是让 Radix Presence 听到 `[data-state='closed']` 上的 CSS 动画播完再卸；
+ * 动画全部写在 global.css 的 @keyframes + `.drawer-overlay` / `.drawer-panel` 选择器里
+ * （选这个而不是 Tailwind 的 data-[state] 工具类：进出场要成对定义、还要和 reduced-motion 一起覆盖，
+ *  集中在一个 CSS 段落比在 TSX 里散着写更好审计；且 animation 的 fillMode 在这里是必需的）。
  */
 export function Drawer({ open, title, children, footer, onClose, onOpenChange, description }: Props) {
   return (
@@ -29,7 +35,7 @@ export function Drawer({ open, title, children, footer, onClose, onOpenChange, d
       }}
     >
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-overlay" />
+        <Dialog.Overlay className="drawer-overlay fixed inset-0 z-40 bg-overlay" />
         <Dialog.Content
           className={cn(
             'drawer-panel fixed inset-y-0 right-0 z-40 flex flex-col border-l border-border bg-surface',
