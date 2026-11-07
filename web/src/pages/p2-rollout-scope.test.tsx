@@ -65,7 +65,7 @@ describe('P5 收口：全站都是 Radix', () => {
       expect(counts.button, where).toBeGreaterThan(0);
       if (hasTextField) {
         // 只要页面有文本输入，就必须是 Radix TextField（底层 input 带 rt-TextFieldInput），
-        // 不是原生 `<input className="input">`。
+        // 不允许退回自研的旧文本输入类（P5 已删除该类名与对应样式）。
         expect(counts.textField, where).toBeGreaterThan(0);
         expect(
           document.querySelectorAll('input.rt-TextFieldInput').length,
