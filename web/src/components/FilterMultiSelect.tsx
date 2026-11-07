@@ -105,7 +105,7 @@ export function FilterMultiSelect({ id, label, options, selected, onChange, allo
           aria-expanded={open}
           aria-controls={listboxId}
           aria-label={label}
-          className="flex h-8 w-full items-center justify-between gap-2 rounded-control border border-border bg-surface px-2 text-left text-body"
+          className="flex h-8 w-full items-center justify-between gap-2 rounded-sm border border-border bg-surface px-2 text-left text-base"
         >
           <span className={cn('truncate', selected.length === 0 && 'text-muted')}>{triggerText}</span>
           <span aria-hidden="true">▾</span>
@@ -115,7 +115,7 @@ export function FilterMultiSelect({ id, label, options, selected, onChange, allo
         <Popover.Content
           align="start"
           sideOffset={4}
-          className="z-50 w-80 rounded-control border border-border bg-surface p-2"
+          className="z-50 w-80 rounded-sm border border-border bg-surface p-2"
           onOpenAutoFocus={(event) => {
             event.preventDefault();
             inputRef.current?.focus();

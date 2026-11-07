@@ -325,7 +325,7 @@ export function EntityListPage() {
       />
 
       {pageNotice && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-control border border-border bg-neutral-bg px-3 py-2">
+        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-sm border border-border bg-neutral-bg px-3 py-2">
           <span className="text-sm" role="status">
             {pageNotice}
           </span>
@@ -343,7 +343,7 @@ export function EntityListPage() {
       {staleRefreshError && (
         <div
           role="alert"
-          className="mb-4 flex flex-wrap items-center gap-3 rounded-control border border-warning bg-warning-weak px-3 py-2 text-warning"
+          className="mb-4 flex flex-wrap items-center gap-3 rounded-sm border border-warning bg-warning-weak px-3 py-2 text-warning"
         >
           <span>刷新失败，显示的是上次数据</span>
           <span className="text-muted">{errorDetail(list.error) ?? '未知错误'}</span>

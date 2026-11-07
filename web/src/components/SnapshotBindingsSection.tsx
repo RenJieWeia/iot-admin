@@ -95,11 +95,11 @@ export function SnapshotBindingsSection() {
           </button>
         </p>
       ) : list.isPending ? (
-        <p className="m-0 text-meta text-muted" role="status">正在加载绑定…</p>
+        <p className="m-0 text-sm text-muted" role="status">正在加载绑定…</p>
       ) : rows.length === 0 ? (
-        <p className="m-0 text-meta text-muted">还没有绑定。用右上角「新建绑定」把目标的数据项纳入快照。</p>
+        <p className="m-0 text-sm text-muted">还没有绑定。用右上角「新建绑定」把目标的数据项纳入快照。</p>
       ) : (
-        <table className="w-full border-collapse text-body">
+        <table className="w-full border-collapse text-base">
           <caption className="pb-2 text-left text-sm text-muted">当前绑定</caption>
           <thead>
             <tr>

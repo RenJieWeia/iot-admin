@@ -8,7 +8,7 @@ import { cn } from '../lib/cn';
  * 但某个值得的语义在这一层统一映射，页面不再散写颜色类。
  */
 const tag = cva(
-  'inline-block max-w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-pill px-2 text-meta leading-meta',
+  'inline-block max-w-full overflow-hidden text-ellipsis whitespace-nowrap rounded-full px-2 text-sm leading-meta',
   {
     variants: {
       tone: {

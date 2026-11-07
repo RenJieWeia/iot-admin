@@ -60,7 +60,7 @@ const ICONS: Record<string, LucideIcon> = {
 
 const navItemClass = ({ isActive }: { isActive: boolean }) =>
   cn(
-    'flex h-9 items-center gap-3 rounded-control px-3 text-body text-text hover:bg-surface touch-target',
+    'flex h-9 items-center gap-3 rounded-sm px-3 text-base text-text hover:bg-surface touch-target',
     isActive && 'nav-item-active',
   );
 
@@ -125,7 +125,7 @@ function SidebarNav({ id, onNavigate }: { id?: string; onNavigate?: () => void }
         </>
       )}
       {meta.isError && (
-        <p className="mb-1 mt-4 px-3 text-meta text-muted" role="status">
+        <p className="mb-1 mt-4 px-3 text-sm text-muted" role="status">
           导航加载失败，请刷新重试。
         </p>
       )}
@@ -177,7 +177,7 @@ export function AppShell({ title, subtitle, actions, children }: Props) {
         </Drawer>
       ) : (
         <aside className="col-start-1 border-r border-border bg-surface-2 px-3 py-4 max-lg:border-b max-lg:border-r-0">
-          <p className="mb-4 mt-0 px-3 text-section font-semibold">IoT 管理后台</p>
+          <p className="mb-4 mt-0 px-3 text-lg font-semibold">IoT 管理后台</p>
           <SidebarNav />
         </aside>
       )}
@@ -199,8 +199,8 @@ export function AppShell({ title, subtitle, actions, children }: Props) {
               </button>
             )}
             <div className="min-w-0">
-              <h1 className="m-0 truncate text-page font-semibold leading-page">{title}</h1>
-              {subtitle && <p className="m-0 text-meta leading-meta text-muted">{subtitle}</p>}
+              <h1 className="m-0 truncate text-xl font-semibold leading-page">{title}</h1>
+              {subtitle && <p className="m-0 text-sm leading-meta text-muted">{subtitle}</p>}
             </div>
           </div>
           {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}

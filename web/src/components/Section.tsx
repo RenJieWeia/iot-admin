@@ -18,7 +18,7 @@ export function Section({ title, description, actions, children }: SectionProps)
     <section className="mb-4 rounded-md border border-border bg-surface p-4" aria-label={title}>
       <header className="mb-3 flex flex-wrap items-center gap-3">
         <h2 className="m-0 text-lg">{title}</h2>
-        {description && <span className="text-meta text-muted">{description}</span>}
+        {description && <span className="text-sm text-muted">{description}</span>}
         {actions && <div className="ml-auto flex items-center gap-2">{actions}</div>}
       </header>
       <div className="flex flex-col gap-4">{children}</div>
@@ -48,8 +48,8 @@ export function Subsection({ title, description, actions, tone = 'default', chil
       )}
     >
       <header className="mb-2 flex flex-wrap items-center gap-3">
-        <h3 className="m-0 text-section">{title}</h3>
-        {description && <span className="text-meta text-muted">{description}</span>}
+        <h3 className="m-0 text-lg">{title}</h3>
+        {description && <span className="text-sm text-muted">{description}</span>}
         {actions && <div className="ml-auto flex items-center gap-2">{actions}</div>}
       </header>
       {children}

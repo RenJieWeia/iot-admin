@@ -140,7 +140,7 @@ export function SnapshotRetentionSection() {
       actions={
         <>
           {dirty && (
-            <span className="text-meta text-warning" role="status">
+            <span className="text-sm text-warning" role="status">
               有未保存修改
             </span>
           )}
@@ -156,7 +156,7 @@ export function SnapshotRetentionSection() {
         </>
       }
     >
-      <p className="mb-2 mt-0 text-meta text-muted">
+      <p className="mb-2 mt-0 text-sm text-muted">
         最小清理粒度 = 整月（粗表 / 分表）、整日（秒表），实际保留可能比设定值更长。
       </p>
 
@@ -168,7 +168,7 @@ export function SnapshotRetentionSection() {
           </button>
         </p>
       ) : list.isPending ? (
-        <p className="m-0 text-meta text-muted" role="status">正在加载保留期…</p>
+        <p className="m-0 text-sm text-muted" role="status">正在加载保留期…</p>
       ) : (
         <div className="flex flex-col gap-2">
           {rows.map((row) => {
@@ -180,7 +180,7 @@ export function SnapshotRetentionSection() {
                 className={hasFailed ? 'flex flex-wrap items-center gap-3 text-negative-text' : 'flex flex-wrap items-center gap-3'}
                 data-dirty={String(dirtyRows.some((item) => String(item.table_name) === table))}
               >
-                <span className="w-52 text-body">{STORAGE_LABELS[table] ?? table}</span>
+                <span className="w-52 text-base">{STORAGE_LABELS[table] ?? table}</span>
                 <input
                   className="input h-8 w-40"
                   type="number"
@@ -193,9 +193,9 @@ export function SnapshotRetentionSection() {
                     setNotice(null);
                   }}
                 />
-                <span className="text-meta text-muted">天</span>
+                <span className="text-sm text-muted">天</span>
                 {hasFailed && (
-                  <span className="text-meta text-negative-text" role="alert">
+                  <span className="text-sm text-negative-text" role="alert">
                     未存上：{failed[table]}
                   </span>
                 )}
@@ -206,7 +206,7 @@ export function SnapshotRetentionSection() {
       )}
 
       {notice && (
-        <p className="mt-2 text-meta" role="status">
+        <p className="mt-2 text-sm" role="status">
           {notice}
         </p>
       )}

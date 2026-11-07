@@ -309,8 +309,8 @@ export function DeviceTypeDetailPage() {
               const view = formatCell(field, typeRow?.[field.key], relationOptions[field.key] ?? {});
               return (
                 <div key={field.key} className="flex flex-col gap-1">
-                  <dt className="text-meta text-muted">{field.label}</dt>
-                  <dd className="m-0 text-body text-text">{view.text}</dd>
+                  <dt className="text-sm text-muted">{field.label}</dt>
+                  <dd className="m-0 text-base text-text">{view.text}</dd>
                 </div>
               );
             })}
@@ -319,7 +319,7 @@ export function DeviceTypeDetailPage() {
       </section>
 
       {/* 固定条件：不是可删除的 chip，只在筛选区位置做一条说明。 */}
-      <p className="mb-3 flex flex-wrap items-center gap-2 rounded-control border border-border bg-neutral-bg px-3 py-2 text-sm" role="status">
+      <p className="mb-3 flex flex-wrap items-center gap-2 rounded-sm border border-border bg-neutral-bg px-3 py-2 text-sm" role="status">
         <span className="text-muted">固定条件</span>
         <span>
           {property.fields.find((field) => field.key === LOCK_FIELD)?.label ?? '终端类型'} = {typeName}
@@ -329,7 +329,7 @@ export function DeviceTypeDetailPage() {
 
       {pageNotice && (
         <p
-          className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-control border border-border bg-neutral-bg px-3 py-2 text-sm text-neutral-text"
+          className="mb-3 flex flex-wrap items-center justify-between gap-2 rounded-sm border border-border bg-neutral-bg px-3 py-2 text-sm text-neutral-text"
           role="status"
         >
           <span>{pageNotice}</span>

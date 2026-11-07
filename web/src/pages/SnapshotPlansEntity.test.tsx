@@ -146,7 +146,7 @@ describe('快照配置页（存储策略 / 数据项绑定 两段式）', () => 
     expect(rows[1]).toContain('1');
 
     const edit = within(bindings).getAllByRole('button', { name: '编辑' })[0]!;
-    expect(edit.className).toContain('text-body');
+    expect(edit.className).toContain('text-base');
     expect(edit.className).not.toContain('border-border');
   });
 

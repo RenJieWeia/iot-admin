@@ -166,7 +166,7 @@ export function ReadonlySlotPage({ source }: Props) {
 
       {snapshotSlots.length > 0 && isCursor && (
         <nav className="mb-3 flex flex-wrap items-center gap-2" aria-label="快照存储">
-          <span className="text-meta text-muted">存储</span>
+          <span className="text-sm text-muted">存储</span>
           {snapshotSlots.map((item) => {
             const params = new URLSearchParams(searchParams);
             params.delete('cursor'); // 换存储 = 换查询，游标作废
@@ -189,7 +189,7 @@ export function ReadonlySlotPage({ source }: Props) {
       {staleRefreshError && (
         <div
           role="alert"
-          className="mb-4 flex flex-wrap items-center gap-3 rounded-control border border-warning bg-warning-weak px-3 py-2 text-warning"
+          className="mb-4 flex flex-wrap items-center gap-3 rounded-sm border border-warning bg-warning-weak px-3 py-2 text-warning"
         >
           <span>刷新失败，显示的是上次数据</span>
           <span className="text-muted">{errorDetail(activeList.error) ?? '未知错误'}</span>

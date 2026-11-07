@@ -196,7 +196,7 @@ export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: 
       description="一条绑定 = 一个目标（终端类型或终端）+ 多个数据项；字段候选来自目标类型的终端属性。"
       footer={
         <>
-          <span className="mr-auto text-meta text-muted">已选 {codes.length} 个字段</span>
+          <span className="mr-auto text-sm text-muted">已选 {codes.length} 个字段</span>
           <button type="button" className="btn" onClick={onClose} disabled={save.isPending}>
             取消
           </button>
@@ -220,7 +220,7 @@ export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: 
       )}
 
       <fieldset className="field m-0 border-0 p-0">
-        <legend className="mb-1 p-0 text-body">作用域</legend>
+        <legend className="mb-1 p-0 text-base">作用域</legend>
         <div className="flex gap-4">
           {(['type', 'terminal'] as const).map((value) => (
             <label key={value} className="inline-flex items-center gap-2 text-sm">
@@ -260,13 +260,13 @@ export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: 
             onChange={(event) => setKeyword(event.target.value)}
           />
           {terminalID !== '' && (
-            <p className="m-0 text-meta text-muted">
+            <p className="m-0 text-sm text-muted">
               已选终端：{terminalID}
               {effectiveTypeID ? `（类型 ${effectiveTypeID}）` : ''}
             </p>
           )}
           {debounced !== '' && terminals.isFetching && (
-            <p className="m-0 text-meta text-muted" role="status">正在搜索终端…</p>
+            <p className="m-0 text-sm text-muted" role="status">正在搜索终端…</p>
           )}
           {debounced !== '' && !terminals.isFetching && (
             <ul className="m-0 flex list-none flex-col gap-1 p-0" aria-label="终端候选">
@@ -283,7 +283,7 @@ export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: 
                 </li>
               ))}
               {(terminals.data?.rows ?? []).length === 0 && (
-                <li className="text-meta text-muted">没有匹配的终端</li>
+                <li className="text-sm text-muted">没有匹配的终端</li>
               )}
             </ul>
           )}
@@ -291,7 +291,7 @@ export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: 
       )}
 
       <div className="field">
-        <span className="text-body" id="binding-fields-label">字段</span>
+        <span className="text-base" id="binding-fields-label">字段</span>
         <FilterMultiSelect
           label="字段"
           options={fieldOptions}
@@ -317,13 +317,13 @@ export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: 
             ))}
           </div>
         )}
-        <p className="m-0 text-meta text-muted">
+        <p className="m-0 text-sm text-muted">
           {effectiveTypeID === ''
             ? '先选择目标，字段候选来自目标类型的终端属性。'
             : `候选来自终端类型 ${effectiveTypeID} 的终端属性；可搜索，支持全选/反选。`}
         </p>
         {codes.length === 0 && (
-          <p className="m-0 text-meta text-warning">至少选择一个字段后才能保存。</p>
+          <p className="m-0 text-sm text-warning">至少选择一个字段后才能保存。</p>
         )}
       </div>
 

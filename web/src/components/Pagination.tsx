@@ -21,7 +21,7 @@ export function Pagination({ meta, rangeText, outOfRange, pageSizeOptions, onPag
     <>
       {outOfRange && (
         <p
-          className="my-2 rounded-control border border-warning bg-warning-weak px-3 py-2 text-warning"
+          className="my-2 rounded-sm border border-warning bg-warning-weak px-3 py-2 text-warning"
           role="status"
         >
           当前页超出范围：第 {meta.page} 页已无数据，共 {total} 条。筛选条件已保留，请返回有效页或清除筛选。
@@ -41,7 +41,7 @@ export function Pagination({ meta, rangeText, outOfRange, pageSizeOptions, onPag
         <label className="inline-flex items-center gap-2 text-muted">
           每页
           <select
-            className="h-8 rounded-control border border-border bg-surface px-2"
+            className="h-8 rounded-sm border border-border bg-surface px-2"
             value={meta.pageSize}
             onChange={(event) => onPageSize(Number(event.target.value) as PageSize)}
           >

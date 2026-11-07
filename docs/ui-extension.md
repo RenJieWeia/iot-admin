@@ -170,6 +170,29 @@
 
 ---
 
+## 5.4 字号 / 圆角词汇（只有一套类名）
+
+| 需要 | 用这个类 | 实际值 |
+|---|---|---|
+| 最小字号（标签、元信息） | `text-sm` | 12px / 行高 18px |
+| 正文 | `text-base` | 14px / 行高 22px |
+| 小节标题 | `text-lg` | 16px / 行高 24px |
+| 页面标题 | `text-xl` | 20px / 行高 28px |
+| 导航（无 Tailwind 对应名） | `text-nav` | 11px |
+| 控件圆角 | `rounded-sm` | 6px |
+| 卡片圆角 | `rounded-md` | 10px |
+
+**警告：这里的 `sm/base` 与 Tailwind 默认刻度不同**（默认 sm=14px、base=16px）。
+本项目把 `--text-sm` 映射到 12px、`--text-base` 映射到 14px——**别按记忆写，改字号先查这张表**。
+
+项目语义别名（`text-meta` / `text-body` / `text-section` / `text-page` / `rounded-control` /
+`rounded-card`）已删除，`web/src/styles/style-rules.test.ts` 有守卫，出现即红。
+
+**为什么别名必须彻底删掉**：`cn()` 用 tailwind-merge 合并类名，它不认识项目自定义的
+`text-meta` / `text-body`，会把它们当成「文字颜色」与后写的 `text-text` / `text-muted` 判为冲突并**静默丢弃**。
+结果这些类在 `text-xxx` 组合里从未生效（表头实际是继承来的 14px，而非声明的 12px）。
+换成 Tailwind 名之后类才真正参与合并——这也是本次改名唯一带来视觉变化的来源。
+
 ## 5.5 表格列宽与对齐
 
 - **列宽默认由字段类型推导**（后端 `widthForType`）：id 120 / boolean 90 / enum 120 / number 110 /

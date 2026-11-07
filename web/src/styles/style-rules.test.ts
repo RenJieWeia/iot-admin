@@ -140,4 +140,39 @@ describe('样式规则（Tailwind 迁移后）', () => {
     const leftovers = tsxFiles.filter((file) => readFileSync(file, 'utf8').includes(moduleSuffix));
     expect(leftovers).toEqual([]);
   });
+
+  it('字号/圆角词汇只用 Tailwind 名，不得回潮到项目语义别名', () => {
+    // 「一个令牌两个类名」是风格不统一的根因：text-meta 与 text-sm 值一样，
+    // 代码里各用一半。这里把它锁死——只允许 Tailwind 名。
+    //
+    // 例外：tailwind.css / tokens.css 里 `--text-meta: var(--text-meta)` 这种**变量定义行**，
+    // 原始变量名仍叫 --text-meta（数值来源），不在禁令范围内。
+    const banned = [
+      'text-meta',
+      'text-body',
+      'text-section',
+      'text-page',
+      'rounded-control',
+      'rounded-card',
+    ];
+    const isVariableDefinition = (line: string) =>
+      /^\s*--(?:text|radius)-[\w-]+\s*:/.test(line) || /var\(--/.test(line);
+
+    const offenders: string[] = [];
+    for (const file of walk(SRC, /\.(?:tsx?|css)$/)) {
+      // 本文件自己就是禁令清单，跳过（否则守卫会把自己告了）。
+      if (file.endsWith('style-rules.test.ts')) continue;
+      const lines = readFileSync(file, 'utf8').split('\n');
+      lines.forEach((line, index) => {
+        if (isVariableDefinition(line)) return;
+        for (const word of banned) {
+          // 词边界：别把 --text-meta 或 text-meta-size 误判成类名用法
+          if (new RegExp(`(?<![\\w-])${word}(?![\\w-])`).test(line)) {
+            offenders.push(`${file}:${index + 1}: ${word} → 请用 Tailwind 名`);
+          }
+        }
+      });
+    }
+    expect(offenders).toEqual([]);
+  });
 });

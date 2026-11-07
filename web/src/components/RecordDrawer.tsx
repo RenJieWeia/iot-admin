@@ -155,10 +155,10 @@ export function RecordDrawer({
             onCheckedChange={(checked) => setValue(field.key, checked === true ? 'true' : 'false')}
             aria-invalid={Boolean(errors[field.key])}
             aria-describedby={errors[field.key] ? `${id}-error` : undefined}
-            className="relative h-5 w-9 rounded-pill border border-border-strong bg-surface-2 transition-colors data-[state=checked]:border-primary data-[state=checked]:bg-primary"
+            className="relative h-5 w-9 rounded-full border border-border-strong bg-surface-2 transition-colors data-[state=checked]:border-primary data-[state=checked]:bg-primary"
           >
             <Checkbox.Indicator asChild>
-              <span className="pointer-events-none absolute right-0.5 top-0.5 block h-4 w-4 rounded-pill bg-surface shadow-card" />
+              <span className="pointer-events-none absolute right-0.5 top-0.5 block h-4 w-4 rounded-full bg-surface shadow-card" />
             </Checkbox.Indicator>
           </Checkbox.Root>
           <label htmlFor={id} className="text-sm text-muted">
@@ -248,7 +248,7 @@ export function RecordDrawer({
         </>
       }
     >
-      <p className="m-0 text-meta text-muted">
+      <p className="m-0 text-sm text-muted">
         <span className="text-danger" aria-hidden="true">
           *
         </span>{' '}
@@ -273,7 +273,7 @@ export function RecordDrawer({
             </label>
             {renderControl(field)}
             {isLocked(field) && (
-              <p className="m-0 text-meta text-muted">由终端类型固定，不可编辑</p>
+              <p className="m-0 text-sm text-muted">由终端类型固定，不可编辑</p>
             )}
             {errors[field.key] && (
               <p
