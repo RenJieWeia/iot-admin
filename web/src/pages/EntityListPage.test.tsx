@@ -201,8 +201,11 @@ describe('实体列表页（服务端驱动）', () => {
     );
     renderApp('/terminals');
     expect(await screen.findByText('还没有终端')).toBeInTheDocument();
-    expect(document.querySelectorAll('.btn-primary')).toHaveLength(1);
-    expect(screen.getByRole('button', { name: '新建终端' })).toBeInTheDocument();
+    // 权重语义不变：整页只有一个「主操作」（Radix solid 变体），空态 CTA 是次要（soft）。
+    expect(document.querySelectorAll('button.rt-variant-solid')).toHaveLength(1);
+    const cta = screen.getByRole('button', { name: '新建终端' });
+    expect(cta).toHaveClass('rt-variant-soft');
+    expect(screen.getByRole('button', { name: '新建' })).toHaveClass('rt-variant-solid');
   });
 
   it('已有数据时刷新失败保留表格，只在顶部提示上次数据', async () => {

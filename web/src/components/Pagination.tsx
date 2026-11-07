@@ -1,3 +1,4 @@
+import { Button } from '@radix-ui/themes';
 import type { ListMeta } from '../api/types';
 import type { PageSize } from '../lib/queryState';
 
@@ -9,10 +10,20 @@ interface Props {
   pageSizeOptions: number[];
   onPage: (page: number) => void;
   onPageSize: (size: PageSize) => void;
+  /** P2 试点（1107018）：只有终端列表页传 true；其它页继续用 .btn，DOM 零变化。 */
+  pilot?: boolean;
 }
 
 /** 分页：范围 + 总数 + 上/下页 + 每页条数；变化一律回第一页（table-query §6）。 */
-export function Pagination({ meta, rangeText, outOfRange, pageSizeOptions, onPage, onPageSize }: Props) {
+export function Pagination({
+  meta,
+  rangeText,
+  outOfRange,
+  pageSizeOptions,
+  onPage,
+  onPageSize,
+  pilot = false,
+}: Props) {
   const total = meta.total;
   const hasPrev = meta.page > 1 && total > 0;
   const hasNext = meta.page * meta.pageSize < total;
@@ -29,15 +40,27 @@ export function Pagination({ meta, rangeText, outOfRange, pageSizeOptions, onPag
       )}
       <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
         <span className="range-text text-muted">{rangeText}</span>
-        <button type="button" className="btn touch-hit" disabled={!hasPrev} onClick={() => onPage(meta.page - 1)}>
-          上一页
-        </button>
+        {pilot ? (
+          <Button type="button" variant="soft" size="3" className="touch-hit" disabled={!hasPrev} onClick={() => onPage(meta.page - 1)}>
+            上一页
+          </Button>
+        ) : (
+          <button type="button" className="btn touch-hit" disabled={!hasPrev} onClick={() => onPage(meta.page - 1)}>
+            上一页
+          </button>
+        )}
         <span aria-current="page" className="range-text text-muted">
           第 {meta.page} 页
         </span>
-        <button type="button" className="btn touch-hit" disabled={!hasNext} onClick={() => onPage(meta.page + 1)}>
-          下一页
-        </button>
+        {pilot ? (
+          <Button type="button" variant="soft" size="3" className="touch-hit" disabled={!hasNext} onClick={() => onPage(meta.page + 1)}>
+            下一页
+          </Button>
+        ) : (
+          <button type="button" className="btn touch-hit" disabled={!hasNext} onClick={() => onPage(meta.page + 1)}>
+            下一页
+          </button>
+        )}
         <label className="inline-flex items-center gap-2 text-muted">
           每页
           <select

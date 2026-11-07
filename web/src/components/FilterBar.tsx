@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { Button } from '@radix-ui/themes';
+import { cn } from '../lib/cn';
 import type { FieldMeta, Option } from '../api/types';
 import { advancedFilters, quickFilters, type FieldHolder } from '../lib/fieldMeta';
 import { NARROW_QUERY } from '../lib/breakpoint';
@@ -13,6 +15,36 @@ import {
 import { formatFilterValue, operatorLabel } from '../lib/format';
 import { Drawer } from './Drawer';
 import { FilterMultiSelect } from './FilterMultiSelect';
+
+/**
+ * P2 试点开关（1107018）：只有终端列表页（/terminals）传 `pilot`。
+ * FilterBar 被 3 个列表页共用（实体列表 / 只读页 / 异常页），未传时**必须**渲染旧的
+ * `.btn` / `.input` 实现 —— 否则「只换一页」就变成了全局换控件。
+ */
+const PilotContext = createContext(false);
+
+/** 按钮：试点页用 Radix Button（solid=主 / soft=次 / ghost=文字链），其它页保持 .btn 系列。 */
+function PilotButton({
+  weight,
+  className,
+  ...rest
+}: Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'color'> & { weight: 'solid' | 'soft' | 'ghost' }) {
+  const pilot = useContext(PilotContext);
+  if (pilot) {
+    // ghost 原生只有 32px（padding 6 + 行高 20），补 h-10 拉回 40px。
+    return (
+      <Button
+        {...rest}
+        type="button"
+        variant={weight}
+        size="3"
+        className={cn(weight === 'ghost' && 'h-10', className)}
+      />
+    );
+  }
+  const legacy = weight === 'solid' ? 'btn btn-primary' : weight === 'ghost' ? 'btn btn-link' : 'btn';
+  return <button {...rest} type="button" className={cn(legacy, className)} />;
+}
 
 interface Props {
  entity: FieldHolder;
@@ -197,9 +229,9 @@ function FilterControl({
  optionsError && options.length === 0 ? (
  <p className="m-0 text-sm text-negative-text">
  选项加载失败，已选条件仍生效。
- <button type="button" className="btn btn-link" onClick={onRetryOptions}>
+ <PilotButton weight="ghost" onClick={onRetryOptions}>
  重试
- </button>
+ </PilotButton>
  </p>
  ) : null;
 
@@ -397,9 +429,9 @@ export function ActiveFilterChips({ entity, query, relationOptions, onChange }: 
  </li>
  ))}
  <li>
- <button type="button" className="btn btn-link" onClick={() => onChange(clearFilters(query))}>
+ <PilotButton weight="ghost" onClick={() => onChange(clearFilters(query))}>
  清除全部筛选
- </button>
+ </PilotButton>
  </li>
  </ul>
  );
@@ -412,7 +444,8 @@ export function FilterBar({
  onChange,
  optionsError,
  onRetryOptions,
-}: Props) {
+ pilot = false,
+}: Props & { /** P2 试点：只有终端列表页传 true，其它列表页保持旧控件。 */ pilot?: boolean }) {
  const quick = useMemo(() => quickFilters(entity), [entity]);
  const advanced = useMemo(() => advancedFilters(entity), [entity]);
  const [keyword, setKeyword] = useState(query.q);
@@ -480,17 +513,17 @@ export function FilterBar({
  if (narrow) {
  // <1024px：筛选控件收进抽屉，页面上只留「筛选（N）」；已生效标签仍常驻页面外显（§14.1/§11.2）。
  return (
+ <PilotContext.Provider value={pilot}>
  <>
  <div className="mb-3 flex items-end gap-3">
- <button
- type="button"
- className="btn"
+ <PilotButton
+ weight="soft"
  aria-expanded={panelOpen}
  aria-controls="filter-panel"
  onClick={() => setPanelOpen(true)}
  >
  筛选（{activeCount}）
- </button>
+ </PilotButton>
  </div>
  {chips}
  <Drawer
@@ -499,9 +532,9 @@ export function FilterBar({
  description="修改即生效，完成后收起面板"
  onClose={() => setPanelOpen(false)}
  footer={
- <button type="button" className="btn btn-primary" onClick={() => setPanelOpen(false)}>
+ <PilotButton weight="solid" onClick={() => setPanelOpen(false)}>
  完成
- </button>
+ </PilotButton>
  }
  >
  <div id="filter-panel" className="flex flex-col gap-3">
@@ -516,10 +549,12 @@ export function FilterBar({
  </div>
  </Drawer>
  </>
+ </PilotContext.Provider>
  );
  }
 
  return (
+ <PilotContext.Provider value={pilot}>
  <>
  <div className="mb-3 flex items-end gap-3">
  <div className="filter-grid flex-1">
@@ -527,13 +562,13 @@ export function FilterBar({
  {quick.map(renderControl)}
  </div>
  {advanced.length > 0 && (
- <button
- type="button"
- className="btn mb-0.5 shrink-0"
+ <PilotButton
+ weight="soft"
+ className="mb-0.5 shrink-0"
  onClick={() => setDialogOpen(true)}
  >
  更多筛选
- </button>
+ </PilotButton>
  )}
  </div>
 
@@ -552,21 +587,21 @@ export function FilterBar({
  <span className="text-sm text-muted">修改即生效</span>
  <div className="flex gap-2">
  {/* 取消只关闭浮层：条件修改即生效，取消不撤销（§5.4，用例锁定这条）。 */}
- <button type="button" className="btn" onClick={() => setDialogOpen(false)}>
+ <PilotButton weight="soft" onClick={() => setDialogOpen(false)}>
  取消
- </button>
- <button
- type="button"
- className="btn btn-primary"
+ </PilotButton>
+ <PilotButton
+ weight="solid"
  onClick={() => setDialogOpen(false)}
  >
  完成
- </button>
+ </PilotButton>
  </div>
  </div>
  </Dialog.Content>
  </Dialog.Portal>
  </Dialog.Root>
  </>
+ </PilotContext.Provider>
  );
 }

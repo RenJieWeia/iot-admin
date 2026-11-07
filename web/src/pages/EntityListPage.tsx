@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Button } from '@radix-ui/themes';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router';
 import { RESET_PAGE_NOTICE, computeListState, shouldResetPage } from '../lib/listState';
@@ -324,15 +325,16 @@ export function EntityListPage() {
         <CardHeader
           title="筛选"
           actions={
-            <button
+            <Button
               type="button"
-              className="btn"
+              variant="soft"
+              size="3"
               data-action="clear-filters"
               disabled={!activeFilters}
               onClick={() => setQuery(patchQuery(clearFilters(query), { page: 1 }))}
             >
               清除筛选
-            </button>
+            </Button>
           }
         />
         <FilterBar
@@ -342,6 +344,7 @@ export function EntityListPage() {
           onChange={setQuery}
           optionsError={optionsQuery.isError}
           onRetryOptions={() => void optionsQuery.refetch()}
+          pilot
         />
       </Card>
 
@@ -350,9 +353,10 @@ export function EntityListPage() {
           title="数据"
           actions={
             writable ? (
-              <button
+              <Button
                 type="button"
-                className="btn btn-primary"
+                variant="solid"
+                size="3"
                 data-action="new"
                 onClick={(event) => {
                   saveMutation.reset();
@@ -360,7 +364,7 @@ export function EntityListPage() {
                 }}
               >
                 新建
-              </button>
+              </Button>
             ) : undefined
           }
         />
@@ -369,14 +373,16 @@ export function EntityListPage() {
           <span className="text-sm" role="status">
             {pageNotice}
           </span>
-          <button
+          <Button
             type="button"
-            className="btn btn-link ml-auto"
+            variant="ghost"
+            size="3"
+            className="ml-auto h-10"
             aria-label="关闭纠偏提示"
             onClick={() => setPageNotice(null)}
           >
             知道了
-          </button>
+          </Button>
         </div>
       )}
 
@@ -387,9 +393,9 @@ export function EntityListPage() {
         >
           <span>刷新失败，显示的是上次数据</span>
           <span className="text-muted">{errorDetail(list.error) ?? '未知错误'}</span>
-          <button type="button" className="btn" onClick={() => void list.refetch()}>
+          <Button type="button" variant="soft" size="3" onClick={() => void list.refetch()}>
             重试
-          </button>
+          </Button>
         </div>
       )}
 
@@ -401,14 +407,14 @@ export function EntityListPage() {
           extra={
             <>
               {activeFilters ? (
-                <button type="button" className="btn" onClick={() => setQuery(clearFilters(query))}>
+                <Button type="button" variant="soft" size="3" onClick={() => setQuery(clearFilters(query))}>
                   清除筛选
-                </button>
+                </Button>
               ) : null}
               {dirtyQuery ? (
-                <button type="button" className="btn" onClick={() => setQuery(resetQuery(query))}>
+                <Button type="button" variant="soft" size="3" onClick={() => setQuery(resetQuery(query))}>
                   重置查询
-                </button>
+                </Button>
               ) : null}
             </>
           }
@@ -419,14 +425,15 @@ export function EntityListPage() {
           text="该实体下暂无记录。可用右上角「新建」录入第一条，或通过管理接口写入后再刷新。"
           action={
             writable ? (
-              <button
+              <Button
                 type="button"
-                className="btn"
+                variant="soft"
+                size="3"
                 data-action="new"
                 onClick={(event) => openDrawer('new', { trigger: event.currentTarget })}
               >
                 新建{entity.title}
-              </button>
+              </Button>
             ) : undefined
           }
         />
@@ -435,9 +442,9 @@ export function EntityListPage() {
           title="没有匹配的记录"
           text="当前关键词或筛选条件排除了全部结果。可逐个移除条件，或清除全部筛选后重新查询。"
           action={
-            <button type="button" className="btn" onClick={() => setQuery(clearFilters(query))}>
+            <Button type="button" variant="soft" size="3" onClick={() => setQuery(clearFilters(query))}>
               清除筛选
-            </button>
+            </Button>
           }
         />
       ) : listState === 'stale' ? (
@@ -446,9 +453,9 @@ export function EntityListPage() {
           title="当前页暂时没有数据"
           text={`总数显示仍有 ${listMeta.total} 条，但这一页取不到数据：可能刚被删除，或数据在变化，请刷新或重试。`}
           action={
-            <button type="button" className="btn" onClick={() => void list.refetch()}>
+            <Button type="button" variant="soft" size="3" onClick={() => void list.refetch()}>
               刷新
-            </button>
+            </Button>
           }
         />
       ) : (
@@ -495,6 +502,7 @@ export function EntityListPage() {
             pageSizeOptions={pageSizeOptions}
             onPage={(page) => setQuery(patchQuery(query, { page }))}
             onPageSize={(pageSize) => setQuery(patchQuery(query, { pageSize }))}
+            pilot
           />
         </>
       )}
