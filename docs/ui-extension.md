@@ -247,15 +247,16 @@
 - 末项 `aria-current="page"` 且不可点；中间项是普通链接。
 - 贴在固定顶栏里（见 §5.4.2），所以不会被内容区滚动带走。
 - 详情页原来的「返回列表」按钮已删除：**页面内的返回路径只有面包屑**。
-- **面包屑父级带回来源 URL**：列表页跳详情时 `navigate(detail, { state: { from } })`，
-  详情页取 `href = (location.state)?.from ?? '/device-types'` —— 筛选/排序/分页都跟着回来。
-  保持 `<Link>` 语义（键盘可达、可中键新开）；深链直接进详情无 state 时回落 `/device-types`。
+- 返回语义（带筛选返回）见 §5.4.3。
 
 ## 5.4.3 范围决定与实现要点（1107009 追加二）
 
-- 面包屑父级**带回来源 URL**：列表页 `navigate(detail, { state: { from } })`，
-  详情页 `href = state.from ?? '/device-types'`；保持 `<Link>` 语义（键盘可达、可中键新开）。
-  深链直接进详情没有 state → 回落 `/device-types`，这是正确行为。
+- 面包屑父级**带回来源 URL**：列表页跳详情时 `navigate(detail, { state: { from } })`，
+  其中 `from = location.pathname + location.search`（用路由自带的 location，不是 `window.location`）。
+  详情页取
+  `href = (location.state as { from?: string } | null)?.from ?? '/device-types'`——
+  筛选/排序/分页都跟着回来。保持 `<Link>` 语义（键盘可达、可中键新开标签），
+  不要改成 `onClick` + `navigate(-1)`。深链直接进详情没有 state → 回落 `/device-types`，这是正确行为。
 - **摘要行只做实体列表页**（EntityListPage）。只读页与异常页本轮不加——这是范围决定，
   不是遗漏；它们的计数文案在分页区（「第 1–10 条，共 N 条」），再叠一行会重复。
 
