@@ -78,6 +78,9 @@ type MetaField struct {
 	Options       []MetaOption `json:"options"`
 	AdvancedOnly  bool         `json:"advancedOnly"`
 	WidthStrategy string       `json:"widthStrategy"`
+	// Width 是列宽的推导结论（px）：字段显式覆写优先，否则由 Type 推导（widthForType）。
+	// 0 表示不推导（json/未知类型），前端回落到 widthStrategy。
+	Width int `json:"width,omitempty"`
 	// Editable / Required 是抽屉表单契约：前端不再靠 id && filterable 推断可编辑列。
 	Editable bool     `json:"editable"`
 	Required bool     `json:"required"`
@@ -141,6 +144,16 @@ type MetaPayload struct {
 // meta 返回全部实体与异常页的字段元数据；不访问数据库，nil pool 也可用。
 func (a *API) meta(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: BuildMeta()})
+}
+
+// firstNonZeroInt 返回第一个非零值：字段显式 Width 优先，否则用类型推导值。
+func firstNonZeroInt(values ...int) int {
+	for _, v := range values {
+		if v != 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 // metaEntityOf 把 Entity 投影成 _meta 的实体元数据（entities[] 与 subresources[] 共用）。
@@ -269,6 +282,7 @@ func metaFields(entity string) []MetaField {
 			Options:        make([]MetaOption, 0, len(f.Options)),
 			AdvancedOnly:   f.AdvancedOnly,
 			WidthStrategy:  f.WidthStrategy,
+			Width:          firstNonZeroInt(f.Width, widthForType(f.Type)),
 			Editable:       f.Editable,
 			Required:       f.Required,
 			Derived:        f.Derived,

@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { allTerminals, metaFixture } from '../test/fixtures';
 import { DataTable } from './DataTable';
@@ -89,5 +89,65 @@ describe('DataTable 的骨架与固定列（§6.4 / §5.2）', () => {
     const firstHeader = document.querySelector('thead th');
     expect(firstHeader?.className).toContain('sticky left-0');
     expect(document.querySelectorAll('thead th[class*="sticky"]')).toHaveLength(1);
+  });
+});
+
+describe('DataTable 的列对齐与完整值提示（1107002）', () => {
+  const writableProps = { ...baseProps, writable: true, onEdit: () => {}, onDelete: () => {} };
+
+  it('表头「操作」列与表体操作列一样吸右（z-20），横滚时列名不会滚走', () => {
+    render(<DataTable {...writableProps} rows={[allTerminals[0]!]} caption="共 1 条" />);
+    const headers = Array.from(document.querySelectorAll('thead th'));
+    const actionHeader = headers.find((th) => th.textContent?.trim() === '操作');
+    expect(actionHeader).toBeTruthy();
+    expect(actionHeader!.className).toContain('sticky');
+    expect(actionHeader!.className).toContain('right-0');
+    expect(actionHeader!.className).toContain('z-20');
+
+    // 表体操作列的定位类必须与表头一致，否则横滚时会错位。
+    const actionCell = document.querySelector('tbody tr td:last-child');
+    expect(actionCell!.className).toContain('sticky');
+    expect(actionCell!.className).toContain('right-0');
+  });
+
+  it('number 字段的表头与单元格都右对齐并启用等宽数字', () => {
+    // terminals 的字段里没有 number 列，这里换 quality-rules（enabled 是 boolean，index 无 number）
+    // ——直接用只读快照夹具里的 number 列更稳。
+    const readonlySlots = metaFixture.readonly ?? [];
+    const snapshotEntity = readonlySlots.find((item) => item.slot === 'snapshot-coarse');
+    const fields = (snapshotEntity?.fields ?? []).filter((field) => field.visible);
+    const numberField = fields.find((field) => field.type === 'number');
+    expect(numberField).toBeTruthy();
+
+    render(
+      <DataTable
+        {...baseProps}
+        fields={fields}
+        rows={[{ ...allTerminals[0]!, [numberField!.key]: 12345.678 }]}
+        caption="共 1 条"
+      />,
+    );
+
+    const header = Array.from(document.querySelectorAll('thead th')).find(
+      (th) => th.textContent?.includes(numberField!.label),
+    );
+    expect(header!.className).toContain('text-right');
+
+    const cell = Array.from(document.querySelectorAll('tbody td')).find((td) =>
+      td.className.includes('text-right'),
+    );
+    expect(cell).toBeTruthy();
+    expect(cell!.querySelector('span')!.className).toContain('tabular-nums');
+  });
+
+  it('未截断的单元格不弹提示（jsdom 里 clientWidth/scrollWidth 都是 0，视为未截断）', async () => {
+    const { container } = render(
+      <DataTable {...baseProps} rows={[allTerminals[0]!]} caption="共 1 条" />,
+    );
+    const cell = container.querySelector('[data-full]')!;
+    fireEvent.mouseOver(cell);
+    await new Promise((resolve) => setTimeout(resolve, 350));
+    // 未截断 → 不出现 tooltip 内容节点。
+    expect(document.querySelector('[data-radix-popper-content-wrapper]')).toBeNull();
   });
 });

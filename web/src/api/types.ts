@@ -60,6 +60,11 @@ export interface FieldMeta {
   /** 是否必填（后端下发）；缺省 false，缺省时前端不阻止空提交。 */
   required: boolean;
   widthStrategy: WidthStrategy;
+  /**
+   * 列宽（px）的**后端推导结论**：字段显式覆写优先，否则按字段类型推导。
+   * 前端只消费这个值，不自行按类型重算；缺省（json/未知类型）时回落到 widthStrategy 的 CSS 类。
+   */
+  width?: number;
   ref?: FieldRef;
   /** ref.entity 的兼容别名（R-019 首版键名）；新代码只用 ref。 */
   relation?: string;

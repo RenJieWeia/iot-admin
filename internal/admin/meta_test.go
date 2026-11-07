@@ -16,7 +16,8 @@ import (
 // metaFieldKeys 是 MetaField 的 JSON 契约全字段（前端 TS 类型的唯一依据）。
 var metaFieldKeys = []string{
 	"key", "label", "type", "visible", "sortable", "filterable", "filterType",
-	"operators", "operatorLabels", "optionsSource", "options", "advancedOnly", "widthStrategy",
+	"operators", "operatorLabels", "optionsSource", "options", "advancedOnly", "width",
+	"widthStrategy",
 	"editable", "required",
 }
 
@@ -176,16 +177,41 @@ func TestMetaFieldShape(t *testing.T) {
 			got = append(got, k)
 		}
 		sort.Strings(got)
-		// relation 允许缺省（omitempty），其余键必须齐全。
-		filtered := got[:0]
-		for _, k := range got {
-			// relation/ref 是 omitempty，derived 是 omitempty（只有派生列带 true）。
-			if k != "relation" && k != "ref" && k != "derived" {
-				filtered = append(filtered, k)
+		// relation/ref/derived/width 允许缺省（omitempty），其余键必须齐全。
+		// width 缺省只发生在 json/未知类型（不推导，前端回落 widthStrategy），所以比较时两边都去掉，
+		// 再由下面的断言单独验证「非 json 类型必须带 width」。
+		strip := func(keys []string) []string {
+			out := make([]string, 0, len(keys))
+			for _, k := range keys {
+				if k == "relation" || k == "ref" || k == "derived" || k == "width" {
+					continue
+				}
+				out = append(out, k)
 			}
+			return out
 		}
-		if strings.Join(filtered, ",") != strings.Join(want, ",") {
-			t.Fatalf("%s 字段 %q 的键 = %v，期望 %v", where, key, filtered, want)
+		if strings.Join(strip(got), ",") != strings.Join(strip(want), ",") {
+			t.Fatalf("%s 字段 %q 的键 = %v，期望 %v", where, key, strip(got), strip(want))
+		}
+		// 列宽：字段显式覆写优先，否则按类型推导；json/未知类型不推导（缺省）。
+		var typ string
+		if err := json.Unmarshal(m["type"], &typ); err != nil {
+			t.Fatalf("%s 字段 %q 的 type 解析失败: %v", where, key, err)
+		}
+		rawWidth, hasWidth := m["width"]
+		if wantWidth := widthForType(typ); wantWidth > 0 {
+			if !hasWidth {
+				t.Fatalf("%s 字段 %q（type=%s）缺少 width，期望 %d", where, key, typ, wantWidth)
+			}
+			var w int
+			if err := json.Unmarshal(rawWidth, &w); err != nil {
+				t.Fatalf("%s 字段 %q 的 width 不是数字: %v", where, key, err)
+			}
+			if w != wantWidth {
+				t.Fatalf("%s 字段 %q 的 width = %d，期望按类型推导 %d", where, key, w, wantWidth)
+			}
+		} else if hasWidth {
+			t.Fatalf("%s 字段 %q（type=%s）不该有 width（该类型不推导）", where, key, typ)
 		}
 		for _, arr := range []string{"operators", "options"} {
 			if string(m[arr]) == "null" {
@@ -604,4 +630,25 @@ func mustReadMigrations(t *testing.T, name string) []byte {
 		t.Fatalf("读取迁移 %s: %v", name, err)
 	}
 	return body
+}
+
+// 列宽推导：类型 → 默认宽度；显式覆写优先。两者都是纯函数，直接钉住映射表。
+func TestWidthForType(t *testing.T) {
+	cases := map[string]int{
+		"id": 120, "boolean": 90, "enum": 120, "number": 110,
+		"datetime": 170, "text": 200, "relation": 180,
+		"json": 0, "": 0,
+	}
+	for typ, want := range cases {
+		if got := widthForType(typ); got != want {
+			t.Fatalf("widthForType(%q) = %d，期望 %d", typ, got, want)
+		}
+	}
+	// 显式覆写优先于类型推导。
+	if got := firstNonZeroInt(260, widthForType("text")); got != 260 {
+		t.Fatalf("显式 width 应优先，实际 %d", got)
+	}
+	if got := firstNonZeroInt(0, widthForType("datetime")); got != 170 {
+		t.Fatalf("缺省时应回落到类型推导，实际 %d", got)
+	}
 }

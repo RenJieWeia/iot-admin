@@ -32,9 +32,40 @@ type FieldMeta struct {
 	Options       []Option
 	AdvancedOnly  bool
 	WidthStrategy string // fixed|min|flex
+	// Width 是列宽（CSS px）的**显式覆写**；0 表示按 Type 推导（见 widthForType）。
+	// 推导结果由 _meta 下发，前端只消费结论，不自行按类型重算。
+	Width int
 	// Derived 表示该列不在物理表里，由列表 SQL 计算得出（如快照计划的「已启用档位」）。
 	// 它不进写白名单、不可排序/筛选，DDL 对齐类测试会跳过它。
 	Derived bool
+}
+
+// widthForType 是列宽默认值的唯一推导处：按字段类型给一个经验宽度。
+//
+// 为什么不全用 widthStrategy 的三档（fixed/min/flex）：三档只能表达"固定/最小/弹性"三种语义，
+// 无法区分 boolean(90) 与 datetime(170)——两者都只能是 fixed。所以宽度改成
+// 「类型推导 + 字段显式覆写」，widthStrategy 仍是布局语义（是否允许被内容撑开）。
+//
+// 数值取舍：布尔最窄（一个中文字）；时间戳最长（YYYY-MM-DD HH:mm）；json/长文本交给 flex。
+func widthForType(t string) int {
+	switch t {
+	case "id":
+		return 120
+	case "boolean":
+		return 90
+	case "enum":
+		return 120
+	case "number":
+		return 110
+	case "datetime":
+		return 170
+	case "text":
+		return 200
+	case "relation":
+		return 180
+	default: // json 及未知类型：不推导，交给 widthStrategy 的 flex
+		return 0
+	}
 }
 
 var boolOptions = []Option{

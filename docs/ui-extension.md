@@ -159,6 +159,17 @@
 
 ---
 
+## 5.5 表格列宽与对齐
+
+- **列宽默认由字段类型推导**（后端 `widthForType`）：id 120 / boolean 90 / enum 120 / number 110 /
+  datetime 170 / text 200 / relation 180；json 与未知类型不推导，交给 `widthStrategy` 的 flex。
+  字段可在 `FieldMeta.Width` 里**显式覆写**，覆写优先。
+- 推导结论由 `_meta` 的 `width` 下发，**前端只消费、不按类型重算**；未下发的类型回落 `widthStrategy` 的 CSS 类。
+- `widthStrategy` 仍是契约字段，语义是"布局是固定/最小/弹性"，与具体像素值解耦。
+- **数字列**右对齐 + `tabular-nums`（表头同步右对齐）；枚举/布尔/时间仍左对齐。
+- 完整值提示由**表格级单一受控 Tooltip** 驱动（单元格只输出 `data-full`），只在内容真的被截断
+  （`scrollWidth > clientWidth`）时出现，300ms 延迟，键盘 focus 也触发，触屏点击不触发。
+
 ## 6. 已知行为（不是缺陷，不要"修"）
 
 | 行为 | 触发条件 | 为什么这样是对的 |
