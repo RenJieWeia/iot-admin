@@ -54,7 +54,9 @@ describe('筛选控件以 QueryState 为单一事实源', () => {
     await waitForFilters();
 
     expect(nameInput().value).toBe('泵');
-    expect((screen.getByLabelText('状态') as HTMLSelectElement).value).toBe('true');
+    // Radix Select 的触发符是 button[role=combobox]，没有 .value：断言它显示的当前项文案，
+    // 语义等价（true 对应的选项文案是「是」，与旧原生 select 显示的完全一致）。
+    expect(screen.getByRole('combobox', { name: '状态' })).toHaveTextContent('是');
     expect(decodeURIComponent(view.location())).toContain('filter.name.contains=泵');
   });
 

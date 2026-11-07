@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Button, TextField } from '@radix-ui/themes';
+import { Button, Select, TextField } from '@radix-ui/themes';
 import type { FieldMeta, Option } from '../api/types';
 import { advancedFilters, quickFilters, type FieldHolder } from '../lib/fieldMeta';
 import { NARROW_QUERY } from '../lib/breakpoint';
@@ -12,6 +12,7 @@ import {
  type QueryState,
 } from '../lib/queryState';
 import { formatFilterValue, operatorLabel } from '../lib/format';
+import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '../lib/radixSelect';
 import { Drawer } from './Drawer';
 import { FilterMultiSelect } from './FilterMultiSelect';
 
@@ -210,22 +211,25 @@ function FilterControl({
  return (
  <div className="field">
  <label htmlFor={inputId}>{field.label}</label>
- {/* TODO(1107020): 原生 select 留到下一轮换 Radix Select（portal + 自定义键鼠，需连带改用例） */}
- <select
- id={inputId}
- className="select"
- value={selected[0] ?? ''}
- onChange={(event) =>
- commit(field.operators[0] ?? 'eq', event.target.value ? [event.target.value] : [])
- }
+ {/* 空选项「全部」用哨兵承载：Radix 的 Select.Item 不接受 value=""（见 lib/radixSelect.ts）。 */}
+ <Select.Root
+ size="3"
+ value={toSelectValue(selected[0])}
+ onValueChange={(value) => {
+ const next = fromSelectValue(value);
+ commit(field.operators[0] ?? 'eq', next ? [next] : []);
+ }}
  >
- <option value="">全部</option>
+ <Select.Trigger id={inputId} placeholder="全部" aria-label={field.label} />
+ <Select.Content position="popper" sideOffset={4}>
+ <Select.Item value={EMPTY_SELECT_VALUE}>全部</Select.Item>
  {options.map((option) => (
- <option key={option.value} value={option.value}>
+ <Select.Item key={option.value} value={option.value}>
  {option.label}
- </option>
+ </Select.Item>
  ))}
- </select>
+ </Select.Content>
+ </Select.Root>
  {optionErrorHint}
  </div>
  );
