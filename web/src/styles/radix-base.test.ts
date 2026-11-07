@@ -26,7 +26,7 @@ const RADIX_MAPPING: ReadonlyArray<readonly [string, string]> = [
   ['--color-border-strong', 'var(--slate-7)'],
   ['--color-text', 'var(--slate-12)'],
   ['--color-muted', 'var(--slate-11)'],
-  ['--color-faint', 'color-mix(in oklab, var(--slate-11) 92%, var(--slate-2))'],
+  ['--color-faint', 'color-mix(in oklab, var(--slate-11) 95%, var(--slate-2))'],
   ['--color-primary', 'var(--accent-11)'],
   ['--color-primary-hover', 'color-mix(in oklab, var(--accent-11) 70%, var(--accent-12))'],
   ['--color-primary-weak', 'var(--accent-3)'],
