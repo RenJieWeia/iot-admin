@@ -17,6 +17,21 @@ if (!('scrollTo' in window) || typeof window.scrollTo !== 'function') {
 }
 window.scrollTo = () => {};
 
+// Radix Select / DropdownMenu 的触发符在 pointerdown 里会调指针捕获与 scrollIntoView，
+// jsdom 没实现这些 API；补空实现只为让「点开下拉」这条真实交互路径跑得通（不改变被测行为）。
+if (!Element.prototype.hasPointerCapture) {
+  Element.prototype.hasPointerCapture = () => false;
+}
+if (!Element.prototype.setPointerCapture) {
+  Element.prototype.setPointerCapture = () => {};
+}
+if (!Element.prototype.releasePointerCapture) {
+  Element.prototype.releasePointerCapture = () => {};
+}
+if (!Element.prototype.scrollIntoView) {
+  Element.prototype.scrollIntoView = () => {};
+}
+
 beforeAll(() => {
   server.listen({ onUnhandledRequest: 'error' });
   // jsdom 的 AbortSignal 与 Node undici fetch 不同 realm，直接传会抛

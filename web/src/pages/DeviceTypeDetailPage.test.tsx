@@ -53,7 +53,9 @@ describe('终端类型详情页（task-016）', () => {
 
     await user.type(within(dialog).getByLabelText(/点位编码/), 'voltage');
     await user.type(within(dialog).getByLabelText(/属性名称/), '电压');
-    await user.selectOptions(within(dialog).getByLabelText(/值类型/), 'number');
+    // Radix Select：点触发符 → 点选项（原生 select 的 selectOptions 不再适用）。
+    await user.click(within(dialog).getByRole('combobox', { name: /值类型/ }));
+    await user.click(await screen.findByRole('option', { name: '数字' }));
     await user.click(within(dialog).getByRole('button', { name: '保存' }));
 
     await waitFor(() => expect(writeCalls).toHaveLength(1));

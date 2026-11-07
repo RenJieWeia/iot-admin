@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react';
-import { Button, TextField } from '@radix-ui/themes';
+import { Button, Select, TextField } from '@radix-ui/themes';
 import { z } from 'zod';
 import type { EntityMeta, FieldMeta, RowData } from '../api/types';
 import { formFields } from '../lib/fieldMeta';
+import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '../lib/radixSelect';
 import { toFormValue, toSubmitValue } from '../lib/format';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import { Drawer } from './Drawer';
@@ -169,23 +170,29 @@ export function RecordDrawer({
       );
     }
     if (field.type === 'enum') {
-      // TODO(1107020): 原生 select 留到下一轮换 Radix Select（portal + 自定义键鼠，需连带改用例）
+      // 空选项「未设置」用哨兵承载（Radix 的 Select.Item 不接受 value=""），见 lib/radixSelect.ts。
       return (
-        <select
-          id={id}
-          className="select"
-          value={values[field.key] ?? ''}
-          onChange={(event) => setValue(field.key, event.target.value)}
-          aria-invalid={Boolean(errors[field.key])}
-          aria-describedby={errors[field.key] ? `${id}-error` : undefined}
+        <Select.Root
+          size="3"
+          value={toSelectValue(values[field.key])}
+          onValueChange={(value) => setValue(field.key, fromSelectValue(value))}
         >
-          <option value="">未设置</option>
-          {(field.options ?? []).map((option) => (
-            <option key={option.value} value={option.value}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+          <Select.Trigger
+            id={id}
+            placeholder="未设置"
+            aria-label={field.label}
+            aria-invalid={Boolean(errors[field.key])}
+            aria-describedby={errors[field.key] ? `${id}-error` : undefined}
+          />
+          <Select.Content position="popper" sideOffset={4}>
+            <Select.Item value={EMPTY_SELECT_VALUE}>未设置</Select.Item>
+            {(field.options ?? []).map((option) => (
+              <Select.Item key={option.value} value={option.value}>
+                {option.label}
+              </Select.Item>
+            ))}
+          </Select.Content>
+        </Select.Root>
       );
     }
     if (field.type === 'json') {
