@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Button } from '@radix-ui/themes';
+import { Button, TextField } from '@radix-ui/themes';
 import { cn } from '../lib/cn';
 import type { FieldMeta, Option } from '../api/types';
 import { advancedFilters, quickFilters, type FieldHolder } from '../lib/fieldMeta';
@@ -44,6 +44,23 @@ function PilotButton({
   }
   const legacy = weight === 'solid' ? 'btn btn-primary' : weight === 'ghost' ? 'btn btn-link' : 'btn';
   return <button {...rest} type="button" className={cn(legacy, className)} />;
+}
+
+/** 文本输入：试点页用 Radix TextField（size=3 = 40px），其它页保持 `.input`。 */
+function PilotTextField({
+  legacyClassName,
+  className,
+  ...rest
+}: Omit<React.InputHTMLAttributes<HTMLInputElement>, 'color' | 'defaultValue' | 'value' | 'type'> & {
+  /** 只用于单值输入框：值一律是字符串（Radix TextField 的 value 不接受数组）。 */
+  value?: string;
+  /** Radix TextField 支持的 input type 子集。 */
+  type?: 'text' | 'search' | 'number' | 'date';
+  legacyClassName?: string;
+}) {
+  const pilot = useContext(PilotContext);
+  if (pilot) return <TextField.Root {...rest} size="3" className={className} />;
+  return <input {...rest} className={cn('input', legacyClassName, className)} />;
 }
 
 interface Props {
@@ -292,16 +309,14 @@ function FilterControl({
  {/* 日期是纯日期区间，后端按 +08:00 cast timestamptz，时区必须写清楚（table-query §4）。 */}
  {field.label}（范围{isNumber ? '' : '，+08:00'}）
  </label>
- {/* 范围组只做横排容器：外层的边框/内边距会把它撑到 control-h 以上，
- 导致同行 label 与 input 底边错位（两个 input 自己已有 .input 的边框）。 */}
+ {/* 范围组只做横排容器：每个 TextField.Root 自带 40px 高度与 1px 内描边，
+ 容器不再加边框/内边距，否则同行 label 与输入框会底边错位。 */}
  <div className="flex flex-wrap items-center gap-2">
- <input
+ <PilotTextField
  id={`${inputId}-gte`}
- className={
- isNumber
- ? 'input option-group-field number-input '
- : 'input option-group-field date-input '
- }
+ className={problem ? 'option-group-field' : 'option-group-field'}
+ legacyClassName={isNumber ? 'option-group-field number-input' : 'option-group-field date-input'}
+ style={problem ? { boxShadow: 'inset 0 0 0 1px var(--color-negative-text)' } : undefined}
  type={isNumber ? 'number' : 'date'}
  placeholder={isNumber ? '最小值' : undefined}
  aria-label={`${field.label} 下限`}
@@ -315,12 +330,10 @@ function FilterControl({
  onBlur={(event) => commitRange(event.currentTarget.value, lteDraft.draft)}
  />
  <span aria-hidden="true">–</span>
- <input
- className={
- isNumber
- ? 'input option-group-field number-input '
- : 'input option-group-field date-input '
- }
+ <PilotTextField
+ className="option-group-field"
+ legacyClassName={isNumber ? 'option-group-field number-input' : 'option-group-field date-input'}
+ style={problem ? { boxShadow: 'inset 0 0 0 1px var(--color-negative-text)' } : undefined}
  type={isNumber ? 'number' : 'date'}
  placeholder={isNumber ? '最大值' : undefined}
  aria-label={`${field.label} 上限`}
@@ -350,9 +363,8 @@ function FilterControl({
  return (
  <div className="field">
  <label htmlFor={inputId}>{field.label}</label>
- <input
+ <PilotTextField
  id={inputId}
- className="input"
  type="search"
  value={text.draft}
  placeholder={`按${field.label}筛选`}
@@ -470,9 +482,8 @@ export function FilterBar({
  const keywordField = (
  <div className="field filter-span-2">
  <label htmlFor="filter-keyword">关键词</label>
- <input
+ <PilotTextField
  id="filter-keyword"
- className="input"
  type="search"
  value={keyword}
  placeholder="在可搜索的文本列中匹配"
