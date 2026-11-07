@@ -68,13 +68,13 @@ describe('Radix Themes 基座', () => {
   it('语义色 / 图表 / 媒体 / 顺序色阶也一律引用 Radix 色阶', () => {
     const lines = tokens.split('\n').map((line) => line.trim());
     const expected: ReadonlyArray<readonly [string, string]> = [
-      ['--color-success', 'var(--green-9)'],
+      ['--color-success', 'var(--green-11)'],
       ['--color-success-weak', 'var(--green-3)'],
-      ['--color-warning', 'var(--amber-9)'],
+      ['--color-warning', 'var(--amber-11)'],
       ['--color-warning-weak', 'var(--amber-3)'],
-      ['--color-danger', 'var(--red-9)'],
+      ['--color-danger', 'var(--red-11)'],
       ['--color-danger-weak', 'var(--red-3)'],
-      ['--color-info', 'var(--blue-9)'],
+      ['--color-info', 'var(--blue-11)'],
       ['--color-info-weak', 'var(--blue-3)'],
       ['--chart-1', 'var(--teal-9)'],
       ['--chart-2', 'var(--blue-9)'],

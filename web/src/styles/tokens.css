@@ -37,16 +37,22 @@
   --color-shadow-sticky: var(--slate-a6);
 
   /* ===== 共享层：语义色不随主题变（红=危险、琥珀=电）=====
-     1107017：语义色改为引用 Radix 同名色阶的 -9（实心）/ -3（弱底）档。
-     注意 -9 是「实心填充」档：当**文字色**用时（状态文案、danger 按钮文字）
-     对比度会比原来的深色值低，见 commit message 的记账。 */
-  --color-success: var(--green-9);
+     1107017 补丁：四个主色取 **-11**（文字/描边档），`-weak` 仍取 **-3**（背景档）。
+     理由：这四个令牌在本项目里**只当文字色或描边色用**，没有一处用作纯色填充——
+       StatusTag 的 text-danger / text-success、`.btn-danger` 的 color、Card tone='warning' 的边框、
+       以及 --color-positive-text / --color-negative-text / --color-warning-text 等一票别名。
+     Radix 的 -9 是「实心填充」档（配 --accent-contrast 白字用），拿它当文字色在白底上只有
+     1.5–3.7:1，amber-9 甚至压在自己的 -3 底色上只剩 1.45:1（几乎看不清）。
+     -11 是 Radix 为「该色系的可读文字」准备的档位，四色对 --color-surface 均 ≥4.5:1（实测见 commit）。
+     ⚠️ 若将来确实需要**实心块**（彩色底 + 白字，如危险按钮的填充），用 `-9` + `white`/`-contrast`，
+     不要反过来把这里的 -11 改回去——文字档与填充档是两套用途，别混。 */
+  --color-success: var(--green-11);
   --color-success-weak: var(--green-3);
-  --color-warning: var(--amber-9);
+  --color-warning: var(--amber-11);
   --color-warning-weak: var(--amber-3);
-  --color-danger: var(--red-9);
+  --color-danger: var(--red-11);
   --color-danger-weak: var(--red-3);
-  --color-info: var(--blue-9);
+  --color-info: var(--blue-11);
   --color-info-weak: var(--blue-3);
 
   /* 图表分类色板（8 色）：一律取 Radix 分类色阶的 -9 档（实心、饱和度高、彼此可区分）。 */
