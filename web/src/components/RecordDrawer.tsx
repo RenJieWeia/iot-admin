@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button, Select, TextField } from '@radix-ui/themes';
 import { z } from 'zod';
 import type { EntityMeta, FieldMeta, RowData } from '../api/types';
@@ -11,6 +11,12 @@ import { RelationSelect } from './RelationSelect';
 
 interface Props {
   entity: EntityMeta;
+  /**
+   * 1107022：抽屉改为**常驻挂载 + open 开关**（原来是 `{cond && <RecordDrawer/>}` 条件挂载）。
+   * 条件挂载会让父组件在关闭瞬间把整个组件卸掉，Radix Presence 根本没机会播退场动画。
+   * 挂载后内容只在 open=true 时通过 Portal 渲染，关闭期间不发任何请求（组件内无数据 hook）。
+   */
+  open: boolean;
   /** 实体页 true；异常只读页不会渲染这个抽屉。 */
   writable: boolean;
   mode: 'new' | 'edit';
@@ -79,6 +85,7 @@ export function objectLabel(entity: EntityMeta, row: RowData | null): string {
  * 底部固定「取消/保存」，编辑态额外提供删除入口（二次确认按钮含对象名）。
  */
 export function RecordDrawer({
+  open,
   entity,
   writable,
   mode,
@@ -94,6 +101,24 @@ export function RecordDrawer({
   const fields = useMemo(() => formFields(entity), [entity]);
   const [values, setValues] = useState(() => initialValues(fields, row));
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  /**
+   * 常驻挂载带来的必然后果：useState 只在首次挂载时取初值，第二次打开会带着上一次的草稿。
+   * 这里按「打开时的表单标识（mode + row.id）」在真正打开的那一刻重新播种；
+   * 关闭期间不重置（退场动画还在显示内容），关闭时只清掉标记，下次打开（哪怕同一个 row）会再播种。
+   */
+  const formKey = `${mode}:${String(row?.id ?? '')}`;
+  const seededRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!open) {
+      seededRef.current = null;
+      return;
+    }
+    if (seededRef.current === formKey) return;
+    seededRef.current = formKey;
+    setValues(initialValues(fields, row));
+    setErrors({});
+  }, [open, formKey, fields, row]);
 
   const title = mode === 'new' ? `新建${entity.title}` : `编辑${entity.title}`;
 
@@ -223,7 +248,7 @@ export function RecordDrawer({
 
   return (
     <Drawer
-      open
+      open={open}
       title={title}
       onClose={onClose}
       description={

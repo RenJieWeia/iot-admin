@@ -161,6 +161,9 @@ export function DeviceTypeDetailPage() {
   const writable = property ? isWritable(property) : false;
 
   const [drawer, setDrawer] = useState<{ mode: 'new' | 'edit'; row: RowData | null } | null>(null);
+  // 常驻挂载的抽屉在关闭瞬间仍要播 200ms 退场：保留最后一次打开的 drawer 状态用于渲染
+  // （必须放在所有早期 return 之前，否则 hook 数量会随渲染路径变化）。
+  const lastDrawerRef = useRef<{ mode: 'new' | 'edit'; row: RowData | null } | null>(null);
   const [editingType, setEditingType] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<RowData | null>(null);
   const [toast, setToast] = useState<ToastMessage | null>(null);
@@ -260,6 +263,9 @@ export function DeviceTypeDetailPage() {
   // 详情页的上级链接：优先用列表页交过来的来源 URL（location.state.from）。
   const listHref = (location.state as { from?: string } | null)?.from ?? '/device-types';
   const summaryFields = parent.fields.filter((field) => field.visible);
+  if (drawer) lastDrawerRef.current = drawer;
+  const drawerView = drawer ?? lastDrawerRef.current;
+
   const drawerRow: RowData | null =
     drawer?.mode === 'new' ? ({ [LOCK_FIELD]: id } as RowData) : (drawer?.row ?? null);
 
@@ -416,11 +422,12 @@ export function DeviceTypeDetailPage() {
           </>
         )}
 
-        {drawer && (
-          <RecordDrawer
+        {/* 1107022：常驻挂载 + open 开关，保证关闭时能播退场动画。 */}
+        <RecordDrawer
+            open={Boolean(drawer)}
             entity={property}
             writable={writable}
-            mode={drawer.mode}
+            mode={drawerView?.mode ?? 'new'}
             row={drawerRow}
             saving={saveMutation.isPending}
             deleting={deleteMutation.isPending}
@@ -429,21 +436,20 @@ export function DeviceTypeDetailPage() {
             onClose={() => setDrawer(null)}
             onSave={(body) =>
               saveMutation.mutate({
-                mode: drawer.mode,
+                mode: drawer?.mode ?? 'new',
                 body,
-                id: drawer.mode === 'new' ? null : String(drawer.row?.id ?? ''),
+                id: drawer?.mode === 'new' ? null : String(drawer?.row?.id ?? ''),
               })
             }
-            onDelete={() => setPendingDelete(drawer.row)}
+            onDelete={() => setPendingDelete(drawer?.row ?? null)}
           />
-        )}
 
-        {editingType && typeRow && (
-          <RecordDrawer
+        <RecordDrawer
+            open={Boolean(editingType && typeRow)}
             entity={parent}
             writable
             mode="edit"
-            row={typeRow}
+            row={typeRow ?? null}
             saving={editTypeMutation.isPending}
             deleting={false}
             error={errorDetail(editTypeMutation.error)}
@@ -451,7 +457,6 @@ export function DeviceTypeDetailPage() {
             onSave={(body) => editTypeMutation.mutate(body)}
             onDelete={() => {}}
           />
-        )}
 
         <ConfirmDialog
           open={pendingDelete !== null}

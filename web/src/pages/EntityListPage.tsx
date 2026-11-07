@@ -98,7 +98,11 @@ export function EntityListPage() {
   }, [entity, optionsQuery.data]);
 
   const drawerParam = searchParams.get('drawer');
-  const drawerMode: 'new' | 'edit' = drawerParam === 'new' ? 'new' : 'edit';
+  // 常驻挂载后，关闭瞬间 Portal 还要播 200ms 退场：内容必须沿用「最后一次打开时」的 mode/row，
+  // 否则退场过程中标题会从「编辑 X」闪成「编辑」、描述也会丢对象名。
+  const lastDrawerRef = useRef<{ mode: 'new' | 'edit'; param: string }>({ mode: 'edit', param: '' });
+  if (drawerParam) lastDrawerRef.current = { mode: drawerParam === 'new' ? 'new' : 'edit', param: drawerParam };
+  const drawerMode: 'new' | 'edit' = lastDrawerRef.current.mode;
   const rows = list.data?.rows ?? [];
   const listMeta: ListMeta = list.data?.meta ?? {
     total: 0,
@@ -119,8 +123,12 @@ export function EntityListPage() {
     queryFn: ({ signal }) => fetchOne(entityName, drawerParam ?? '', signal),
     enabled: Boolean(entity) && Boolean(drawerParam) && drawerParam !== 'new' && !rowFromPage,
   });
-  const activeRow: RowData | null =
+  const activeRowRaw: RowData | null =
     drawerMode === 'new' ? null : (rowFromPage ?? editRowQuery.data ?? null);
+  // 同上：关闭后退场动画期间仍要用最后一行数据渲染描述，空值只在真正「新建」时出现。
+  const lastRowRef = useRef<RowData | null>(null);
+  if (activeRowRaw) lastRowRef.current = activeRowRaw;
+  const activeRow: RowData | null = drawerMode === 'new' ? null : (activeRowRaw ?? lastRowRef.current);
 
   const [toast, setToast] = useState<ToastMessage | null>(null);
   /** 页码越界纠偏是"系统替你调了页"，不是成功事件：用嵌入式中性提示，不弹成功样式 toast（§16.4）。 */
@@ -504,8 +512,9 @@ export function EntityListPage() {
       )}
       </Card>
 
-      {drawerParam && (
-        <RecordDrawer
+      {/* 1107022：常驻挂载 + open 开关（条件挂载会让关闭时整个组件被卸载，退场动画没有机会播）。 */}
+      <RecordDrawer
+          open={Boolean(drawerParam)}
           entity={entity}
           writable={writable}
           mode={drawerMode}
@@ -523,7 +532,6 @@ export function EntityListPage() {
           }
           onDelete={() => setPendingDelete(activeRow)}
         />
-      )}
 
       <ConfirmDialog
         open={pendingDelete !== null}
