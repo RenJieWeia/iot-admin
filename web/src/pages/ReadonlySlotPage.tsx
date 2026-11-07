@@ -9,7 +9,7 @@ import { groupCrumb } from '../lib/navGroups';
 import { DataTable } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
-import { Card } from '../components/Card';
+import { Card, CardHeader } from '../components/Card';
 import { FilterBar } from '../components/FilterBar';
 import { CursorPager } from '../components/CursorPager';
 import { Pagination } from '../components/Pagination';
@@ -170,6 +170,20 @@ export function ReadonlySlotPage({ source }: Props) {
       )}
 
       <Card>
+        <CardHeader
+          title="筛选"
+          actions={
+            <button
+              type="button"
+              className="btn"
+              data-action="clear-filters"
+              disabled={!activeFilters}
+              onClick={() => setQuery(patchQuery(clearFilters(query), { page: 1 }))}
+            >
+              清除筛选
+            </button>
+          }
+        />
         <FilterBar entity={holder} query={query} relationOptions={{}} onChange={setQuery} />
       </Card>
 

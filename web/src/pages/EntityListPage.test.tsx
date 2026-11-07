@@ -71,7 +71,7 @@ describe('实体列表页（服务端驱动）', () => {
     const nomatch = renderApp('/terminals?q=zzz');
     seen.add((await screen.findByText('没有匹配的记录')).textContent ?? '');
     // 无匹配态必须给「清除筛选」出口，不能只写一句空话。
-    expect(screen.getByRole('button', { name: '清除筛选' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: '清除筛选' })[0]!).toBeInTheDocument();
     nomatch.unmount();
     cleanup();
 
@@ -180,7 +180,10 @@ describe('实体列表页（服务端驱动）', () => {
     );
     renderApp('/terminals');
     expect(await screen.findByText(/数据在变化，请刷新或重试/)).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '清除筛选' })).not.toBeInTheDocument();
+    // 卡头的「清除筛选」在无筛选时是禁用态（不是死按钮），空态区不再出现第二个。
+    const clearButtons = screen.queryAllByRole('button', { name: '清除筛选' });
+    expect(clearButtons).toHaveLength(1);
+    expect(clearButtons[0]).toBeDisabled();
     // 恢复路径仍在：刷新就是重发当前查询。
     expect(screen.getByRole('button', { name: '刷新' })).toBeInTheDocument();
   });

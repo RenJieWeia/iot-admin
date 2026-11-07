@@ -321,6 +321,20 @@ export function EntityListPage() {
       </p>
 
       <Card>
+        <CardHeader
+          title="筛选"
+          actions={
+            <button
+              type="button"
+              className="btn"
+              data-action="clear-filters"
+              disabled={!activeFilters}
+              onClick={() => setQuery(patchQuery(clearFilters(query), { page: 1 }))}
+            >
+              清除筛选
+            </button>
+          }
+        />
         <FilterBar
           entity={entity}
           query={query}

@@ -204,20 +204,22 @@ export function AppShell({ title, subtitle, actions, breadcrumb, children }: Pro
               gap-4 统一卡片间距 16px，页面不必各自写 margin。 */}
           <div className="flex flex-col gap-4 p-6 max-xl:p-4">
             {/* 标题区（无顶栏，1107011）：背景层，跟随内容滚动，不画卡片。 */}
+            {/* 窄屏菜单按钮独立一行（1107012）：放在标题区上方，
+                避免它占住行首把面包屑/标题右推 54.6px、与摘要行和卡片左边缘错开。 */}
+            {narrow && (
+              <button
+                type="button"
+                ref={menuButtonRef}
+                className="btn shrink-0 self-start"
+                aria-label="打开导航菜单"
+                aria-expanded={menuOpen}
+                aria-controls="nav-drawer"
+                onClick={() => setMenuOpen(true)}
+              >
+                <Menu size={16} aria-hidden="true" />
+              </button>
+            )}
             <div className="flex min-w-0 items-start gap-2">
-              {narrow && (
-                <button
-                  type="button"
-                  ref={menuButtonRef}
-                  className="btn shrink-0"
-                  aria-label="打开导航菜单"
-                  aria-expanded={menuOpen}
-                  aria-controls="nav-drawer"
-                  onClick={() => setMenuOpen(true)}
-                >
-                  <Menu size={16} aria-hidden="true" />
-                </button>
-              )}
               <div className="min-w-0">
                 {breadcrumb && breadcrumb.length > 0 && <Breadcrumb items={breadcrumb} />}
                 <h1 className="m-0 truncate text-xl font-semibold leading-page">{title}</h1>
