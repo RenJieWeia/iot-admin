@@ -81,6 +81,13 @@
   --leading-md: var(--lh-body);
   --leading-lg: var(--lh-section);
 
+  /*
+   * 动效：`ease-out` 走 Tailwind 的 --ease-* 命名空间（`ease-out` 工具类）；
+   * 时长没有对应的 Tailwind 命名空间，改用 @utility（见下方 duration-base / duration-fast）。
+   * 两者都只引用 tokens.css 的原始变量，值仍只有一处。
+   */
+  --ease-out: var(--ease-out);
+
   /* 字体与圆角：圆角同样只保留 Tailwind 命名（rounded-sm=6px / rounded-md=10px / rounded-pill） */
   --font-mono: var(--font-mono);
   --radius-pill: var(--radius-pill);
@@ -103,6 +110,15 @@
  */
 @utility state-text {
   max-width: 45rem; /* 720px，与迁移前的 .stateText 一致 */
+}
+
+/* 动效时长：Tailwind 没有 --duration-* 命名空间，这里补两个按令牌取值的工具类。 */
+@utility duration-base {
+  transition-duration: var(--dur-base);
+}
+
+@utility duration-fast {
+  transition-duration: var(--dur-fast);
 }
 
 @utility range-text {

@@ -104,6 +104,14 @@
   --tracking-nav: 0.04em;
   --font-mono: "SFMono-Regular", "Menlo", "Consolas", monospace;
 
+  /* 动效（1107022）：时长与曲线照抄 Radix 的对话框/面板动画，不自创。
+     - dur-base 200ms：抽屉进出场（Radix 的 content-show 也是 200ms）；
+     - dur-fast 120ms：只用于 hover 的颜色过渡；
+     - ease-out：与 Radix 的 cubic-bezier(0.16, 1, 0.3, 1) 完全一致。 */
+  --dur-base: 200ms;
+  --dur-fast: 120ms;
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
   /* 形状与阴影。
      圆角改走 Radix 刻度（--radius-3 = 6px、--radius-4 = 8px，medium/100%）：
      `--radius-N` 只定义在 `[data-radius]` 上（=.radix-themes 自己），:root 解析不到，
