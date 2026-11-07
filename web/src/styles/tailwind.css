@@ -182,12 +182,6 @@
   }
 }
 
-@utility app-header {
-  height: var(--header-h);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-surface);
-}
-
 /* content-card 已废弃（1107010）：页面外壳不画卡片，内容用 components/Card.tsx 平铺。
    这里保留一句注释而不是空 utility，避免有人以为它还能用。 */
 

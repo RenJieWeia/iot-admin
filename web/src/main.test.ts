@@ -28,11 +28,11 @@ describe('main.tsx 的首帧取色时机', () => {
   });
 
   it('render 之前就把 localStorage 里的主题写到 data-theme 上', async () => {
-    window.localStorage.setItem('iot-theme', 'graphite');
+    window.localStorage.setItem('iot-theme', 'blue');
     order.push(`before-import:${document.documentElement.dataset.theme ?? '(none)'}`);
     vi.resetModules();
     await import('./main');
-    expect(order).toEqual(['before-import:(none)', 'render:graphite']);
+    expect(order).toEqual(['before-import:(none)', 'render:blue']);
   });
 
   it('存储里是非法值时，渲染时已经是默认主题 blue', async () => {

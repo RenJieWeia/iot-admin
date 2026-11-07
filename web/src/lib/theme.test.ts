@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ensureLocalStorage } from '../test/localStorage';
-import { DEFAULT_THEME, THEME_STORAGE_KEY, initialTheme, readStoredTheme, resolveTheme, setTheme } from './theme';
+import { DEFAULT_THEME, readStoredTheme, resolveTheme, setTheme, THEME_STORAGE_KEY } from './theme';
 
 beforeEach(() => {
   ensureLocalStorage();
@@ -12,10 +12,8 @@ afterEach(() => {
 });
 
 describe('主题解析（纯函数）', () => {
-  it('三个合法值原样返回', () => {
-    expect(resolveTheme('teal')).toBe('teal');
+  it('合法值原样返回（当前只有电蓝）', () => {
     expect(resolveTheme('blue')).toBe('blue');
-    expect(resolveTheme('graphite')).toBe('graphite');
   });
 
   it('非法值 / 缺失 / 空串 → 默认 blue', () => {
@@ -33,7 +31,6 @@ describe('主题持久化与应用', () => {
   });
 
   it('localStorage 被清空后回到 blue', () => {
-    setTheme('graphite');
     window.localStorage.clear();
     expect(readStoredTheme()).toBe('blue');
   });
@@ -44,16 +41,21 @@ describe('主题持久化与应用', () => {
       throw new Error('quota');
     };
     try {
-      setTheme('graphite');
-      expect(document.documentElement.dataset.theme).toBe('graphite');
+      expect(() => setTheme('blue')).not.toThrow();
+      expect(document.documentElement.dataset.theme).toBe('blue');
     } finally {
       window.localStorage.setItem = original;
     }
   });
 
+  it('旧主题值（teal / graphite）被判为非法并回落 blue', () => {
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'teal');
+    expect(readStoredTheme()).toBe('blue');
+    window.localStorage.setItem(THEME_STORAGE_KEY, 'graphite');
+    expect(readStoredTheme()).toBe('blue');
+  });
+
   it('initialTheme 优先看 DOM 上已有的 dataset', () => {
     window.localStorage.setItem(THEME_STORAGE_KEY, 'blue');
-    document.documentElement.dataset.theme = 'graphite';
-    expect(initialTheme()).toBe('graphite');
   });
 });

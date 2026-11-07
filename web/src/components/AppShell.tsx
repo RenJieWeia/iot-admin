@@ -19,7 +19,6 @@ import { NAV_GROUP_LABEL, type BreadcrumbItem } from '../lib/navGroups';
 import { setScrollPane } from '../lib/scrollPane';
 import { Drawer } from './Drawer';
 import { Breadcrumb } from './Breadcrumb';
-import { ThemeSwitcher } from './ThemeSwitcher';
 
 interface Props {
   title: string;
@@ -196,32 +195,6 @@ export function AppShell({ title, subtitle, actions, breadcrumb, children }: Pro
 
       {/* min-h-0 是关键：flex 子项默认 min-height:auto，不压成 0 就永远不会出现滚动条。 */}
       <div className="col-start-2 flex min-h-0 min-w-0 flex-col max-xl:col-start-1">
-        <header className="app-header flex items-center justify-between gap-4 px-6 max-xl:px-4">
-          <div className="flex min-w-0 items-center gap-2">
-            {narrow && (
-              <button
-                type="button"
-                ref={menuButtonRef}
-                className="btn shrink-0"
-                aria-label="打开导航菜单"
-                aria-expanded={menuOpen}
-                aria-controls="nav-drawer"
-                onClick={() => setMenuOpen(true)}
-              >
-                <Menu size={16} aria-hidden="true" />
-              </button>
-            )}
-            <div className="min-w-0">
-              {breadcrumb && breadcrumb.length > 0 && <Breadcrumb items={breadcrumb} />}
-              <h1 className="m-0 truncate text-xl font-semibold leading-page">{title}</h1>
-              {subtitle && <p className="m-0 text-sm leading-meta text-muted">{subtitle}</p>}
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <ThemeSwitcher />
-            {actions}
-          </div>
-        </header>
         <main
           id="main"
           ref={scrollPaneRef}
@@ -229,7 +202,31 @@ export function AppShell({ title, subtitle, actions, breadcrumb, children }: Pro
         >
           {/* 背景层：不画卡片（1107010）。内边距只在 main 上，卡片由页面自己平铺；
               gap-4 统一卡片间距 16px，页面不必各自写 margin。 */}
-          <div className="flex flex-col gap-4 p-6 max-xl:p-4">{children}</div>
+          <div className="flex flex-col gap-4 p-6 max-xl:p-4">
+            {/* 标题区（无顶栏，1107011）：背景层，跟随内容滚动，不画卡片。 */}
+            <div className="flex min-w-0 items-start gap-2">
+              {narrow && (
+                <button
+                  type="button"
+                  ref={menuButtonRef}
+                  className="btn shrink-0"
+                  aria-label="打开导航菜单"
+                  aria-expanded={menuOpen}
+                  aria-controls="nav-drawer"
+                  onClick={() => setMenuOpen(true)}
+                >
+                  <Menu size={16} aria-hidden="true" />
+                </button>
+              )}
+              <div className="min-w-0">
+                {breadcrumb && breadcrumb.length > 0 && <Breadcrumb items={breadcrumb} />}
+                <h1 className="m-0 truncate text-xl font-semibold leading-page">{title}</h1>
+                {subtitle && <p className="m-0 text-sm leading-meta text-muted">{subtitle}</p>}
+              </div>
+              {actions && <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div>}
+            </div>
+            {children}
+          </div>
         </main>
       </div>
     </div>

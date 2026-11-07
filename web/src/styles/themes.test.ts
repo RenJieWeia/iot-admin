@@ -55,13 +55,13 @@ function blockAfter(selector: string): string {
 }
 
 const themeBlocks: Record<string, string> = {
-  teal: blockAfter(`[data-theme='teal']`),
+
   blue: blockAfter(`[data-theme='blue']`),
-  graphite: blockAfter(`[data-theme='graphite']`),
+
 };
 
 describe('配色主题令牌', () => {
-  it('三套主题块都定义完整的 14 个变量', () => {
+  it('单一主题块定义完整的 14 个变量', () => {
     for (const [name, body] of Object.entries(themeBlocks)) {
       for (const variable of THEME_VARS) {
         expect(body, `${name} 缺少 ${variable}`).toContain(`${variable}:`);
@@ -69,7 +69,7 @@ describe('配色主题令牌', () => {
     }
   });
 
-  it(':root 同时承载共享层与 A 套（teal）默认值', () => {
+  it(':root 承载共享层与电蓝默认值', () => {
     const root = blockAfter(':root {');
     for (const variable of THEME_VARS) expect(root, `:root 缺少 ${variable}`).toContain(`${variable}:`);
     for (const variable of SHARED_ONLY) expect(root, `:root 缺少共享 ${variable}`).toContain(`${variable}:`);
@@ -83,8 +83,4 @@ describe('配色主题令牌', () => {
     }
   });
 
-  it('石墨主题用下划线表达链接可点性', () => {
-    expect(css).toContain("[data-theme='graphite']");
-    expect(css).toMatch(/text-decoration:\s*underline/);
-  });
 });

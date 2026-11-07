@@ -1,22 +1,22 @@
 /* 设计令牌 v2（task-014 §2 步 1）：颜色/字号/形状的唯一来源。
    页面与组件只允许引用变量，或引用 tailwind.css 里映射到这些变量的工具类。 */
 :root {
-  /* ===== 主题 A（深青 teal）：默认值，同时是 :root 的取值 =====
+  /* ===== 单一电蓝主题：下面这组是唯一取值（:root 与 [data-theme='blue'] 共用） =====
      这 14 个变量是三套主题唯一的差异面；其余令牌在下方共享层，三套完全一致。 */
-  --color-bg: #F5F7F9;
+  --color-bg: #F4F7FB;
   --color-surface: #FFFFFF;
-  --color-surface-2: #EFF2F5;
-  --color-border-subtle: #E9EDF2;
-  --color-border: #DDE2E9;
-  --color-border-strong: #C6CDD6;
-  --color-text: #0F172A;
-  --color-muted: #5B6472;
-  --color-faint: #68727F;
-  --color-primary: #0F766E;
-  --color-primary-hover: #115E59;
-  --color-primary-weak: #F0FDFA;
+  --color-surface-2: #EAF0F7;
+  --color-border-subtle: #E6ECF3;
+  --color-border: #D8E0EA;
+  --color-border-strong: #C2CDDA;
+  --color-text: #0D1B2A;
+  --color-muted: #556577;
+  --color-faint: #66788A;
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-primary-weak: #EFF6FF;
   --color-on-primary: #FFFFFF;
-  --color-shadow-sticky: rgba(15, 23, 42, 0.14);
+  --color-shadow-sticky: rgba(13, 27, 42, 0.14);
 
   /* ===== 共享层：语义色不随主题变（红=危险、琥珀=电）===== */
   --color-success: #15803D;
@@ -85,7 +85,6 @@
   --control-h-lg: 36px;
   --row-h: 44px;
   --nav-width: 220px;
-  --header-h: 56px;
   --drawer-width: 520px;
   --touch-target: 44px;
 
@@ -98,8 +97,7 @@
   --space-6: 24px;
   --space-8: 32px;
 
-  /* 下划线偏移（石墨主题的链接下划线用） */
-  --underline-offset: 2px;
+    --underline-offset: 2px;
 
   --z-drawer: 40;
   --z-toast: 60;
@@ -127,26 +125,9 @@
   --color-neutral-text: var(--color-muted);
 }
 
-/* ===== 三套主题：只覆盖上面 14 个变量 =====
-   A 的取值已写在 :root；[data-theme="teal"] 再显式声明一遍，便于主题测试与运行时切换。 */
+/* ===== 单一电蓝主题：只覆盖上面 14 个变量 =====
+   :root 与 [data-theme='blue'] 同值：前者兜底（无 JS / 首帧前），后者保留属性结构供将来扩展。 */
 :root,
-[data-theme='teal'] {
-  --color-bg: #F5F7F9;
-  --color-surface: #FFFFFF;
-  --color-surface-2: #EFF2F5;
-  --color-border-subtle: #E9EDF2;
-  --color-border: #DDE2E9;
-  --color-border-strong: #C6CDD6;
-  --color-text: #0F172A;
-  --color-muted: #5B6472;
-  --color-faint: #68727F;
-  --color-primary: #0F766E;
-  --color-primary-hover: #115E59;
-  --color-primary-weak: #F0FDFA;
-  --color-on-primary: #FFFFFF;
-  --color-shadow-sticky: rgba(15, 23, 42, 0.14);
-}
-
 [data-theme='blue'] {
   --color-bg: #F4F7FB;
   --color-surface: #FFFFFF;
@@ -164,26 +145,4 @@
   --color-shadow-sticky: rgba(13, 27, 42, 0.14);
 }
 
-[data-theme='graphite'] {
-  --color-bg: #F6F6F7;
-  --color-surface: #FFFFFF;
-  --color-surface-2: #EDEDEF;
-  --color-border-subtle: #E7E7EA;
-  --color-border: #D9D9DE;
-  --color-border-strong: #C3C3CA;
-  --color-text: #111214;
-  --color-muted: #565A60;
-  --color-faint: #6A6E75;
-  --color-primary: #1F2937;
-  --color-primary-hover: #111827;
-  --color-primary-weak: #F3F4F6;
-  --color-on-primary: #FFFFFF;
-  --color-shadow-sticky: rgba(17, 18, 20, 0.14);
-}
-
 /* 石墨主题主色接近正文色：链接与导航选中项靠**下划线**表达可点性（令牌驱动，其它主题不变）。 */
-:where([data-theme='graphite']) a,
-:where([data-theme='graphite']) [aria-current='page'] {
-  text-decoration: underline;
-  text-underline-offset: var(--underline-offset);
-}

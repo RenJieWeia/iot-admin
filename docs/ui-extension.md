@@ -228,6 +228,9 @@
 
 - `.shell` 是 `height: 100vh; overflow: hidden`——**window 不再滚动**，滚动只发生在两块：
   侧栏（导航项超长时自身滚动）与内容区 `<main>`（`flex-1 min-h-0 overflow-y-auto`）。
+- **没有顶栏**（1107011 取消 `app-header`）：面包屑 / 标题 / 副标题 / 页面级操作都在内容区顶部，
+  作为背景层**跟随内容一起滚动**（长表格滚走后看不到标题，这是已确认的取舍）；
+  窄屏菜单按钮排在标题行左侧。
 - `min-h-0` 是必须的：flex 子项默认 `min-height: auto`，不压成 0 就永远不产生滚动条。
 - 内边距只在 `main` 上（`p-6 / max-xl:p-4`）；页面外壳**不画卡片**，内容用 `components/Card.tsx` 平铺，`gap-4` 统一 16px 间距。
   这样比「main 带 padding + 卡片再加 padding」多出 48px 可用宽度。
@@ -297,13 +300,6 @@
 - 完整值提示由**表格级单一受控 Tooltip** 驱动（单元格只输出 `data-full`），只在内容真的被截断
   （`scrollWidth > clientWidth`）时出现，300ms 延迟，触屏点击不触发；键盘 focus 不触发（理由见 §5.6）。
 
-## 5.5.1 石墨主题下划线与「活跃态不加下划线」的豁免（有意，不是缺陷）
-
-规范 §3.2 要求"活跃/选中态不加下划线，只用语义色区分"。石墨主题里主色 #1F2937 与正文色几乎相同，
-**只靠颜色无法区分可点性**，所以石墨下强制给链接与导航选中项加下划线（`text-decoration: underline`）。
-这是对 §3.2 的**有意豁免**：可访问性优先于"视觉更干净"。teal / blue 主题不触发该规则。
-走查时不要把它当缺陷改掉。
-
 ## 5.6 表格完整值的可访问性限制
 
 截断单元格的完整值**只对指针设备可见**（hover 300ms 出提示）。键盘与读屏用户依赖
@@ -312,23 +308,18 @@ DOM 里的完整文本与详情页，**不为每格加 `tabIndex`**——大表�
 
 ## 5.7 配色主题
 
-三套配色，只换「皮肤」，不换语义：
+单套配色，只换「皮肤」，不换语义：
 
 | 主题 | `data-theme` | 用途 | 主色 |
 |---|---|---|---|
-| 深青（默认） | `teal` | 默认外观，工业监控场景的低饱和底色 | `#0F766E` |
-| 电蓝 | `blue` | 偏仪表盘/演示，蓝色主色更接近常见后台 | `#2563EB` |
-| 石墨 | `graphite` | 中性灰黑，弱化装饰、强调内容 | `#1F2937` |
 
 约定：
 
-1. **切换位置**：顶栏右侧、页面操作按钮左边的分段控件（`深青 / 电蓝 / 石墨`），点击即时生效、**不刷新**。
 2. **持久化**：`localStorage['iot-theme']`，合法值只有 `teal` / `blue` / `graphite`；缺失或非法一律回落到 `teal`。
    首帧在 `createRoot().render()` 之前同步写入 `document.documentElement.dataset.theme`，避免闪一次默认主题。
 3. **主题只覆盖 14 个令牌**：`bg / surface / surface-2 / border-subtle / border / border-strong / text / muted / faint / primary / primary-hover / primary-weak / on-primary / shadow-sticky`。
-4. **语义色与图表色不随主题变**：成功/警告/危险/信息、`--chart-1..8`、`--media-*`、`--scale-1..10` 三套完全一致——红永远是危险，琥珀永远是电。
+4. **语义色与图表色不随主题变**：成功/警告/危险/信息、`--chart-1..8`、`--media-*`、`--scale-1..10` 单套完全一致——红永远是危险，琥珀永远是电。
    组件里不允许出现颜色字面量，主题色只能写在 `styles/tokens.css`。
-5. **石墨的链接与导航选中项带下划线**：石墨主色（`#1F2937`）接近正文色，仅靠颜色无法表达可点性，因此 `[data-theme='graphite']` 下链接与 `[aria-current='page']` 统一 `text-decoration: underline`；其它主题不变。
 6. **focus ring 双层**：外圈主色 2px + 内圈 surface 2px（`outline-offset: 2px`），深色主色下也分得清。
 
 ## 6. 已知行为（不是缺陷，不要"修"）

@@ -12,7 +12,7 @@ import { ConfirmDialog } from '../components/ConfirmDialog';
 import { DataTable } from '../components/DataTable';
 import { EmptyState } from '../components/EmptyState';
 import { ErrorState } from '../components/ErrorState';
-import { Card } from '../components/Card';
+import { Card, CardHeader } from '../components/Card';
 import { FilterBar } from '../components/FilterBar';
 import { Pagination } from '../components/Pagination';
 import { RecordDrawer, objectLabel } from '../components/RecordDrawer';
@@ -304,23 +304,6 @@ export function EntityListPage() {
       title={entity.title}
       // 一级页：只显示分组名，页面名由 h1 承担，避免与标题重复。
       breadcrumb={groupCrumb('entities')}
-      actions={
-        writable ? (
-          <button
-            type="button"
-            className="btn btn-primary"
-            data-action="new"
-            onClick={(event) => {
-              saveMutation.reset();
-              openDrawer('new', { trigger: event.currentTarget });
-            }}
-          >
-            新建
-          </button>
-        ) : (
-          <span className="text-muted">只读页面：不提供新建、编辑或删除入口。</span>
-        )
-      }
     >
       {/* 摘要行：只消费现成数据（meta.total + 是否有筛选），不新增接口。
           高度固定（h-6 = 24px）：0 条 / 有数据 / 有筛选三种状态都占位，避免布局跳动。 */}
@@ -349,6 +332,24 @@ export function EntityListPage() {
       </Card>
 
       <Card>
+        <CardHeader
+          title="数据"
+          actions={
+            writable ? (
+              <button
+                type="button"
+                className="btn btn-primary"
+                data-action="new"
+                onClick={(event) => {
+                  saveMutation.reset();
+                  openDrawer('new', { trigger: event.currentTarget });
+                }}
+              >
+                新建
+              </button>
+            ) : undefined
+          }
+        />
       {pageNotice && (
         <div className="mb-4 flex flex-wrap items-center gap-3 rounded-sm border border-border bg-neutral-bg px-3 py-2">
           <span className="text-sm" role="status">

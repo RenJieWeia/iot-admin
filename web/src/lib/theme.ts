@@ -1,5 +1,5 @@
 /**
- * 配色主题：三套（深青 teal / 电蓝 blue / 石墨 graphite）。
+ * 配色主题：只有电蓝（blue）。保留 data-theme 属性结构供将来扩展。
  *
  * 主题只覆盖 tokens.css 里那 14 个变量；语义色（成功/警告/危险/信息）与图表色
  * 是三套共享的，不随皮肤变——红永远是危险，琥珀永远是电。
@@ -7,25 +7,22 @@
  * 应用时机很关键：必须在 `createRoot().render()` **之前**同步设置
  * `document.documentElement.dataset.theme`，否则首帧会闪默认主题。
  */
-export const THEMES = ['teal', 'blue', 'graphite'] as const;
+export const THEMES = ['blue'] as const;
 export type Theme = (typeof THEMES)[number];
 
-// 默认电蓝（:root 里仍放 teal 的变量做 CSS 兜底，但首帧由 main.tsx 同步落 blue，
-// 所以用户看到的从来不是 teal——除非禁用 JS）。
+// 只有电蓝：:root 与 [data-theme='blue'] 同值，首帧由 main.tsx 同步落 blue。
 export const DEFAULT_THEME: Theme = 'blue';
 /** localStorage 键名（稳定契约，别改）。 */
 export const THEME_STORAGE_KEY = 'iot-theme';
 
 /** 顶栏切换控件的选项（顺序即展示顺序）。 */
 export const THEME_OPTIONS: ReadonlyArray<{ value: Theme; label: string }> = [
-  { value: 'teal', label: '深青' },
   { value: 'blue', label: '电蓝' },
-  { value: 'graphite', label: '石墨' },
 ];
 
 /**
  * 纯函数：把 localStorage 里的原始值解析成合法主题。
- * 非法值/缺失/大小写不符一律回落到默认的 teal（不抛错，保证首帧永远有主题）。
+ * 非法值/缺失/大小写不符（含旧值 teal / graphite）一律回落到 blue（不抛错，保证首帧永远有主题）。
  */
 export function resolveTheme(raw: string | null | undefined): Theme {
   if (typeof raw !== 'string') return DEFAULT_THEME;
