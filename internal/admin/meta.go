@@ -156,6 +156,22 @@ func firstNonZeroInt(values ...int) int {
 	return 0
 }
 
+// derivedWidth 是「列宽结论」的唯一来源：
+//
+//   - 字段显式 Width 最高优先（连 flex 也能覆盖）；
+//   - widthStrategy=flex 的字段**不推导**：那一档的语义就是「吸收剩余空间」，
+//     给它一个固定 px 会把 flex 变成 fixed，整张表再没有列能吃掉多余宽度；
+//   - 其余字段按类型推导（widthForType）。
+func derivedWidth(f FieldMeta) int {
+	if f.Width != 0 {
+		return f.Width
+	}
+	if f.WidthStrategy == "flex" {
+		return 0
+	}
+	return widthForType(f.Type)
+}
+
 // metaEntityOf 把 Entity 投影成 _meta 的实体元数据（entities[] 与 subresources[] 共用）。
 func metaEntityOf(e Entity) MetaEntity {
 	return MetaEntity{
@@ -282,7 +298,7 @@ func metaFields(entity string) []MetaField {
 			Options:        make([]MetaOption, 0, len(f.Options)),
 			AdvancedOnly:   f.AdvancedOnly,
 			WidthStrategy:  f.WidthStrategy,
-			Width:          firstNonZeroInt(f.Width, widthForType(f.Type)),
+			Width:          derivedWidth(f),
 			Editable:       f.Editable,
 			Required:       f.Required,
 			Derived:        f.Derived,

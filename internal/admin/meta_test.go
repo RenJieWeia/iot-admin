@@ -193,13 +193,21 @@ func TestMetaFieldShape(t *testing.T) {
 		if strings.Join(strip(got), ",") != strings.Join(strip(want), ",") {
 			t.Fatalf("%s 字段 %q 的键 = %v，期望 %v", where, key, strip(got), strip(want))
 		}
-		// 列宽：字段显式覆写优先，否则按类型推导；json/未知类型不推导（缺省）。
-		var typ string
+		// 列宽：显式覆写优先；widthStrategy=flex 的列不推导（否则没有列能吸收剩余宽度）；
+		// 其余按类型推导；json/未知类型不推导（缺省）。
+		var typ, strategy string
 		if err := json.Unmarshal(m["type"], &typ); err != nil {
 			t.Fatalf("%s 字段 %q 的 type 解析失败: %v", where, key, err)
 		}
+		if err := json.Unmarshal(m["widthStrategy"], &strategy); err != nil {
+			t.Fatalf("%s 字段 %q 的 widthStrategy 解析失败: %v", where, key, err)
+		}
 		rawWidth, hasWidth := m["width"]
-		if wantWidth := widthForType(typ); wantWidth > 0 {
+		wantWidth := 0
+		if strategy != "flex" {
+			wantWidth = widthForType(typ)
+		}
+		if wantWidth > 0 {
 			if !hasWidth {
 				t.Fatalf("%s 字段 %q（type=%s）缺少 width，期望 %d", where, key, typ, wantWidth)
 			}
@@ -211,7 +219,7 @@ func TestMetaFieldShape(t *testing.T) {
 				t.Fatalf("%s 字段 %q 的 width = %d，期望按类型推导 %d", where, key, w, wantWidth)
 			}
 		} else if hasWidth {
-			t.Fatalf("%s 字段 %q（type=%s）不该有 width（该类型不推导）", where, key, typ)
+			t.Fatalf("%s 字段 %q（type=%s, strategy=%s）不该有 width（flex/未知类型不推导）", where, key, typ, strategy)
 		}
 		for _, arr := range []string{"operators", "options"} {
 			if string(m[arr]) == "null" {
@@ -650,5 +658,24 @@ func TestWidthForType(t *testing.T) {
 	}
 	if got := firstNonZeroInt(0, widthForType("datetime")); got != 170 {
 		t.Fatalf("缺省时应回落到类型推导，实际 %d", got)
+	}
+}
+
+// flex 列传给 widthStrategy 管：推导必须跳过，否则内联 width 会把 flex 变成 fixed，
+// 整张表再也没有列能吸收剩余宽度（1107002 §1）。
+func TestDerivedWidthSkipsFlex(t *testing.T) {
+	if got := derivedWidth(FieldMeta{Type: "text", WidthStrategy: "flex"}); got != 0 {
+		t.Fatalf("flex 字段不该推导宽度，实际 %d", got)
+	}
+	if got := derivedWidth(FieldMeta{Type: "json", WidthStrategy: "flex"}); got != 0 {
+		t.Fatalf("json+flex 不该推导宽度，实际 %d", got)
+	}
+	// 显式覆写优先于一切，包括 flex。
+	if got := derivedWidth(FieldMeta{Type: "text", WidthStrategy: "flex", Width: 260}); got != 260 {
+		t.Fatalf("显式 Width 应覆盖 flex 的跳过规则，实际 %d", got)
+	}
+	// 非 flex 仍按类型推导。
+	if got := derivedWidth(FieldMeta{Type: "datetime", WidthStrategy: "min"}); got != 170 {
+		t.Fatalf("非 flex 的 datetime 应推导 170，实际 %d", got)
 	}
 }

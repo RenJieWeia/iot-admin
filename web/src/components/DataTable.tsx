@@ -90,8 +90,10 @@ export function DataTable({
           // 数字列右对齐 + 等宽数字：位数不同也能纵向对齐（空值占位符同样是数字列，一起右对齐）。
           field.type === 'number' && 'text-right tabular-nums',
         );
+        // 不再带原生 title：自定义提示 300ms 出现后，浏览器 title 约 1s 会再叠一个。
+        // 完整值只放 data-full，由表格级 Tooltip 统一消费。
         return (
-          <span className={className} title={view.full} data-full={view.full}>
+          <span className={className} data-full={view.full}>
             {view.text}
           </span>
         );
@@ -209,13 +211,6 @@ export function DataTable({
   const onPointerOut = (event: React.MouseEvent<HTMLDivElement>) => {
     if (cellFromEvent(event)) hideTip();
   };
-  const onFocusIn = (event: React.FocusEvent<HTMLDivElement>) => {
-    const cell = cellFromEvent(event);
-    if (cell) showTipFor(cell);
-  };
-  const onFocusOut = (event: React.FocusEvent<HTMLDivElement>) => {
-    if (cellFromEvent(event)) hideTip();
-  };
   const onTouchStart = () => {
     suppressRef.current = true;
     if (suppressTimer.current !== null) window.clearTimeout(suppressTimer.current);
@@ -230,8 +225,6 @@ export function DataTable({
       className="overflow-x-auto rounded-md border border-border bg-surface"
       onMouseOver={onPointerOver}
       onMouseOut={onPointerOut}
-      onFocus={onFocusIn}
-      onBlur={onFocusOut}
       onTouchStart={onTouchStart}
     >
       {state === 'loading' && (

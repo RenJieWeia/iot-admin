@@ -36,13 +36,18 @@ describe('最新值只读页（task-009 Part B）', () => {
     for (const label of ['正常', '越界', '规则命中', '越界+规则', '单位闭集外', '越界+单位', '规则+单位', '越界+规则+单位']) {
       expect(within(table).getAllByText(label).length).toBeGreaterThan(0);
     }
-    // 质量原因单行截断 + title 全文。
-    const reason = within(table).getAllByTitle(/原因-/)[0];
-    expect(reason).toBeInTheDocument();
-    // §16.5：单元格显示 YYYY-MM-DD HH:mm，秒与 +08:00 只在 title 的完整值里。
+    // 质量原因单行截断，完整值放 data-full（1107002 起不再用原生 title：
+    // 自定义提示与浏览器 title 会叠在一起）。
+    const reasonCells = Array.from(table.querySelectorAll('[data-full]'));
+    const reason = reasonCells.find((el) => /原因-/.test(el.getAttribute('data-full') ?? ''));
+    expect(reason).toBeTruthy();
+    // 原生 title 已移除，避免与自定义提示重复。
+    expect(reason!.hasAttribute('title')).toBe(false);
+    // §16.5：单元格显示 YYYY-MM-DD HH:mm，秒与 +08:00 只出现在 data-full 的完整值里。
     expect(within(table).getAllByText(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/).length).toBeGreaterThan(0);
     expect(
-      within(table).getAllByTitle(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \+08:00$/).length,
+      reasonCells.filter((el) => /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2} \+08:00$/.test(el.getAttribute('data-full') ?? ''))
+        .length,
     ).toBeGreaterThan(0);
     expect(within(table).queryByText(/^\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/)).not.toBeInTheDocument();
   });

@@ -150,4 +150,16 @@ describe('DataTable 的列对齐与完整值提示（1107002）', () => {
     // 未截断 → 不出现 tooltip 内容节点。
     expect(document.querySelector('[data-radix-popper-content-wrapper]')).toBeNull();
   });
+
+  it('单元格不再带原生 title（否则浏览器 title 约 1s 后会与自定义提示叠在一起）', () => {
+    const { container } = render(
+      <DataTable {...baseProps} rows={[allTerminals[0]!]} caption="共 1 条" />,
+    );
+    const cells = Array.from(container.querySelectorAll('[data-full]'));
+    expect(cells.length).toBeGreaterThan(0);
+    for (const cell of cells) {
+      expect(cell.hasAttribute('title')).toBe(false);
+    }
+    // StatusTag 是另一条渲染路径，保留 title（不在本断言范围内）。
+  });
 });
