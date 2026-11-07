@@ -209,7 +209,7 @@ export function SnapshotSlotConfigSection() {
           )}
           <button
             type="button"
-            className="btn h-8"
+            className="btn"
             onClick={submit}
             disabled={!dirty || save.isPending}
             aria-busy={save.isPending}
@@ -251,7 +251,7 @@ export function SnapshotSlotConfigSection() {
                   启用
                 </label>
                 <select
-                  className="select h-8"
+                  className="select"
                   aria-label={`${LABELS[granularity]}档步长`}
                   value={draft.step}
                   disabled={!draft.enabled}

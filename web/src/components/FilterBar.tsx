@@ -211,7 +211,7 @@ function FilterControl({
         <label htmlFor={inputId}>{field.label}</label>
         <select
           id={inputId}
-          className="select h-8"
+          className="select"
           value={selected[0] ?? ''}
           onChange={(event) =>
             commit(field.operators[0] ?? 'eq', event.target.value ? [event.target.value] : [])
@@ -320,7 +320,7 @@ function FilterControl({
       <label htmlFor={inputId}>{field.label}</label>
       <input
         id={inputId}
-        className="input h-8"
+        className="input"
         type="search"
         value={text.draft}
         placeholder={`按${field.label}筛选`}
@@ -439,7 +439,7 @@ export function FilterBar({
       <label htmlFor="filter-keyword">关键词</label>
       <input
         id="filter-keyword"
-        className="input h-8"
+        className="input"
         type="search"
         value={keyword}
         placeholder="在可搜索的文本列中匹配"
@@ -484,7 +484,7 @@ export function FilterBar({
         <div className="mb-3 flex items-end gap-3">
           <button
             type="button"
-            className="btn h-8"
+            className="btn"
             aria-expanded={panelOpen}
             aria-controls="filter-panel"
             onClick={() => setPanelOpen(true)}
@@ -529,7 +529,7 @@ export function FilterBar({
         {advanced.length > 0 && (
           <button
             type="button"
-            className="btn mb-0.5 h-8 shrink-0"
+            className="btn mb-0.5 shrink-0"
             onClick={() => setDialogOpen(true)}
           >
             更多筛选

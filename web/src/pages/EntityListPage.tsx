@@ -387,7 +387,7 @@ export function EntityListPage() {
         >
           <span>刷新失败，显示的是上次数据</span>
           <span className="text-muted">{errorDetail(list.error) ?? '未知错误'}</span>
-          <button type="button" className="btn h-8" onClick={() => void list.refetch()}>
+          <button type="button" className="btn" onClick={() => void list.refetch()}>
             重试
           </button>
         </div>

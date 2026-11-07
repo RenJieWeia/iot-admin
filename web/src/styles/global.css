@@ -65,13 +65,30 @@
     align-items: center;
     justify-content: center;
     gap: var(--space-1);
-    min-height: var(--touch-target);
+    /* 视觉高度由令牌决定（40px）；触摸热区靠下面的 ::after 撑到 44，两者解耦。 */
+    position: relative;
+    height: var(--control-height);
     padding: 0 var(--space-4);
     border-radius: var(--radius-sm);
     border: 1px solid var(--color-border);
     background: var(--color-surface);
     color: var(--color-text);
     cursor: pointer;
+  }
+
+  /* 触摸热区扩展：视觉仍 40，命中区 ≥44（与 .touch-hit 工具类同源）。 */
+  @media (pointer: coarse) {
+    .btn::after,
+    .input::after,
+    .select::after {
+      content: '';
+      position: absolute;
+      width: max(100%, var(--touch-target));
+      height: max(100%, var(--touch-target));
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+    }
   }
 
   .btn:hover {

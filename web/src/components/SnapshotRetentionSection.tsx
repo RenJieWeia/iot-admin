@@ -146,7 +146,7 @@ export function SnapshotRetentionSection() {
           )}
           <button
             type="button"
-            className="btn h-8"
+            className="btn"
             onClick={submit}
             disabled={!dirty || save.isPending}
             aria-busy={save.isPending}
@@ -182,7 +182,7 @@ export function SnapshotRetentionSection() {
               >
                 <span className="w-52 text-base">{STORAGE_LABELS[table] ?? table}</span>
                 <input
-                  className="input h-8 w-40"
+                  className="input w-40"
                   type="number"
                   min={1}
                   placeholder="永久保留"

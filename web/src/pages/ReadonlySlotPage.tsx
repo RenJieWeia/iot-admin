@@ -216,7 +216,7 @@ export function ReadonlySlotPage({ source }: Props) {
         >
           <span>刷新失败，显示的是上次数据</span>
           <span className="text-muted">{errorDetail(activeList.error) ?? '未知错误'}</span>
-          <button type="button" className="btn h-8" onClick={() => void activeList.refetch()}>
+          <button type="button" className="btn" onClick={() => void activeList.refetch()}>
             重试
           </button>
         </div>

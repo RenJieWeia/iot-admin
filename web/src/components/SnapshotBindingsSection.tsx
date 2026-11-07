@@ -82,7 +82,7 @@ export function SnapshotBindingsSection() {
         title="数据项绑定"
         description="一行 = 一个目标 + 多个字段；作用域二选一"
         actions={
-        <button type="button" className="btn btn-primary h-8" data-action="new-binding" onClick={openCreate}>
+        <button type="button" className="btn btn-primary" data-action="new-binding" onClick={openCreate}>
           新建绑定
         </button>
         }

@@ -22,7 +22,7 @@ export function CursorPager({ hasMore, loading, limit, loaded, onMore }: Props) 
         // 文案固定，避免「加载中…」让按钮变窄引起跳动；忙碌态只由 disabled + aria-busy 表达。
         <button
           type="button"
-          className="btn touch-hit h-8"
+          className="btn touch-hit"
           onClick={onMore}
           disabled={loading}
           aria-busy={loading}

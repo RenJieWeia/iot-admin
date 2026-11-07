@@ -253,7 +253,7 @@ export function SnapshotBindingForm({ open, onClose, onSaved, editing = null }: 
           <label htmlFor="binding-terminal">终端</label>
           <input
             id="binding-terminal"
-            className="input h-8"
+            className="input"
             type="search"
             placeholder="按终端 ID 或名称搜索"
             value={keyword}

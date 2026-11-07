@@ -81,8 +81,7 @@
   --shadow-overlay: 0 8px 24px rgba(16, 24, 40, 0.18);
 
   /* 尺寸 */
-  --control-h: 32px;
-  --control-h-lg: 36px;
+  --control-h: 40px;
   --row-h: 44px;
   --nav-width: 220px;
   --drawer-width: 520px;
