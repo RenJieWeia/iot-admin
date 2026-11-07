@@ -150,6 +150,20 @@
     animation: drawer-overlay-out var(--dur-base) var(--ease-out) both;
   }
 
+  /*
+   * hover 过渡（1107022）：只过渡颜色类属性，**不加 transform**（500 行表格会掉帧）。
+   * 用长属性而不是 transition 简写：reduced-motion 里只需把 duration 归零，不必整条覆盖。
+   * box-shadow 也在列表里——它只承担 surface 变体那 1px 内描边（Radix Button 用它画边框），
+   * 不是几何属性；不一起过渡的话 hover 时边框会「跳」而底色是渐变的。
+   */
+  .rt-Button,
+  [aria-label='主导航'] a,
+  tbody tr {
+    transition-property: background-color, color, border-color, box-shadow;
+    transition-duration: var(--dur-fast);
+    transition-timing-function: var(--ease-out);
+  }
+
   /* 表单元素统一高度与边框，标签始终与控件显式关联（<label for>）。 */
   .field {
     display: flex;
