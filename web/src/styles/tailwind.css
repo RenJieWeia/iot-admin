@@ -286,18 +286,6 @@
   appearance: textfield;
 }
 
-/* 控件统一高度（B2）。 */
-@utility control {
-  height: var(--control-h);
-  border-radius: var(--radius-control);
-  border: 1px solid var(--color-border);
-  background: var(--color-surface);
-  padding: 0 var(--space-2);
-  font-size: var(--text-body);
-  color: var(--color-text);
-  width: 100%;
-}
-
 /* 完整值提示：只读、不可交互、不可聚焦（颜色走令牌，尺寸不写 arbitrary value）。 */
 @utility tooltip-content {
   z-index: 50;
