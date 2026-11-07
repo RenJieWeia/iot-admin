@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   flexRender,
   getCoreRowModel,
@@ -8,6 +8,7 @@ import {
 import type { FieldMeta, RowData } from '../api/types';
 import type { WidthStrategy } from '../api/types';
 import { cn } from '../lib/cn';
+import { scrollEdges } from '../lib/scrollEdges';
 import { formatCell } from '../lib/format';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { SkeletonCell } from './Skeleton';
@@ -175,6 +176,30 @@ export function DataTable({
   }, [state, rows.length]);
   const skeletonCount = Math.max(1, Math.min(skeletonRows, lastRowCount.current || 10));
 
+  // 横向滚动状态：决定 sticky 两侧投影是否显示（不滚动时不该出现"脏边"）。
+  // 用 data-* 属性交给 global.css 的选择器，TSX 里不出现视觉值。
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [edges, setEdges] = useState({ left: false, right: false });
+
+  useLayoutEffect(() => {
+    const el = wrapperRef.current;
+    if (!el) return;
+    const update = () => {
+      const next = scrollEdges(el);
+      // 只在真正变化时 setState，避免滚动过程中每帧重渲染整张表。
+      setEdges((prev) => (prev.left === next.left && prev.right === next.right ? prev : next));
+    };
+    update();
+    el.addEventListener('scroll', update, { passive: true });
+    // 数据行数、列宽、窗口尺寸变化都会改变"是否溢出"，用 ResizeObserver 统一兜住。
+    const observer = new ResizeObserver(update);
+    observer.observe(el);
+    return () => {
+      el.removeEventListener('scroll', update);
+      observer.disconnect();
+    };
+  }, [rows.length, fields.length, state]);
+
   // 完整值提示：表格级只挂一个受控 Tooltip，单元格只输出 data-full。
   // 不给每格包 Tooltip.Root——500 行 × 10 列就是 5000 个 Root，hover 会明显掉帧。
   const [tip, setTip] = useState<{ text: string; left: number; top: number; height: number } | null>(null);
@@ -234,7 +259,10 @@ export function DataTable({
   return (
     <Tooltip.Provider delayDuration={300}>
     <div
+      ref={wrapperRef}
       className={TABLE_WRAPPER}
+      data-scroll-left={edges.left ? 'true' : undefined}
+      data-scroll-right={edges.right ? 'true' : undefined}
       onMouseOver={onPointerOver}
       onMouseOut={onPointerOut}
       onTouchStart={onTouchStart}

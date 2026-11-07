@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import { allTerminals, metaFixture } from '../test/fixtures';
 import { DataTable } from './DataTable';
@@ -164,5 +164,44 @@ describe('DataTable 的列对齐与完整值提示（1107002）', () => {
       expect(cell.hasAttribute('title')).toBe(false);
     }
     // StatusTag 是另一条渲染路径，保留 title（不在本断言范围内）。
+  });
+
+  it('sticky 投影只在横向滚动时显示：不溢出的宽屏下两侧都不挂 data-scroll-*', () => {
+    const { container } = render(
+      <DataTable {...baseProps} rows={[allTerminals[0]!]} caption="共 1 条" />,
+    );
+    // jsdom 里 scrollWidth === clientWidth === 0 → 视为不溢出。
+    const wrapper = container.querySelector('.table-shell');
+    expect(wrapper).toBeTruthy();
+    expect(wrapper!.getAttribute('data-scroll-left')).toBeNull();
+    expect(wrapper!.getAttribute('data-scroll-right')).toBeNull();
+    // 投影类名仍挂在单元格上（作为 global.css 条件选择器的锚点），只是当前没有阴影。
+    expect(container.querySelector('tbody td')!.className).toContain('sticky-shadow-left');
+  });
+
+  it('模拟溢出后容器挂上 data-scroll-right（滚动状态由尺寸驱动）', async () => {
+    const { container } = render(
+      <DataTable {...baseProps} rows={[allTerminals[0]!]} caption="共 1 条" />,
+    );
+    const wrapper = container.querySelector('.table-shell') as HTMLElement;
+    // 模拟一个 1600 内容宽 / 1000 容器宽 / 未滚动 的真实滚动容器。
+    Object.defineProperty(wrapper, 'scrollWidth', { configurable: true, value: 1600 });
+    Object.defineProperty(wrapper, 'clientWidth', { configurable: true, value: 1000 });
+    Object.defineProperty(wrapper, 'scrollLeft', { configurable: true, writable: true, value: 0 });
+    fireEvent.scroll(wrapper);
+    await waitFor(() => expect(wrapper.getAttribute('data-scroll-right')).toBe('true'));
+    expect(wrapper.getAttribute('data-scroll-left')).toBeNull();
+
+    // 滚到中间：两侧同时为真。
+    (wrapper as HTMLElement & { scrollLeft: number }).scrollLeft = 300;
+    fireEvent.scroll(wrapper);
+    await waitFor(() => expect(wrapper.getAttribute('data-scroll-left')).toBe('true'));
+    expect(wrapper.getAttribute('data-scroll-right')).toBe('true');
+
+    // 滚到最右：右侧消失。
+    (wrapper as HTMLElement & { scrollLeft: number }).scrollLeft = 600;
+    fireEvent.scroll(wrapper);
+    await waitFor(() => expect(wrapper.getAttribute('data-scroll-right')).toBeNull());
+    expect(wrapper.getAttribute('data-scroll-left')).toBe('true');
   });
 });

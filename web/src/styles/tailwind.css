@@ -246,13 +246,10 @@
 
 /* 表格 sticky 列的方向性投影（§5.2）：首列向右投、操作列向左投。
    只做视觉提示，不参与布局；颜色取 --color-shadow-sticky（最深文字色低透明度）。 */
-@utility sticky-shadow-left {
-  box-shadow: 8px 0 8px -8px var(--color-shadow-sticky);
-}
-
-@utility sticky-shadow-right {
-  box-shadow: -8px 0 8px -8px var(--color-shadow-sticky);
-}
+/* sticky 投影（.sticky-shadow-left / .sticky-shadow-right）不在这里定义：
+   box-shadow 只在横向滚动发生时才该出现，规则写在 global.css 的
+   [data-scroll-left="true"] / [data-scroll-right="true"] 条件选择器里。
+   类名本身仍由 tableStyles.ts 挂在单元格上，作为选择器的锚点。 */
 
 /* 日期输入：去掉原生日历按钮与浏览器默认外观（C1）。 */
 @utility date-input {
