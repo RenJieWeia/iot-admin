@@ -38,4 +38,22 @@ describe('P2 铺开：全站单一实现', () => {
     }
   });
 
+
+  it('5 页的卡片数量与基线一致且无嵌套（列表 / 只读 / 异常 / 快照 / 详情）', async () => {
+    const cases: Array<[string, number]> = [
+      ['/terminals', 2],
+      ['/data-domains', 2],
+      ['/readonly/latest-values', 2],
+      ['/exceptions/events', 2],
+      ['/snapshot-slots', 3],
+      ['/device-types/100', 1],
+    ];
+    for (const [path, expected] of cases) {
+      const view = renderApp(path);
+      await waitFor(() => expect(document.querySelectorAll('[data-card]').length, path).toBe(expected));
+      expect(document.querySelectorAll('[data-card] [data-card]'), path).toHaveLength(0);
+      expect(document.querySelectorAll('[data-card].rt-Card'), path).toHaveLength(expected);
+      view.unmount();
+    }
+  });
 });
