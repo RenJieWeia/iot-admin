@@ -7,6 +7,10 @@
   --color-surface-2: #f1f3f6;
   --color-border: #e5e7eb;
   --color-border-strong: #d1d5db;
+  /* 行分隔线：比 border 更浅一档，用于表格行线降噪 */
+  --color-border-subtle: #eef1f5;
+  /* sticky 列的方向性投影基色（最深文字色 + 低透明度） */
+  --color-shadow-sticky: rgba(16, 24, 40, 0.12);
 
   /* 文本三档 */
   --color-text: #111827;

@@ -11,6 +11,18 @@ import { cn } from '../lib/cn';
 import { formatCell } from '../lib/format';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { SkeletonCell } from './Skeleton';
+import {
+  ACTION_DANGER,
+  ACTION_LINK,
+  TABLE_WRAPPER,
+  TD_BASE,
+  TD_STICKY_LEFT,
+  TD_STICKY_RIGHT,
+  TH_BASE,
+  TH_STICKY_LEFT,
+  TH_STICKY_RIGHT,
+  TR_ROW,
+} from './tableStyles';
 import { StatusTag } from './StatusTag';
 
 export type TableState = 'loading' | 'ready';
@@ -111,7 +123,7 @@ export function DataTable({
             {onOpen && (
               <button
                 type="button"
-                className="touch-hit inline-flex h-8 items-center rounded-control border border-border bg-surface px-3 text-body text-text hover:border-border-strong"
+                className={cn('touch-hit', ACTION_LINK)}
                 data-action="open"
                 data-row-id={String(row.original.id ?? '')}
                 onClick={(event) => onOpen(row.original, event.currentTarget)}
@@ -121,7 +133,7 @@ export function DataTable({
             )}
             <button
               type="button"
-              className="touch-hit inline-flex h-8 items-center rounded-control border border-border bg-surface px-3 text-body text-text hover:border-border-strong"
+              className={cn('touch-hit', ACTION_LINK)}
               data-action="edit"
               data-row-id={String(row.original.id ?? '')}
               onClick={(event) => onEdit?.(row.original, event.currentTarget)}
@@ -130,7 +142,7 @@ export function DataTable({
             </button>
             <button
               type="button"
-              className="touch-hit inline-flex h-8 items-center rounded-control px-2 text-body text-muted hover:bg-danger-weak hover:text-danger"
+              className={cn('touch-hit', ACTION_DANGER)}
               data-action="delete"
               data-row-id={String(row.original.id ?? '')}
               onClick={(event) => onDelete?.(row.original, event.currentTarget)}
@@ -222,7 +234,7 @@ export function DataTable({
   return (
     <Tooltip.Provider delayDuration={300}>
     <div
-      className="overflow-x-auto rounded-md border border-border bg-surface"
+      className={TABLE_WRAPPER}
       onMouseOver={onPointerOver}
       onMouseOut={onPointerOut}
       onTouchStart={onTouchStart}
@@ -263,10 +275,10 @@ export function DataTable({
                     scope="col"
                     // 首列与 body 的首列一起固定，横滚时列名不会和数据错位（§5.2）。
                     className={cn(
-                      'h-11 whitespace-nowrap border-b border-border bg-surface-2 px-3 text-left text-meta font-medium text-muted',
-                      field?.key === fields[0]?.key && 'sticky left-0 z-20',
+                      TH_BASE,
+                      field?.key === fields[0]?.key && TH_STICKY_LEFT,
                       // 操作列表头与表体操作列一起吸右，否则横滚时列名跟着走、与下面的按钮错位。
-                      header.column.id === '__actions' && 'sticky right-0 z-20 text-right',
+                      header.column.id === '__actions' && TH_STICKY_RIGHT,
                       // 数字列表头右对齐，与单元格一致。
                       field?.type === 'number' && 'text-right',
                     )}
@@ -308,29 +320,27 @@ export function DataTable({
                   {fields.map((field, cellIndex) => (
                     <td
                       key={field.key}
-                      className="h-11 overflow-hidden border-b border-border px-3 align-middle"
+                      className={cn(TD_BASE, cellIndex === 0 && TD_STICKY_LEFT)}
                     >
                       <SkeletonCell short={cellIndex % 3 === 2} />
                     </td>
                   ))}
                   {writable && (
-                    <td className="h-11 overflow-hidden border-b border-border px-3 align-middle">
+                    <td className={cn(TD_BASE, TD_STICKY_RIGHT)}>
                       <SkeletonCell />
                     </td>
                   )}
                 </tr>
               ))
             : table.getRowModel().rows.map((row) => (
-                <tr key={String(row.original.id ?? row.id)} className="group hover:bg-surface-2">
+                <tr key={String(row.original.id ?? row.id)} className={TR_ROW}>
                   {row.getVisibleCells().map((cell) => (
                     <td
                       key={cell.id}
                       className={cn(
-                        'h-11 overflow-hidden border-b border-border px-3 align-middle',
-                        cell.column.id === fields[0]?.key &&
-                          'sticky left-0 z-10 bg-surface group-hover:bg-surface-2',
-                        cell.column.id === '__actions' &&
-                          'sticky right-0 z-10 whitespace-nowrap bg-surface text-right group-hover:bg-surface-2',
+                        TD_BASE,
+                        cell.column.id === fields[0]?.key && TD_STICKY_LEFT,
+                        cell.column.id === '__actions' && TD_STICKY_RIGHT,
                         // 数字列整列右对齐（单元格内部的 span 也带 text-right，占位符不会跳基线）。
                         fields.find((f) => f.key === cell.column.id)?.type === 'number' && 'text-right',
                       )}

@@ -35,6 +35,7 @@
   --color-overlay: var(--color-overlay);
   --color-surface-2: var(--color-surface-2);
   --color-border-strong: var(--color-border-strong);
+  --color-border-subtle: var(--color-border-subtle);
   --color-faint: var(--color-faint);
   --color-primary-weak: var(--color-primary-weak);
   --color-success: var(--color-success);
@@ -241,6 +242,16 @@
       transform: translate(-50%, -50%);
     }
   }
+}
+
+/* 表格 sticky 列的方向性投影（§5.2）：首列向右投、操作列向左投。
+   只做视觉提示，不参与布局；颜色取 --color-shadow-sticky（最深文字色低透明度）。 */
+@utility sticky-shadow-left {
+  box-shadow: 8px 0 8px -8px var(--color-shadow-sticky);
+}
+
+@utility sticky-shadow-right {
+  box-shadow: -8px 0 8px -8px var(--color-shadow-sticky);
 }
 
 /* 日期输入：去掉原生日历按钮与浏览器默认外观（C1）。 */

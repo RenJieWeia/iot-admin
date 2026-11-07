@@ -88,6 +88,8 @@ describe('DataTable 的骨架与固定列（§6.4 / §5.2）', () => {
     render(<DataTable {...baseProps} caption="共 0 条" />);
     const firstHeader = document.querySelector('thead th');
     expect(firstHeader?.className).toContain('sticky left-0');
+    // 降噪：首列带向右投影，操作列带向左投影（§5.2）。
+    expect(firstHeader?.className).toContain('sticky-shadow-left');
     expect(document.querySelectorAll('thead th[class*="sticky"]')).toHaveLength(1);
   });
 });
@@ -103,6 +105,7 @@ describe('DataTable 的列对齐与完整值提示（1107002）', () => {
     expect(actionHeader!.className).toContain('sticky');
     expect(actionHeader!.className).toContain('right-0');
     expect(actionHeader!.className).toContain('z-20');
+    expect(actionHeader!.className).toContain('sticky-shadow-right');
 
     // 表体操作列的定位类必须与表头一致，否则横滚时会错位。
     const actionCell = document.querySelector('tbody tr td:last-child');

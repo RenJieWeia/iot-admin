@@ -5,6 +5,14 @@ import { toLabelMap, useFieldOptions } from '../api/entities';
 import type { FieldMeta, RowData } from '../api/types';
 import { formatCell } from '../lib/format';
 import { ConfirmDialog } from './ConfirmDialog';
+import { Section } from './Section';
+import {
+  ACTION_DANGER,
+  ACTION_LINK,
+  TD_BASE,
+  TH_BASE,
+  TR_ROW,
+} from './tableStyles';
 import { SnapshotBindingForm } from './SnapshotBindingForm';
 
 const BINDINGS_ENTITY = 'snapshot-bindings';
@@ -69,19 +77,15 @@ export function SnapshotBindingsSection() {
   };
 
   return (
-    <section className="rounded-md border border-border bg-surface p-4" aria-label="绑定">
-      <div className="mb-3 flex flex-wrap items-center gap-3">
-        <h2 className="m-0 text-lg">绑定</h2>
-        <span className="text-meta text-muted">一行 = 一个目标 + 多个字段；作用域二选一。</span>
-        <button
-          type="button"
-          className="btn btn-primary ml-auto"
-          data-action="new-binding"
-          onClick={openCreate}
-        >
+    <Section
+      title="数据项绑定"
+      description="一行 = 一个目标 + 多个字段；作用域二选一"
+      actions={
+        <button type="button" className="btn btn-primary h-8" data-action="new-binding" onClick={openCreate}>
           新建绑定
         </button>
-      </div>
+      }
+    >
 
       {list.isError ? (
         <p className="m-0 text-negative-text" role="alert">
@@ -100,7 +104,7 @@ export function SnapshotBindingsSection() {
           <thead>
             <tr>
               {['作用域', '目标', '字段数', '创建时间', '操作'].map((title) => (
-                <th key={title} scope="col" className="h-11 border-b border-border bg-surface-2 px-3 text-left text-meta font-medium text-muted">
+                <th key={title} scope="col" className={TH_BASE}>
                   {title}
                 </th>
               ))}
@@ -112,22 +116,16 @@ export function SnapshotBindingsSection() {
               const terminalID = row.terminal_id === null || row.terminal_id === undefined ? '' : String(row.terminal_id);
               const target = typeID !== '' ? (typeLabels[typeID] ?? typeID) : terminalID;
               return (
-                <tr key={String(row.id)}>
-                  <td className="h-11 overflow-hidden border-b border-border px-3 align-middle">
-                    {typeID !== '' ? '终端类型' : '终端'}
-                  </td>
-                  <td className="h-11 overflow-hidden border-b border-border px-3 align-middle">{target}</td>
-                  <td className="h-11 overflow-hidden border-b border-border px-3 align-middle">
-                    {fieldsCountOf(row)}
-                  </td>
-                  <td className="h-11 overflow-hidden border-b border-border px-3 align-middle">
-                    {formatCell(createdAtField, row.created_at).text}
-                  </td>
-                  <td className="h-11 overflow-hidden border-b border-border px-3 text-right align-middle">
+                <tr key={String(row.id)} className={TR_ROW}>
+                  <td className={TD_BASE}>{typeID !== '' ? '终端类型' : '终端'}</td>
+                  <td className={TD_BASE}>{target}</td>
+                  <td className={TD_BASE}>{fieldsCountOf(row)}</td>
+                  <td className={TD_BASE}>{formatCell(createdAtField, row.created_at).text}</td>
+                  <td className={`${TD_BASE} text-right`}>
                     <span className="inline-flex items-center gap-2">
                       <button
                         type="button"
-                        className="touch-hit inline-flex h-8 items-center rounded-control border border-border bg-surface px-3 text-body text-text hover:border-border-strong"
+                        className={`touch-hit ${ACTION_LINK}`}
                         data-action="edit-binding"
                         onClick={() => openEdit(row)}
                       >
@@ -135,7 +133,7 @@ export function SnapshotBindingsSection() {
                       </button>
                       <button
                         type="button"
-                        className="touch-hit inline-flex h-8 items-center rounded-control px-2 text-body text-muted hover:bg-danger-weak hover:text-danger"
+                        className={`touch-hit ${ACTION_DANGER}`}
                         data-action="delete-binding"
                         onClick={() => setPendingDelete(row)}
                       >
@@ -166,6 +164,6 @@ export function SnapshotBindingsSection() {
           if (pendingDelete) remove.mutate(String(pendingDelete.id));
         }}
       />
-    </section>
+    </Section>
   );
 }

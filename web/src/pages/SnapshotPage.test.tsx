@@ -89,9 +89,9 @@ describe('快照只读页（一个页面 + 三个存储）', () => {
     }
   });
 
-  it('保留期区块说明最小清理粒度', async () => {
+  it('保留期子块说明最小清理粒度（页面改为两段式后仍在）', async () => {
     renderApp('/snapshot-slots');
-    const section = await screen.findByRole('region', { name: '存储与保留' });
+    const section = await screen.findByRole('group', { name: '保留期' });
     expect(
       within(section).getByText(/最小清理粒度 = 整月（粗表 \/ 分表）、整日（秒表），实际保留可能比设定值更长。/),
     ).toBeInTheDocument();

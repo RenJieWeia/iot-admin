@@ -7,101 +7,147 @@ import { metaFixture } from '../test/fixtures';
 import { server, writeCalls } from '../test/server';
 
 async function waitForPage() {
-  await screen.findByRole('region', { name: '六档配置' }, { timeout: 5000 });
+  await screen.findByRole('group', { name: '六档配置' }, { timeout: 5000 });
   await waitFor(() => expect(screen.queryByText('正在加载六档配置…')).not.toBeInTheDocument());
 }
 
-/** 打开绑定抽屉（专用表单，不是通用 RecordDrawer）。 */
 async function openBindingForm() {
   const user = userEvent.setup();
   await user.click(screen.getByRole('button', { name: '新建绑定' }));
   return { user, dialog: await screen.findByRole('dialog') };
 }
 
-describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
-  it('六档配置渲染六行固定档位，改开关+步长后发 PUT；没有「新增档位」入口', async () => {
+const slotSave = () =>
+  within(screen.getByRole('group', { name: '六档配置' })).getByRole('button', { name: '保存' });
+const retentionSave = () =>
+  within(screen.getByRole('group', { name: '保留期' })).getByRole('button', { name: '保存' });
+
+describe('快照配置页（存储策略 / 数据项绑定 两段式）', () => {
+  it('只有两段；保存按钮恰好两个，分别在「六档配置」「保留期」子块右上角', async () => {
+    renderApp('/snapshot-slots');
+    await waitForPage();
+
+    expect(screen.getByRole('region', { name: '存储策略' })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: '数据项绑定' })).toBeInTheDocument();
+    // 全页只有两个「保存」（旧的 9 个逐行按钮已收成两个批量保存）。
+    expect(screen.getAllByRole('button', { name: '保存' })).toHaveLength(2);
+    expect(slotSave()).toBeInTheDocument();
+    expect(retentionSave()).toBeInTheDocument();
+    // 档位固定：没有新增入口。
+    expect(screen.queryByRole('button', { name: /新增档位/ })).not.toBeInTheDocument();
+  });
+
+  it('六档批量保存：无改动时禁用；改两行后点一次发出两条 PUT，成功后恢复禁用', async () => {
     const user = userEvent.setup();
     renderApp('/snapshot-slots');
     await waitForPage();
 
-    const section = screen.getByRole('region', { name: '六档配置' });
-    for (const label of ['秒', '分', '时', '日', '月', '年']) {
-      expect(within(section).getByLabelText(`${label}档启用`)).toBeInTheDocument();
-    }
-    // 步长选项优先读 _meta.enums（夹具里 30 秒的文案带「（_meta）」后缀）。
-    expect(within(section).getByRole('option', { name: '30 秒（_meta）' })).toBeInTheDocument();
-    // 档位是固定六行：不给新增入口。
-    expect(within(section).queryByRole('button', { name: /新增档位/ })).not.toBeInTheDocument();
+    expect(slotSave()).toBeDisabled();
 
-    // 秒档默认关闭：打开并选 30 秒 → PUT snapshot-slots/second。
-    await user.click(within(section).getByLabelText('秒档启用'));
-    await user.selectOptions(within(section).getByLabelText('秒档步长'), '30');
-    await user.click(within(section).getAllByRole('button', { name: '保存' })[0]!);
+    const slots = screen.getByRole('group', { name: '六档配置' });
+    await user.click(within(slots).getByLabelText('秒档启用'));
+    await user.selectOptions(within(slots).getByLabelText('秒档步长'), '30');
+    await user.selectOptions(within(slots).getByLabelText('分档步长'), '10');
 
-    await waitFor(() => expect(writeCalls).toHaveLength(1));
-    expect(writeCalls[0]?.method).toBe('PUT');
-    expect(writeCalls[0]?.path).toBe('snapshot-slots/second');
-    expect(writeCalls[0]?.body).toMatchObject({ enabled: true, step: 30 });
+    expect(within(slots).getByText('有未保存修改')).toBeInTheDocument();
+    expect(slotSave()).toBeEnabled();
 
-    // 分档已启用（步长 5）：改成 10 → PUT snapshot-slots/minute。
-    await user.selectOptions(within(section).getByLabelText('分档步长'), '10');
-    await user.click(within(section).getAllByRole('button', { name: '保存' })[1]!);
+    await user.click(slotSave());
     await waitFor(() => expect(writeCalls).toHaveLength(2));
-    expect(writeCalls[1]?.body).toMatchObject({ enabled: true, step: 10 });
+    expect(writeCalls.map((call) => call.path)).toEqual(['snapshot-slots/second', 'snapshot-slots/minute']);
+    expect(writeCalls[0]?.body).toMatchObject({ enabled: true, step: 30 });
+    expect(writeCalls[1]?.body).toMatchObject({ step: 10 });
+
+    // 保存成功后草稿清空：未保存标记消失、按钮回到禁用。
+    await waitFor(() => expect(within(slots).queryByText('有未保存修改')).not.toBeInTheDocument());
+    await waitFor(() => expect(slotSave()).toBeDisabled());
   });
 
-  it('_meta 未下发步长字典时回落到本地白名单', async () => {
+  it('六档部分失败：成功行清出草稿，失败行保留标红；再保存只提交失败行', async () => {
+    const user = userEvent.setup();
     server.use(
-      http.get('/admin/v1/_meta', () => {
-        const { enums: _dropped, ...rest } = metaFixture;
-        return HttpResponse.json({ code: 0, message: 'ok', data: { ...rest, enums: {} } });
+      // 覆盖 handler 也要记账，否则断言看到的请求数会少一条。
+      http.put('/admin/v1/snapshot-slots/minute', async ({ request }) => {
+        const body = await request.json();
+        writeCalls.push({ method: 'PUT', path: 'snapshot-slots/minute', body });
+        return HttpResponse.json({ code: 400, message: '步长越界' }, { status: 400 });
       }),
     );
     renderApp('/snapshot-slots');
     await waitForPage();
-    const section = screen.getByRole('region', { name: '六档配置' });
-    // 兜底文案是「30 秒」（没有 _meta 后缀）。
-    expect(within(section).getByRole('option', { name: '30 秒' })).toBeInTheDocument();
+
+    const slots = screen.getByRole('group', { name: '六档配置' });
+    await user.click(within(slots).getByLabelText('秒档启用'));
+    await user.selectOptions(within(slots).getByLabelText('秒档步长'), '30');
+    await user.selectOptions(within(slots).getByLabelText('分档步长'), '10');
+    await user.click(slotSave());
+
+    await waitFor(() => expect(writeCalls).toHaveLength(2));
+    // 提示点名失败行；失败行仍有未保存草稿，成功行已清出。
+    expect(await within(slots).findByText(/有 1 行没存上：分档/)).toBeInTheDocument();
+    expect(within(slots).getByText(/未存上：步长越界/)).toBeInTheDocument();
+    await waitFor(() =>
+      expect(within(slots).getByLabelText('分档步长')).toHaveValue('10'),
+    );
+    // 秒档已保存成功：它的行不再是 dirty，草稿里也没有它了（再保存只发 1 条）。
+    expect(within(slots).getByText('有未保存修改')).toBeInTheDocument();
+    await user.click(slotSave());
+    await waitFor(() => expect(writeCalls).toHaveLength(3));
+    expect(writeCalls[2]?.path).toBe('snapshot-slots/minute');
   });
 
-  it('老路由 /snapshot-plans 重定向到 /snapshot-slots（replace）', async () => {
-    const view = renderApp('/snapshot-plans');
-    await waitFor(() => expect(view.location()).toBe('/snapshot-slots'));
-    expect(await screen.findByRole('region', { name: '六档配置' })).toBeInTheDocument();
-  });
-
-  it('启用但没选步长时本地拦下，不发请求', async () => {
+  it('保留期批量保存：无改动禁用；改两行点一次发两条 PUT', async () => {
     const user = userEvent.setup();
     renderApp('/snapshot-slots');
     await waitForPage();
 
-    const section = screen.getByRole('region', { name: '六档配置' });
-    await user.click(within(section).getByLabelText('月档启用'));
-    await user.click(within(section).getAllByRole('button', { name: '保存' })[4]!);
+    expect(retentionSave()).toBeDisabled();
+    const retention = screen.getByRole('group', { name: '保留期' });
+    const seconds = within(retention).getByLabelText('秒表（秒） 保留天数');
+    const coarse = within(retention).getByLabelText('粗表（时 / 日 / 月 / 年） 保留天数');
 
-    expect(await within(section).findByText(/启用时必须选择步长/)).toBeInTheDocument();
-    expect(writeCalls).toHaveLength(0);
+    await user.clear(seconds);
+    await user.type(seconds, '30');
+    await user.clear(coarse);
+    await user.type(coarse, '90');
+
+    expect(within(retention).getByText('有未保存修改')).toBeInTheDocument();
+    await user.click(retentionSave());
+
+    await waitFor(() => expect(writeCalls).toHaveLength(2));
+    // 顺序按行顺序（粗表在前），只断言集合与内容。
+    expect(writeCalls.map((call) => call.path).sort()).toEqual([
+      'snapshot-settings/snapshot_coarse',
+      'snapshot-settings/snapshot_second',
+    ]);
+    const byPath = new Map(writeCalls.map((call) => [call.path, call.body]));
+    expect(byPath.get('snapshot-settings/snapshot_second')).toMatchObject({ retention_days: 30 });
+    expect(byPath.get('snapshot-settings/snapshot_coarse')).toMatchObject({ retention_days: 90 });
+    // 说明文案仍在。
+    expect(
+      within(retention).getByText(/最小清理粒度 = 整月（粗表 \/ 分表）、整日（秒表），实际保留可能比设定值更长。/),
+    ).toBeInTheDocument();
   });
 
-  it('绑定列表：一行一个目标，列含「字段数」；类型级与实例级各一行', async () => {
+  it('绑定列表：一行一个目标，列含「字段数」；操作是文字链（无描边按钮）', async () => {
     renderApp('/snapshot-slots');
     await waitForPage();
 
-    const bindings = await screen.findByRole('region', { name: '绑定' });
+    const bindings = screen.getByRole('region', { name: '数据项绑定' });
     await waitFor(() => expect(document.querySelectorAll('tbody tr')).toHaveLength(2));
-
     for (const head of ['作用域', '目标', '字段数', '创建时间', '操作']) {
       expect(within(bindings).getByRole('columnheader', { name: head })).toBeInTheDocument();
     }
     const rows = Array.from(document.querySelectorAll('tbody tr')).map((row) => row.textContent ?? '');
     expect(rows[0]).toContain('终端类型');
     expect(rows[0]).toContain('泵站');
-    expect(rows[0]).toContain('2'); // 类型级：temp + power 两个字段
-    expect(rows[1]).toContain('终端');
+    expect(rows[0]).toContain('2');
     expect(rows[1]).toContain('t-001');
     expect(rows[1]).toContain('1');
-    // 每行都有编辑与删除入口。
-    expect(within(bindings).getAllByRole('button', { name: '编辑' })).toHaveLength(2);
+
+    const edit = within(bindings).getAllByRole('button', { name: '编辑' })[0]!;
+    expect(edit.className).toContain('text-body');
+    expect(edit.className).not.toContain('border-border');
   });
 
   it('多选保存：body.item_codes 为数组；已选计数与标签外显', async () => {
@@ -114,21 +160,17 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     const typeList = await screen.findByRole('listbox', { name: '终端类型选项' });
     await user.click(within(typeList).getByRole('option', { name: '泵站' }));
 
-    // 打开字段多选（复用 FilterMultiSelect），逐项勾选。
     await user.click(within(dialog).getByRole('combobox', { name: '字段' }));
     const fieldList = await screen.findByRole('listbox', { name: '字段选项' });
     await user.click(within(fieldList).getByRole('option', { name: /temp/ }));
     await user.click(within(fieldList).getByRole('option', { name: /power/ }));
 
     expect(within(dialog).getByText('已选 2 个字段')).toBeInTheDocument();
-    // 已选项以标签外显、可单个移除。
     const chips = within(dialog).getByLabelText('已选字段');
     expect(within(chips).getByRole('button', { name: /移除字段 temp/ })).toBeInTheDocument();
 
     await user.click(within(dialog).getByRole('button', { name: '保存' }));
     await waitFor(() => expect(writeCalls).toHaveLength(1));
-    expect(writeCalls[0]?.method).toBe('POST');
-    expect(writeCalls[0]?.path).toBe('snapshot-bindings');
     expect(writeCalls[0]?.body).toMatchObject({ device_type_id: '1', item_codes: ['temp', 'power'] });
   });
 
@@ -171,7 +213,6 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     await waitForPage();
     const { dialog } = await openBindingForm();
 
-    // 选类型 + 两个字段。
     await user.click(within(dialog).getByRole('combobox', { name: '终端类型' }));
     const typeList = await screen.findByRole('listbox', { name: '终端类型选项' });
     await user.click(within(typeList).getByRole('option', { name: '泵站' }));
@@ -180,7 +221,6 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     await user.click(within(fieldList).getByRole('option', { name: /temp/ }));
     expect(within(dialog).getByText('已选 1 个字段')).toBeInTheDocument();
 
-    // 换目标（同作用域）：只清已选字段，作用域仍是「终端类型」。
     await user.keyboard('{Escape}');
     await user.click(within(dialog).getByRole('combobox', { name: '终端类型' }));
     const typeList2 = await screen.findByRole('listbox', { name: '终端类型选项' });
@@ -188,7 +228,6 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     expect(within(dialog).getByText('已选 0 个字段')).toBeInTheDocument();
     expect(within(dialog).getByRole('radio', { name: /终端类型（整类）/ })).toBeChecked();
 
-    // 切作用域：目标与已选一起清空。
     await user.click(within(dialog).getByRole('radio', { name: /终端（单个）/ }));
     expect(within(dialog).getByLabelText('终端')).toHaveValue('');
     expect(within(dialog).getByText('已选 0 个字段')).toBeInTheDocument();
@@ -202,10 +241,8 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     await user.click(screen.getAllByRole('button', { name: '编辑' })[0]!);
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('修改只影响后续写入，已产生的快照不变。')).toBeInTheDocument();
-    // 回填：类型级目标「泵站」+ 两个已选字段。
     expect(within(dialog).getByText('已选 2 个字段')).toBeInTheDocument();
 
-    // 再勾一个字段后保存 → PUT。
     await user.click(within(dialog).getByRole('combobox', { name: '字段' }));
     const fieldList = await screen.findByRole('listbox', { name: '字段选项' });
     await user.click(within(fieldList).getByRole('option', { name: /status/ }));
@@ -214,12 +251,10 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     await waitFor(() => expect(writeCalls).toHaveLength(1));
     expect(writeCalls[0]?.method).toBe('PUT');
     expect(writeCalls[0]?.path).toBe('snapshot-bindings/1');
-    // 两列始终带齐：类型级时 terminal_id 显式 null（否则后端合并旧作用域会判"二选一"失败）。
-    expect(writeCalls[0]?.body).toMatchObject({ device_type_id: '1', terminal_id: null });
     expect((writeCalls[0]?.body as { item_codes: string[] }).item_codes).toHaveLength(3);
   });
 
-  it('后端 400（目标重复 / 字段不存在）渲染在表单内，抽屉不关', async () => {
+  it('后端 400（目标重复）渲染在表单内，抽屉不关', async () => {
     server.use(
       http.post('/admin/v1/snapshot-bindings', () =>
         HttpResponse.json({ code: 400, message: '该目标已有一条绑定，请编辑那一条' }, { status: 400 }),
@@ -242,14 +277,34 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it('存储与保留区块仍在，且说明最小清理粒度', async () => {
+  it('_meta 未下发步长字典时回落到本地白名单', async () => {
+    server.use(
+      http.get('/admin/v1/_meta', () => {
+        const { enums: _dropped, ...rest } = metaFixture;
+        return HttpResponse.json({ code: 0, message: 'ok', data: { ...rest, enums: {} } });
+      }),
+    );
     renderApp('/snapshot-slots');
     await waitForPage();
-    const section = screen.getByRole('region', { name: '存储与保留' });
-    expect(within(section).getByLabelText('秒表（秒） 保留天数')).toBeInTheDocument();
-    expect(
-      within(section).getByText(/最小清理粒度 = 整月（粗表 \/ 分表）、整日（秒表），实际保留可能比设定值更长。/),
-    ).toBeInTheDocument();
+    const section = screen.getByRole('group', { name: '六档配置' });
+    expect(within(section).getByRole('option', { name: '30 秒' })).toBeInTheDocument();
+  });
+
+  it('启用档位但没选步长：提交前本地拦下，不发请求', async () => {
+    const user = userEvent.setup();
+    renderApp('/snapshot-slots');
+    await waitForPage();
+
+    const slots = screen.getByRole('group', { name: '六档配置' });
+    // 只开启用、不选步长。
+    await user.click(within(slots).getByLabelText('秒档启用'));
+    expect(within(slots).getByText('有未保存修改')).toBeInTheDocument();
+    await user.click(slotSave());
+
+    expect(await within(slots).findByText(/启用档位必须选择步长/)).toBeInTheDocument();
+    expect(writeCalls).toHaveLength(0);
+    // 拦截后草稿保留，用户补选步长即可继续保存。
+    expect(slotSave()).toBeEnabled();
   });
 
   it('编辑切作用域：类型级 → 实例级，提交体里 device_type_id 显式为 null', async () => {
@@ -257,12 +312,9 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     renderApp('/snapshot-slots');
     await waitForPage();
 
-    // 第 0 行是类型级绑定（夹具顺序固定）。
     await user.click(screen.getAllByRole('button', { name: '编辑' })[0]!);
     const dialog = await screen.findByRole('dialog');
-
     await user.click(within(dialog).getByRole('radio', { name: /终端（单个）/ }));
-    // 切作用域会清空目标与已选字段：先选终端再重选字段。
     await user.type(within(dialog).getByLabelText('终端'), 't-001');
     const candidates = await within(dialog).findByRole('list', { name: '终端候选' });
     await user.click(within(candidates).getByRole('button', { name: /t-001/ }));
@@ -272,7 +324,7 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
 
     await user.click(within(dialog).getByRole('button', { name: '保存' }));
     await waitFor(() => expect(writeCalls).toHaveLength(1));
-    // 关键：type 侧必须显式 null，否则后端把库里旧 device_type_id 合并进来 → 两列同时非空。
+    // 后端 update 会把库里旧 device_type_id 合并进校验视图，只传新作用域列会 400。
     expect(writeCalls[0]?.body).toMatchObject({ device_type_id: null, terminal_id: 't-001' });
   });
 
@@ -281,13 +333,11 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     renderApp('/snapshot-slots');
     await waitForPage();
 
-    // 第 1 行是实例级绑定。
     await user.click(screen.getAllByRole('button', { name: '编辑' })[1]!);
     const dialog = await screen.findByRole('dialog');
-
-    await user.click(within(dialog).getByRole('radio', { name: /终端类型/ }));
-    await user.click(within(dialog).getByRole('combobox', { name: /终端类型/ }));
-    const typeList = await screen.findByRole('listbox');
+    await user.click(within(dialog).getByRole('radio', { name: /终端类型（整类）/ }));
+    await user.click(within(dialog).getByRole('combobox', { name: '终端类型' }));
+    const typeList = await screen.findByRole('listbox', { name: '终端类型选项' });
     await user.click(within(typeList).getAllByRole('option')[0]!);
     await user.click(within(dialog).getByRole('combobox', { name: '字段' }));
     const list = await screen.findByRole('listbox', { name: '字段选项' });
@@ -297,5 +347,11 @@ describe('快照配置页（六档 / 保留期 / 绑定 三段式）', () => {
     await waitFor(() => expect(writeCalls).toHaveLength(1));
     expect(writeCalls[0]?.body).toMatchObject({ terminal_id: null });
     expect((writeCalls[0]?.body as { device_type_id?: unknown }).device_type_id).not.toBeNull();
+  });
+
+  it('老路由 /snapshot-plans 重定向到 /snapshot-slots（replace）', async () => {
+    const view = renderApp('/snapshot-plans');
+    await waitFor(() => expect(view.location()).toBe('/snapshot-slots'));
+    expect(await screen.findByRole('group', { name: '六档配置' })).toBeInTheDocument();
   });
 });

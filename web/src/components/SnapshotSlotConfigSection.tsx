@@ -1,25 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ApiError, fetchList, updateRow } from '../api/client';
 import { useMeta } from '../api/meta';
 import type { RowData } from '../api/types';
+import { Subsection } from './Section';
 
 const SLOTS_ENTITY = 'snapshot-slots';
 
-/** 六档固定顺序（与迁移 0013 的 granularity 取值一致）。 */
+/** 六档固定顺序（与迁移 0013/0014 的 granularity 取值一致）。 */
 const ORDER: readonly string[] = ['second', 'minute', 'hour', 'day', 'month', 'year'];
 const LABELS: Record<string, string> = {
   second: '秒', minute: '分', hour: '时', day: '日', month: '月', year: '年',
 };
 
-/**
- * 六档步长白名单：与迁移 0013 的 CHECK 同源。
- * 档位是「六行固定」，所以这里是常量而不是可增删列表；后端 POST/DELETE 会被 400。
- */
-/**
- * 兜底步长白名单（`_meta.enums` 未下发时使用）。正常路径以 `_meta.enums.<档>_step` 为准：
- * 这样改 0013 的 CHECK 时只改后端，不用同步前端常量。
- */
+/** 兜底步长白名单（`_meta.enums` 未下发时使用）；正常路径以 `_meta.enums.<档>_step` 为准。 */
 const FALLBACK_STEP_OPTIONS: Record<string, number[]> = {
   second: [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30],
   minute: [1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30],
@@ -34,25 +28,42 @@ interface Draft {
   step: string;
 }
 
-function errorText(error: unknown): string | null {
-  if (!error) return null;
+interface Change {
+  granularity: string;
+  enabled: boolean;
+  step: number | null;
+}
+
+function errorText(error: unknown): string {
   if (error instanceof ApiError) return error.detail;
   return String(error);
 }
 
+/** 一次批量保存的部分失败：成功的行已清出草稿，失败的行保留并标红。 */
+class PartialSaveError extends Error {
+  constructor(
+    readonly saved: string[],
+    readonly failed: Array<{ granularity: string; detail: string }>,
+  ) {
+    super('partial_save');
+  }
+}
+
 /**
- * 全局六档配置：六行固定，每行「启用 + 步长」，保存后全站生效。
- * 不提供新增/删除档位的入口（档位是固定枚举，不是可增长的行集）。
+ * 六档配置：六行固定，本地草稿聚合，**一个「保存」批量提交本块全部改动**（逐行串行 PUT）。
+ * - dirty 时标题旁显示「有未保存修改」，保存按钮才可用；
+ * - 部分失败：成功的行清出草稿，失败的行保留并标红，提示里点名哪几行没存上。
  */
 export function SnapshotSlotConfigSection() {
   const meta = useMeta();
-  // 六档配置现在是导航实体（snapshot-slots），也兼容以子资源下发的形态。
+  const queryClient = useQueryClient();
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [failed, setFailed] = useState<Record<string, string>>({});
+  const [notice, setNotice] = useState<string | null>(null);
+
   const entity =
     meta.data?.entities.find((item) => item.name === SLOTS_ENTITY) ??
     meta.data?.subresources?.find((item) => item.name === SLOTS_ENTITY);
-  const queryClient = useQueryClient();
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
-  const [error, setError] = useState<string | null>(null);
 
   const list = useQuery({
     queryKey: ['list', SLOTS_ENTITY, 'all'],
@@ -60,16 +71,90 @@ export function SnapshotSlotConfigSection() {
     enabled: Boolean(entity),
   });
 
+  const rows = useMemo(() => {
+    const source = list.data?.rows ?? [];
+    return [...source].sort((a, b) => ORDER.indexOf(String(a.granularity)) - ORDER.indexOf(String(b.granularity)));
+  }, [list.data]);
+
+  /** 已加载行 → 基线（用于判断 dirty）。 */
+  const baselineOf = (row: RowData): Draft => ({
+    enabled: String(row.enabled) === 'true',
+    step: row.step === null || row.step === undefined ? '' : String(row.step),
+  });
+  const draftOf = (row: RowData): Draft => drafts[String(row.granularity)] ?? baselineOf(row);
+
+  // 数据刷新后清掉与基线一致的草稿，避免「保存过了还显示未保存」。
+  useEffect(() => {
+    if (!list.data) return;
+    setDrafts((prev) => {
+      const next: Record<string, Draft> = {};
+      for (const [key, draft] of Object.entries(prev)) {
+        const row = (list.data?.rows ?? []).find((item) => String(item.granularity) === key);
+        if (!row) continue;
+        const base = baselineOf(row);
+        if (base.enabled !== draft.enabled || base.step !== draft.step) next[key] = draft;
+      }
+      return next;
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [list.data]);
+
+  const dirtyRows = rows.filter((row) => {
+    const base = baselineOf(row);
+    const draft = draftOf(row);
+    return base.enabled !== draft.enabled || base.step !== draft.step;
+  });
+
   const save = useMutation({
-    mutationFn: (input: { granularity: string; enabled: boolean; step: number | null }) =>
-      updateRow(SLOTS_ENTITY, input.granularity, { enabled: input.enabled, step: input.step }),
-    onSuccess: () => {
-      setError(null);
+    mutationFn: async (changes: Change[]) => {
+      const saved: string[] = [];
+      const failures: Array<{ granularity: string; detail: string }> = [];
+      for (const change of changes) {
+        try {
+          await updateRow(SLOTS_ENTITY, change.granularity, {
+            enabled: change.enabled,
+            step: change.step,
+          });
+          saved.push(change.granularity);
+        } catch (error) {
+          failures.push({ granularity: change.granularity, detail: errorText(error) });
+        }
+      }
+      if (failures.length > 0) throw new PartialSaveError(saved, failures);
+      return saved;
+    },
+    onSuccess: (saved) => {
+      setDrafts((prev) => {
+        const next = { ...prev };
+        for (const key of saved) delete next[key];
+        return next;
+      });
+      setFailed({});
+      setNotice('已保存六档配置。');
       void queryClient.invalidateQueries({ queryKey: ['list', SLOTS_ENTITY] });
+    },
+    onError: (error) => {
+      if (error instanceof PartialSaveError) {
+        setDrafts((prev) => {
+          const next = { ...prev };
+          for (const key of error.saved) delete next[key];
+          return next;
+        });
+        const marks: Record<string, string> = {};
+        for (const item of error.failed) marks[item.granularity] = item.detail;
+        setFailed(marks);
+        setNotice(
+          `有 ${error.failed.length} 行没存上：${error.failed
+            .map((item) => `${LABELS[item.granularity] ?? item.granularity}档`)
+            .join('、')}（其余 ${error.saved.length} 行已保存）`,
+        );
+        void queryClient.invalidateQueries({ queryKey: ['list', SLOTS_ENTITY] });
+        return;
+      }
+      setNotice(`保存失败：${errorText(error)}`);
     },
   });
 
-  /** 步长选项：优先用 _meta.enums[`<granularity>_step`]，缺失时回落到本地常量。 */
   const stepOptionsOf = (granularity: string): Array<{ value: string; label: string }> => {
     const dict = meta.data?.enums?.[`${granularity}_step`];
     if (dict && Object.keys(dict).length > 0) {
@@ -83,42 +168,60 @@ export function SnapshotSlotConfigSection() {
     }));
   };
 
-  const rows = useMemo(() => {
-    const list1 = list.data?.rows ?? [];
-    return [...list1].sort((a, b) => ORDER.indexOf(String(a.granularity)) - ORDER.indexOf(String(b.granularity)));
-  }, [list.data]);
-
-  const draftOf = (row: RowData): Draft => {
+  const updateDraft = (row: RowData, patch: Partial<Draft>) => {
     const key = String(row.granularity);
-    if (drafts[key]) return drafts[key]!;
-    return {
-      enabled: String(row.enabled) === 'true',
-      step: row.step === null || row.step === undefined ? '' : String(row.step),
-    };
+    setDrafts((prev) => ({ ...prev, [key]: { ...(prev[key] ?? baselineOf(row)), ...patch } }));
+    setNotice(null);
   };
 
-  const submit = (row: RowData) => {
-    const granularity = String(row.granularity);
-    const draft = draftOf(row);
-    if (!ORDER.includes(granularity)) return;
-    if (draft.enabled && draft.step === '') {
-      setError(`${LABELS[granularity]}档启用时必须选择步长`);
+  const submit = () => {
+    const changes: Change[] = dirtyRows
+      .map((row) => {
+        const draft = draftOf(row);
+        return {
+          granularity: String(row.granularity),
+          enabled: draft.enabled,
+          step: draft.enabled && draft.step !== '' ? Number(draft.step) : null,
+        };
+      })
+      .filter((change) => !(change.enabled && change.step === null));
+    if (changes.length !== dirtyRows.length) {
+      setNotice('启用档位必须选择步长：请先补全再保存。');
       return;
     }
-    setError(null);
-    save.mutate({ granularity, enabled: draft.enabled, step: draft.enabled ? Number(draft.step) : null });
+    save.mutate(changes);
   };
 
-  return (
-    <section className="mb-4 rounded-md border border-border bg-surface p-4" aria-label="六档配置">
-      <h2 className="m-0 text-lg">六档配置</h2>
-      <p className="mb-3 mt-1 text-meta text-muted">
-        六行固定（秒 / 分 / 时 / 日 / 月 / 年），保存后全站生效；档位不可增删，不用的档位把「启用」关掉即可。
-      </p>
+  const dirty = dirtyRows.length > 0;
+  const failedKeys = new Set(Object.keys(failed));
 
+  return (
+    <Subsection
+      title="六档配置"
+      description="六行固定，保存后全站生效（不用的档位关掉即可）"
+      tone={failedKeys.size > 0 ? 'warning' : 'default'}
+      actions={
+        <>
+          {dirty && (
+            <span className="text-meta text-warning" role="status">
+              有未保存修改
+            </span>
+          )}
+          <button
+            type="button"
+            className="btn h-8"
+            onClick={submit}
+            disabled={!dirty || save.isPending}
+            aria-busy={save.isPending}
+          >
+            保存
+          </button>
+        </>
+      }
+    >
       {list.isError ? (
         <p className="m-0 text-negative-text" role="alert">
-          六档配置加载失败：{errorText(list.error) ?? '未知错误'}
+          六档配置加载失败：{errorText(list.error)}
           <button type="button" className="btn btn-link" onClick={() => void list.refetch()}>
             重试
           </button>
@@ -130,18 +233,20 @@ export function SnapshotSlotConfigSection() {
           {rows.map((row) => {
             const granularity = String(row.granularity);
             const draft = draftOf(row);
-            const busy = save.isPending && save.variables?.granularity === granularity;
+            const hasFailed = failedKeys.has(granularity);
             return (
-              <div key={granularity} className="flex flex-wrap items-center gap-3">
+              <div
+                key={granularity}
+                className={hasFailed ? 'flex flex-wrap items-center gap-3 rounded-sm px-1 text-negative-text' : 'flex flex-wrap items-center gap-3 px-1'}
+                data-dirty={String(dirtyRows.some((item) => String(item.granularity) === granularity))}
+              >
                 <span className="w-16 text-body">{LABELS[granularity] ?? granularity}</span>
                 <label className="inline-flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
                     aria-label={`${LABELS[granularity]}档启用`}
                     checked={draft.enabled}
-                    onChange={(event) =>
-                      setDrafts((prev) => ({ ...prev, [granularity]: { ...draft, enabled: event.target.checked } }))
-                    }
+                    onChange={(event) => updateDraft(row, { enabled: event.target.checked })}
                   />
                   启用
                 </label>
@@ -150,9 +255,7 @@ export function SnapshotSlotConfigSection() {
                   aria-label={`${LABELS[granularity]}档步长`}
                   value={draft.step}
                   disabled={!draft.enabled}
-                  onChange={(event) =>
-                    setDrafts((prev) => ({ ...prev, [granularity]: { ...draft, step: event.target.value } }))
-                  }
+                  onChange={(event) => updateDraft(row, { step: event.target.value })}
                 >
                   <option value="">选择步长</option>
                   {stepOptionsOf(granularity).map((option) => (
@@ -161,31 +264,22 @@ export function SnapshotSlotConfigSection() {
                     </option>
                   ))}
                 </select>
-                <button
-                  type="button"
-                  className="btn h-8"
-                  onClick={() => submit(row)}
-                  disabled={busy}
-                  aria-busy={busy}
-                >
-                  保存
-                </button>
+                {hasFailed && (
+                  <span className="text-meta text-negative-text" role="alert">
+                    未存上：{failed[granularity]}
+                  </span>
+                )}
               </div>
             );
           })}
         </div>
       )}
 
-      {error && (
-        <p className="mt-2 text-negative-text" role="alert">
-          {error}
+      {notice && (
+        <p className="mt-2 text-meta" role="status">
+          {notice}
         </p>
       )}
-      {save.isError && (
-        <p className="mt-2 text-negative-text" role="alert">
-          保存失败：{errorText(save.error)}
-        </p>
-      )}
-    </section>
+    </Subsection>
   );
 }
