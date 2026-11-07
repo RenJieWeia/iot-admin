@@ -41,6 +41,17 @@ describe('快照配置页（存储策略 / 数据项绑定 两段式）', () => 
     expect(screen.queryByRole('button', { name: /新增档位/ })).not.toBeInTheDocument();
   });
 
+  /** Radix Select 不是原生 select：必须点开触发符再点选项（selectOptions 不适用）。 */
+  const pickStep = async (
+    user: ReturnType<typeof userEvent.setup>,
+    scope: HTMLElement,
+    triggerName: string,
+    optionName: string | RegExp,
+  ) => {
+    await user.click(within(scope).getByRole('combobox', { name: triggerName }));
+    await user.click(await screen.findByRole('option', { name: optionName }));
+  };
+
   it('六档批量保存：无改动时禁用；改两行后点一次发出两条 PUT，成功后恢复禁用', async () => {
     const user = userEvent.setup();
     renderApp('/snapshot-slots');
@@ -50,8 +61,8 @@ describe('快照配置页（存储策略 / 数据项绑定 两段式）', () => 
 
     const slots = screen.getByRole('group', { name: '六档配置' });
     await user.click(within(slots).getByLabelText('秒档启用'));
-    await user.selectOptions(within(slots).getByLabelText('秒档步长'), '30');
-    await user.selectOptions(within(slots).getByLabelText('分档步长'), '10');
+    await pickStep(user, slots, '秒档步长', /30 秒/);
+    await pickStep(user, slots, '分档步长', /10 分/);
 
     expect(within(slots).getByText('有未保存修改')).toBeInTheDocument();
     expect(slotSave()).toBeEnabled();
@@ -82,8 +93,8 @@ describe('快照配置页（存储策略 / 数据项绑定 两段式）', () => 
 
     const slots = screen.getByRole('group', { name: '六档配置' });
     await user.click(within(slots).getByLabelText('秒档启用'));
-    await user.selectOptions(within(slots).getByLabelText('秒档步长'), '30');
-    await user.selectOptions(within(slots).getByLabelText('分档步长'), '10');
+    await pickStep(user, slots, '秒档步长', /30 秒/);
+    await pickStep(user, slots, '分档步长', /10 分/);
     await user.click(slotSave());
 
     await waitFor(() => expect(writeCalls).toHaveLength(2));
@@ -91,7 +102,8 @@ describe('快照配置页（存储策略 / 数据项绑定 两段式）', () => 
     expect(await within(slots).findByText(/有 1 行没存上：分档/)).toBeInTheDocument();
     expect(within(slots).getByText(/未存上：步长越界/)).toBeInTheDocument();
     await waitFor(() =>
-      expect(within(slots).getByLabelText('分档步长')).toHaveValue('10'),
+      // 触发器没有 .value：断言它显示的当前项文案（与旧原生 select 显示的「10 分」一致）。
+      expect(within(slots).getByRole('combobox', { name: '分档步长' })).toHaveTextContent(/10 分/),
     );
     // 秒档已保存成功：它的行不再是 dirty，草稿里也没有它了（再保存只发 1 条）。
     expect(within(slots).getByText('有未保存修改')).toBeInTheDocument();
@@ -291,7 +303,13 @@ describe('快照配置页（存储策略 / 数据项绑定 两段式）', () => 
     renderApp('/snapshot-slots');
     await waitForPage();
     const section = screen.getByRole('group', { name: '六档配置' });
-    expect(within(section).getByRole('option', { name: '30 秒' })).toBeInTheDocument();
+    // Radix Select 的选项只在展开后挂载，且该行默认禁用（enabled=false）：
+    // 先启用这一档，再展开断言「字典缺失时回落到本地白名单」仍然生效（语义不变）。
+    const user = userEvent.setup();
+    await user.click(within(section).getByLabelText('秒档启用'));
+    await user.click(within(section).getByRole('combobox', { name: '秒档步长' }));
+    expect(await screen.findByRole('option', { name: '30 秒' })).toBeInTheDocument();
+    await user.keyboard('{Escape}');
   });
 
   it('启用档位但没选步长：提交前本地拦下，不发请求', async () => {

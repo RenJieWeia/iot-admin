@@ -3,8 +3,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { ApiError, fetchList, updateRow } from '../api/client';
 import { useMeta } from '../api/meta';
 import type { RowData } from '../api/types';
+import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '../lib/radixSelect';
 import { Card, CardHeader } from './Card';
-import { Button } from '@radix-ui/themes';
+import { Button, Select } from '@radix-ui/themes';
 
 const SLOTS_ENTITY = 'snapshot-slots';
 
@@ -245,21 +246,24 @@ export function SnapshotSlotConfigSection() {
                   />
                   启用
                 </label>
-                {/* TODO(1107020): 原生 select 留到下一轮换 Radix Select（portal + 自定义键鼠，需连带改用例） */}
-                <select
-                  className="select"
-                  aria-label={`${LABELS[granularity]}档步长`}
-                  value={draft.step}
+                {/* 该行没有 label 标签：可访问名走 aria-label（Radix Select 的 Trigger 上）。
+                    「选择步长」= 空值，用哨兵承载（Select.Item 不接受 value=""）。 */}
+                <Select.Root
+                  size="3"
+                  value={toSelectValue(draft.step)}
+                  onValueChange={(value) => updateDraft(row, { step: fromSelectValue(value) })}
                   disabled={!draft.enabled}
-                  onChange={(event) => updateDraft(row, { step: event.target.value })}
                 >
-                  <option value="">选择步长</option>
-                  {stepOptionsOf(granularity).map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
+                  <Select.Trigger aria-label={`${LABELS[granularity]}档步长`} placeholder="选择步长" />
+                  <Select.Content position="popper" sideOffset={4}>
+                    <Select.Item value={EMPTY_SELECT_VALUE}>选择步长</Select.Item>
+                    {stepOptionsOf(granularity).map((option) => (
+                      <Select.Item key={option.value} value={option.value}>
+                        {option.label}
+                      </Select.Item>
+                    ))}
+                  </Select.Content>
+                </Select.Root>
                 {hasFailed && (
                   <span className="text-sm text-negative-text" role="alert">
                     未存上：{failed[granularity]}
