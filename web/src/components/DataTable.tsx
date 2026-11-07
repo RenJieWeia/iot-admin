@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import type { CSSProperties } from 'react';
 import {
   flexRender,
   getCoreRowModel,
@@ -11,22 +12,47 @@ import { cn } from '../lib/cn';
 import { scrollEdges } from '../lib/scrollEdges';
 import { formatCell } from '../lib/format';
 import * as Tooltip from '@radix-ui/react-tooltip';
+import { Table } from '@radix-ui/themes';
 import { SkeletonCell } from './Skeleton';
 import {
   ACTION_DANGER,
   ACTION_LINK,
   TABLE_WRAPPER,
-  TD_BASE,
   TD_STICKY_LEFT,
   TD_STICKY_RIGHT,
-  TH_BASE,
   TH_STICKY_LEFT,
   TH_STICKY_RIGHT,
   TR_ROW,
+  tdCell,
+  thCell,
 } from './tableStyles';
 import { StatusTag } from './StatusTag';
 
 export type TableState = 'loading' | 'ready';
+
+/**
+ * 渲染层尺寸（P4 / A3）：**表头 40px、数据行 48px**（原来是 46.5 / 44）。
+ * 视觉口径仍取自 tableStyles 的单元格模板，只把高度作为参数传进去；
+ * 绑定列表那张自建表格继续用 44，不受影响。
+ */
+const TH_CLASS = thCell('h-10');
+const TD_CLASS = tdCell('h-12');
+
+/**
+ * Radix 单元格的 padding / 最小高度 / 行阴影都来自 `.rt-TableRoot` 上定义的 CSS 变量。
+ * 这里**不用** `Table.Root`：它内部套了一层 Radix ScrollArea（`.rt-ScrollAreaViewport`），
+ * 实测横向滚动会发生在那个 viewport 里（sw 1060 / cw 952 / scrollLeft 108），
+ * 而 `.table-shell` 的 sw==cw 永远是 0 → `data-scroll-*` 投影与 sticky 判定全部失效。
+ * 所以滚动容器仍是 `.table-shell`，只借用 Radix 的 Header/Body/Row/Cell 组件；
+ * 这三个变量在此显式归零，避免将来有人补回 Root 时出现双倍 padding 与双行线。
+ */
+const CELL_VARS: CSSProperties = {
+  ['--table-cell-padding' as string]: '0',
+  ['--table-cell-min-height' as string]: '0',
+  ['--table-row-box-shadow' as string]: 'none',
+  ['--table-row-background-color' as string]: 'transparent',
+};
+
 
 /** widthStrategy → 列宽类名：宽度集中在 tailwind.css 的 @utility，TSX 不出现 arbitrary value。 */
 const COLUMN_CLASS: Record<WidthStrategy, string> = {
@@ -276,7 +302,7 @@ export function DataTable({
             {/* table-fixed + w-full：列宽由 colgroup 决定，内容超宽时**截断并出提示**，
           而不是把表格撑宽（上一版用 w-max 按内容撑开，导致列宽推导与完整值提示全部失效——
           列宽被内容撑开、单元格永远不截断）。表格总宽小于列宽之和时，外层容器横向滚动。 */}
-      <table className="table-fixed w-full border-collapse">
+      <table className="table-fixed w-full border-collapse" style={CELL_VARS}>
         <caption className="pb-2 text-left text-sm text-muted">{caption}</caption>
         <colgroup>
           {fields.map((field) => (
@@ -289,21 +315,21 @@ export function DataTable({
           ))}
           {writable && <col className="col-actions" />}
         </colgroup>
-        <thead>
+        <Table.Header>
           {headerGroups.map((group) => (
-            <tr key={group.id}>
+            <Table.Row key={group.id}>
               {group.headers.map((header) => {
                 const field = fields.find((f) => f.key === header.id);
                 const canSort = sortable && Boolean(field?.sortable);
                 const active = field?.key === sort;
                 const ariaSort = active ? (order === 'asc' ? 'ascending' : 'descending') : 'none';
                 return (
-                  <th
+                  <Table.ColumnHeaderCell
                     key={header.id}
                     scope="col"
                     // 首列与 body 的首列一起固定，横滚时列名不会和数据错位（§5.2）。
                     className={cn(
-                      TH_BASE,
+                      TH_CLASS,
                       field?.key === fields[0]?.key && TH_STICKY_LEFT,
                       // 操作列表头与表体操作列一起吸右，否则横滚时列名跟着走、与下面的按钮错位。
                       header.column.id === '__actions' && TH_STICKY_RIGHT,
@@ -315,7 +341,7 @@ export function DataTable({
                     {canSort && field ? (
                       <button
                         type="button"
-                        className="inherit-font inline-flex min-h-11 cursor-pointer items-center gap-1 border-0 bg-transparent p-0"
+                        className="touch-hit inherit-font inline-flex min-h-10 cursor-pointer items-center gap-1 border-0 bg-transparent p-0"
                         onClick={() => onSort(field.key)}
                         aria-label={`按${field.label}排序`}
                       >
@@ -335,38 +361,38 @@ export function DataTable({
                         )}
                       </>
                     )}
-                  </th>
+                  </Table.ColumnHeaderCell>
                 );
               })}
-            </tr>
+            </Table.Row>
           ))}
-        </thead>
-        <tbody>
+        </Table.Header>
+        <Table.Body>
           {state === 'loading'
             ? Array.from({ length: skeletonCount }).map((_, rowIndex) => (
-                <tr key={`skeleton-${rowIndex}`} aria-hidden="true">
+                <Table.Row key={`skeleton-${rowIndex}`} aria-hidden="true">
                   {fields.map((field, cellIndex) => (
-                    <td
+                    <Table.Cell
                       key={field.key}
-                      className={cn(TD_BASE, cellIndex === 0 && TD_STICKY_LEFT)}
+                      className={cn(TD_CLASS, cellIndex === 0 && TD_STICKY_LEFT)}
                     >
                       <SkeletonCell short={cellIndex % 3 === 2} />
-                    </td>
+                    </Table.Cell>
                   ))}
                   {writable && (
-                    <td className={cn(TD_BASE, TD_STICKY_RIGHT)}>
+                    <Table.Cell className={cn(TD_CLASS, TD_STICKY_RIGHT)}>
                       <SkeletonCell />
-                    </td>
+                    </Table.Cell>
                   )}
-                </tr>
+                </Table.Row>
               ))
             : table.getRowModel().rows.map((row) => (
-                <tr key={String(row.original.id ?? row.id)} className={TR_ROW}>
+                <Table.Row key={String(row.original.id ?? row.id)} className={TR_ROW}>
                   {row.getVisibleCells().map((cell) => (
-                    <td
+                    <Table.Cell
                       key={cell.id}
                       className={cn(
-                        TD_BASE,
+                        TD_CLASS,
                         cell.column.id === fields[0]?.key && TD_STICKY_LEFT,
                         cell.column.id === '__actions' && TD_STICKY_RIGHT,
                         // 数字列整列右对齐（单元格内部的 span 也带 text-right，占位符不会跳基线）。
@@ -374,11 +400,11 @@ export function DataTable({
                       )}
                     >
                       {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
+                    </Table.Cell>
                   ))}
-                </tr>
+                </Table.Row>
               ))}
-        </tbody>
+        </Table.Body>
       </table>
 
       {/* 唯一的 Tooltip：锚点跟着被悬停/聚焦的单元格走（虚拟锚点，不占布局、不可聚焦、不可交互）。 */}

@@ -64,6 +64,29 @@ describe('DataTable 的骨架与固定列（§6.4 / §5.2）', () => {
     expect(document.querySelectorAll('tbody tr')).toHaveLength(10);
   });
 
+  it('渲染层尺寸：表头 h-10（40px）、数据行 h-12（48px）', () => {
+    // P4 / A3：Radix Table 的默认值不是这两个数，尺寸由 DataTable 自己的类决定，
+    // 这里把契约钉住（jsdom 没有布局，只能断类；真实像素由交付说明里的 rect 数据佐证）。
+    render(<DataTable {...baseProps} rows={allTerminals.slice(0, 3)} caption="共 3 条" />);
+    expect(document.querySelector('thead th')?.className).toContain('h-10');
+    expect(document.querySelector('tbody td')?.className).toContain('h-12');
+  });
+
+  it('骨架行与真实行的单元格尺寸类一致（骨架→数据不跳动的前提）', () => {
+    const { rerender } = render(
+      <DataTable {...baseProps} rows={allTerminals.slice(0, 3)} caption="共 3 条" />,
+    );
+    const realCellCls = document.querySelector('tbody tr td')?.className ?? '';
+    expect(realCellCls).toContain('h-12');
+
+    rerender(<DataTable {...baseProps} rows={[]} state="loading" skeletonRows={3} caption="正在加载…" />);
+    const skelRow = document.querySelector('tbody tr[aria-hidden="true"]');
+    expect(skelRow).not.toBeNull();
+    const skelCellCls = skelRow?.querySelector('td')?.className ?? '';
+    // 同一套 TD_CLASS：骨架行高与真实行完全一致，切数据时不发生高度跳动。
+    expect(skelCellCls).toBe(realCellCls);
+  });
+
   it('行内操作按钮带 touch-hit 热区类，且视觉高度仍是 h-8（不变高）', () => {
     render(
       <DataTable

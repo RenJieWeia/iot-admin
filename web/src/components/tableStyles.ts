@@ -10,6 +10,19 @@
 /** 表格容器：横向滚动 + 圆角边框（与 @utility table-shell 同源）。 */
 export const TABLE_WRAPPER = 'table-shell';
 
+/**
+ * 带高度参数的单元格类（P4 / 1107021）：渲染层要「表头 40 / 行 48」，
+ * 而绑定列表那张自建表格仍是 44。同一套视觉口径，只把高度抽成参数，
+ * 避免两处各写一份 padding/边框/对齐导致慢慢跑偏。
+ */
+export function thCell(heightClass: string): string {
+  return `${heightClass} whitespace-nowrap border-b border-border bg-surface-2 px-3 text-left text-sm font-semibold text-text`;
+}
+
+export function tdCell(heightClass: string): string {
+  return `${heightClass} overflow-hidden border-b border-border-subtle px-3 align-middle`;
+}
+
 /** 表头单元格：正文色 + 加粗一档，底色 surface-2 保持可辨。 */
 export const TH_BASE =
   'h-11 whitespace-nowrap border-b border-border bg-surface-2 px-3 text-left text-sm font-semibold text-text';
