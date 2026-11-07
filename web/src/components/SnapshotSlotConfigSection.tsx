@@ -245,6 +245,7 @@ export function SnapshotSlotConfigSection() {
                   />
                   启用
                 </label>
+                {/* TODO(1107020): 原生 select 留到下一轮换 Radix Select（portal + 自定义键鼠，需连带改用例） */}
                 <select
                   className="select"
                   aria-label={`${LABELS[granularity]}档步长`}

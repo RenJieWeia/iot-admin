@@ -169,6 +169,7 @@ export function RecordDrawer({
       );
     }
     if (field.type === 'enum') {
+      // TODO(1107020): 原生 select 留到下一轮换 Radix Select（portal + 自定义键鼠，需连带改用例）
       return (
         <select
           id={id}
