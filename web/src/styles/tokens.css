@@ -154,8 +154,6 @@
   --line-lg: var(--lh-section);
   --radius-sm: var(--radius-control);
   --radius-md: var(--radius-card);
-  --row-height: var(--row-h);
-  --control-height: var(--control-h);
   --color-positive-bg: var(--color-success-weak);
   --color-positive-text: var(--color-success);
   --color-negative-bg: var(--color-danger-weak);

@@ -36,7 +36,7 @@ interface FallbackProps {
 
 /**
  * Suspense fallback：直接复用 DataTable 的加载态，保证列数、列宽（widthStrategy）与
- * 真实表格一致、行高等于 `--row-height`（§6 布局稳定性）；不新造加载态组件。
+ * 真实表格一致、行高等于 `--row-h`（§6 布局稳定性）；不新造加载态组件。
  */
 function TableFallback({ title, group, fields, writable, sort, order, skeletonRows }: FallbackProps) {
   return (
