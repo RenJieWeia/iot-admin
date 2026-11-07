@@ -103,6 +103,26 @@ describe('终端类型详情页（task-016）', () => {
     await waitFor(() => expect(view.location()).toBe(listURL));
   });
 
+  it('面包屑父级键盘可达：Tab 聚焦 + Enter 触发返回（仍带筛选）', async () => {
+    const user = userEvent.setup();
+    const listURL = '/device-types?sort=name&order=asc&pageSize=20';
+    const view = renderApp(listURL);
+    const openButtons = await screen.findAllByRole('button', { name: '查看属性' }, { timeout: 5000 });
+    await user.click(openButtons[0]!);
+    await waitFor(() => expect(view.location()).toBe('/device-types/1'));
+    await waitForRows(4);
+
+    // 面包屑父级是真链接（不是 onClick 伪装），所以能被键盘聚焦、也能用 Enter 激活。
+    const crumb = screen.getByRole('navigation', { name: '面包屑' });
+    const parent = within(crumb).getByRole('link', { name: '终端类型' });
+    expect(parent.tagName).toBe('A');
+    parent.focus();
+    expect(document.activeElement).toBe(parent);
+
+    await user.keyboard('{Enter}');
+    await waitFor(() => expect(view.location()).toBe(listURL));
+  });
+
   it('深链直接打开详情（无 location.state）：父级回落到 /device-types', async () => {
     renderApp('/device-types/1');
     await waitForRows(4);
