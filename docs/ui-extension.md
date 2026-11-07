@@ -336,6 +336,71 @@ DOM 里的完整文本与详情页，**不为每格加 `tabIndex`**——大表�
      钉回块里再声明一次不带兜底的值（跟随 `<Theme>` 的 radius/scaling）。改令牌时两处一起改。
 6. **focus ring 双层**：外圈主色 2px + 内圈 surface 2px（`outline-offset: 2px`），深色主色下也分得清。
 
+## 5.8 Radix 迁移状态（Phase B 覆盖层）
+
+**控制层已全部落在 Radix Themes 上**（按钮 / 输入 / 下拉 / 卡片 / 表格单元格 / 删除确认）；
+覆盖层里 Themes 没有对应组件的（抽屉容器、轻提示、多选组合框）保留 `@radix-ui/react-*`
+primitives + 项目样式。下面「未迁」的每一项都写明了原因——是**库没有**或**有意保留**，不是欠账。
+
+### 5.8.1 已迁（新增 UI 照此选型）
+
+| 位置 | Themes 组件 | 说明 |
+|---|---|---|
+| 全站按钮 | `Button` | 抽屉底栏、筛选条、状态页恢复入口、弹窗按钮；主次用 `variant`（`solid` 主 / `surface` 次 / `soft` 危险）、危险动作用 `color="red"`，不再手写控件样式 |
+| 文本 / 数字输入 | `TextField.Root` | 抽屉字段、筛选搜索框；`size="3"` = 40px 控件高，错误态走 `aria-invalid` + `aria-describedby` |
+| 卡片 | `Card`（`components/Card.tsx` 包一层） | 统一打 `data-card`；内边距 / 圆角来自 Radix（20px / 12px）；warning 态只改 `--base-card-surface-box-shadow`，**不叠加第二层边框** |
+| 表格表头与单元格 | `Table.Header` / `Row` / `ColumnHeaderCell` / `Cell` | **容器仍是自研 `<table>`**：`Table.Root` 内部套了一层 ScrollArea，横向滚动会落在 `.rt-ScrollAreaViewport` 里，`.table-shell` 的 `sw == cw` 永远是 0 → `data-scroll-*` 投影与 sticky 判定全部失效（`DataTable.tsx` 顶部注释记了实测数字）。所以滚动容器、sticky 与投影保留自研，只借用单元格组件 |
+| 下拉 | `Select` | 六档步长、抽屉枚举字段；空值用哨兵（`lib/radixSelect.ts`，Radix 的 `Item` 不接受 `value=""`） |
+| 删除确认 | `AlertDialog` | 见 5.8.2 |
+| 基座 | `Theme` / `Flex` | `main.tsx` 的 `<Theme>` 固定 light + blue + slate + `radius=medium`；`Flex` 只用于弹窗按钮排 |
+
+校验命令（应只剩这四个 primitives）：`grep -rn "from '@radix-ui/react-" web/src` → `Dialog`（Drawer / 更多筛选）、`Popover`（FilterMultiSelect / RelationSelect）、`Tooltip`（表格完整值）、`Checkbox`（抽屉布尔开关）。
+
+### 5.8.2 覆盖层细节：删除确认 `ConfirmDialog`
+
+- 结构 = `AlertDialog.Root / Content / Title / Description / Action / Cancel`；`maxWidth="440px"`
+  与迁移前的 `confirm-panel` 同宽；`role="alertdialog"`、`aria-labelledby`、`aria-describedby`
+  由 Title / Description 自动关联（不再手写属性）。
+- **行为逐条与迁移前一致**（`ConfirmDialog.test.tsx` 六条用例锁定）：Esc → `onCancel`；
+  点遮罩**不关闭**（破坏性操作必须显式选一个按钮）；焦点陷阱（打开后焦点落「取消」，
+  Tab / Shift+Tab 只在「取消 / 删除」之间循环）；关闭后焦点归还触发元素；确认 / 取消回调各一次。
+- **一处刻意的差异，不是回退**：`AlertDialog.Action` 自带 Close 语义（点一下就会关闭弹窗），
+  而本项目的删除是**异步**的——请求期间弹窗要留在原地显示 busy（按钮禁用、不重复触发），
+  成功后由调用方把 `open` 置 false。所以 `ConfirmDialog` 吞掉「Action 触发的那一次」关闭请求，
+  Esc / 取消 / 遮罩三条路径不受影响。改这条逻辑前先读 `ConfirmDialog.test.tsx` 的 busy 用例。
+
+### 5.8.3 未迁（及原因）
+
+| 位置 | 现状 | 为什么 |
+|---|---|---|
+| 抽屉容器 `Drawer.tsx` | `@radix-ui/react-dialog` primitives + 右侧滑出（`.drawer-panel` + `inset-y-0 right-0`） | Themes 的 `Dialog` 只有**居中**形态，没有侧滑抽屉。换掉等于自己重写滑出动效，收益为零；`role=dialog` / `aria-modal` / 焦点陷阱 / Esc / 关闭后归还焦点仍由 primitives 提供。**容器与动效都是终局，不要再动**；内部控件已全为 Themes，无需改动 |
+| 轻提示 `Toast.tsx` | 自研（`role="status" \| "alert"` + `aria-live`） | Themes 没有 Toast 组件。现有实现已满足「成功 4 秒自动消失、失败常驻并给原因」（§15），为一个提示框引入第三方库不划算 |
+| `FilterMultiSelect.tsx` | 自研组合框（Radix `Popover` + 自研 listbox） | Themes 的 `Select` 是单选、无搜索、无「全选/反选」与标签移除，替换会丢功能 |
+| 「更多筛选」弹层 `FilterBar.tsx` | `@radix-ui/react-dialog` + 自研类（与迁移前的 ConfirmDialog 同款） | 本轮范围只到删除确认；它是覆盖层的下一处候选，见 5.8.5 第 1 项 |
+| 表格完整值提示 / 抽屉布尔开关 | `@radix-ui/react-tooltip` / `@radix-ui/react-checkbox` primitives 自绘 | 提示框要在单元格级做受控定位；布尔开关现在是「开关外观」，Themes 的 `Switch` 可替换，属外观统一 |
+| 抽屉 json 字段 | 原生 `<textarea>`（`RecordDrawer.tsx`） | 代码注释写的是「Themes 没有 TextArea」，但 **3.3.0 已导出 `TextArea`**——那条注释过时了，可随时替换（见 5.8.5 第 3 项） |
+| 绑定表单作用域单选（`SnapshotBindingForm.tsx`） | 原生 `<input type="radio">` | Themes 有 `RadioGroup`，属外观统一，不在本轮范围 |
+| 状态标签 `StatusTag.tsx` | `cva` + 五档 tone 令牌 | 五档语义是项目自己的映射（§2.1），Themes 的 `Badge` 只有色板没有这套语义，换过去反而要在外面再包一层 |
+
+### 5.8.4 自研控件样式已删除
+
+- `.btn` / `.btn-primary` / `.btn-danger` / `.btn-link` / `.input` / `.select` 六段手写控件样式
+  **已从 `web/src/styles/global.css` 删除**（`4657fa2 refactor(ui): 删除已无引用的自研控件样式`）。
+  TSX 侧更早清零：按钮 1107019、下拉 1107020。
+- 守卫：`web/src/styles/style-rules.test.ts` 仍会把颜色字面量、arbitrary value、
+  Tailwind 默认调色板与语义字号别名判红。
+- **新增 UI 一律用 Radix**：先查 Themes 有没有（按钮 / 输入 / 下拉 / 卡片 / 表格单元格 / 弹窗），
+  没有再退到 `@radix-ui/react-*` primitives 自建，**并回本节登记**——不要新写 `.btn` / `.input` / `.select` 这类类名。
+
+### 5.8.5 后续迁移顺序（要迁就从这里开始）
+
+1. `FilterBar` 的「更多筛选」弹层 → Themes `Dialog`（与 ConfirmDialog 同一套换法：`maxWidth`、
+   固定底栏按钮、`aria-describedby={undefined}`）。
+2. `SnapshotBindingForm` 作用域单选 → Themes `RadioGroup`。
+3. `RecordDrawer` 的 json 字段 → Themes `TextArea`，同时删掉那句「Themes 没有 TextArea」的过时注释。
+4. `RecordDrawer` 布尔字段 → Themes `Switch`（现在是用 Checkbox primitives 画了个开关）。
+5. `Toast` 与 `FilterMultiSelect` 保持自研；`Drawer` 容器**不迁**（没有对应组件，primitives 是终局）。
+
 ## 6. 已知行为（不是缺陷，不要"修"）
 
 | 行为 | 触发条件 | 为什么这样是对的 |
