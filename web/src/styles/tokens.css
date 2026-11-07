@@ -14,8 +14,8 @@
   --color-bg: var(--slate-2);
   --color-surface: var(--slate-1);
   --color-surface-2: var(--slate-3);
-  /* 不在本轮 14 个之列，保留字面值（待后续单独迁移）。 */
-  --color-border-subtle: #E6ECF3;
+  /* 边框最浅一档：slate-4（Radix 浅色主题的第 4 档灰）。 */
+  --color-border-subtle: var(--slate-4);
   --color-border: var(--slate-6);
   --color-border-strong: var(--slate-7);
   --color-text: var(--slate-12);
@@ -36,48 +36,51 @@
   --color-on-primary: var(--accent-contrast);
   --color-shadow-sticky: var(--slate-a6);
 
-  /* ===== 共享层：语义色不随主题变（红=危险、琥珀=电）===== */
-  --color-success: #15803D;
-  --color-success-weak: #F0FDF4;
-  --color-warning: #B45309;
-  --color-warning-weak: #FFFBEB;
-  --color-danger: #B91C1C;
-  --color-danger-weak: #FEF2F2;
-  --color-info: #1D4ED8;
-  --color-info-weak: #EFF6FF;
+  /* ===== 共享层：语义色不随主题变（红=危险、琥珀=电）=====
+     1107017：语义色改为引用 Radix 同名色阶的 -9（实心）/ -3（弱底）档。
+     注意 -9 是「实心填充」档：当**文字色**用时（状态文案、danger 按钮文字）
+     对比度会比原来的深色值低，见 commit message 的记账。 */
+  --color-success: var(--green-9);
+  --color-success-weak: var(--green-3);
+  --color-warning: var(--amber-9);
+  --color-warning-weak: var(--amber-3);
+  --color-danger: var(--red-9);
+  --color-danger-weak: var(--red-3);
+  --color-info: var(--blue-9);
+  --color-info-weak: var(--blue-3);
 
-  /* 图表分类色板（8 色） */
-  --chart-1: #0F766E;
-  --chart-2: #1D4ED8;
-  --chart-3: #B45309;
-  --chart-4: #7E22CE;
-  --chart-5: #0E7490;
-  --chart-6: #4D7C0F;
-  --chart-7: #9F1239;
-  --chart-8: #57534E;
+  /* 图表分类色板（8 色）：一律取 Radix 分类色阶的 -9 档（实心、饱和度高、彼此可区分）。 */
+  --chart-1: var(--teal-9);
+  --chart-2: var(--blue-9);
+  --chart-3: var(--amber-9);
+  --chart-4: var(--purple-9);
+  --chart-5: var(--cyan-9);
+  --chart-6: var(--lime-9);
+  --chart-7: var(--crimson-9);
+  --chart-8: var(--gray-9);
 
-  /* 媒体色 */
-  --media-electric: #D97706;
-  --media-water: #0891B2;
-  --media-gas: #7C3AED;
-  --media-heat: #DC2626;
+  /* 媒体色：编号与 Radix 色阶一一对应（电=amber / 水=cyan / 气=purple / 热=red）。 */
+  --media-electric: var(--amber-9);
+  --media-water: var(--cyan-9);
+  --media-gas: var(--purple-9);
+  --media-heat: var(--red-9);
 
-  /* 顺序色阶（浅 → 深，10 档） */
-  --scale-1: #F0FDFA;
-  --scale-2: #CCFBF1;
-  --scale-3: #99F6E4;
-  --scale-4: #5EEAD4;
-  --scale-5: #2DD4BF;
-  --scale-6: #14B8A6;
-  --scale-7: #0D9488;
-  --scale-8: #0F766E;
-  --scale-9: #115E59;
-  --scale-10: #134E4A;
+  /* 顺序色阶（浅 → 深，10 档）：直接用 Radix teal 的 1…10 档，编号一一对应。 */
+  --scale-1: var(--teal-1);
+  --scale-2: var(--teal-2);
+  --scale-3: var(--teal-3);
+  --scale-4: var(--teal-4);
+  --scale-5: var(--teal-5);
+  --scale-6: var(--teal-6);
+  --scale-7: var(--teal-7);
+  --scale-8: var(--teal-8);
+  --scale-9: var(--teal-9);
+  --scale-10: var(--teal-10);
 
   /* 其它共享色 */
   /* 骨架屏块：slate-4 与原来 #E9EDF2 对白卡片的分离度相当（1.19 vs 1.15），slate-3 会太浅。 */
   --color-skeleton: var(--slate-4);
-  --color-overlay: rgba(16, 24, 40, 0.45);
+  --color-overlay: var(--black-a6);
 
   /* 字号 / 行高 4 级 */
   --text-page: 20px;
@@ -151,7 +154,7 @@
   --color-bg: var(--slate-2);
   --color-surface: var(--slate-1);
   --color-surface-2: var(--slate-3);
-  --color-border-subtle: #E6ECF3;
+  --color-border-subtle: var(--slate-4);
   --color-border: var(--slate-6);
   --color-border-strong: var(--slate-7);
   --color-text: var(--slate-12);
@@ -168,13 +171,13 @@
 
 /* ===== Radix 主题容器上的令牌钉回（1107016）=====
  * `.radix-themes`（<Theme> 渲染出的 div）自己声明了几个与我们**同名**的变量：
- *   `--color-surface: rgba(255,255,255,0.85)`（半透明白）、`--color-overlay: black-a6`、
+ *   `--color-surface`（半透明白）、`--color-overlay`（black-a6）、
  *   `--space-1…9`（4/8/12/16/24/32/40/48/64）。
  * 元素自身的声明永远压过从 :root 继承来的值——层序不参与「自身 vs 继承」的比较。
  * 所以这里在同一个元素上把项目取值钉回去；本块未分层，优先级高于 tailwind.css 里的 layer(radix)。 */
 .radix-themes {
   --color-surface: var(--slate-1);
-  --color-overlay: rgba(16, 24, 40, 0.45);
+  --color-overlay: var(--black-a6);
   /* 项目间距刻度（4px 网格，5/6/8 档与 Radix 的 24/32/48 不同）。 */
   --space-1: 4px;
   --space-2: 8px;

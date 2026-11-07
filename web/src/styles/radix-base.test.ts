@@ -65,15 +65,47 @@ describe('Radix Themes 基座', () => {
     }
   });
 
-  it('语义色仍是字面值，不接 Radix 状态色', () => {
-    for (const literal of [
-      '--color-success: #15803D;',
-      '--color-warning: #B45309;',
-      '--color-danger: #B91C1C;',
-      '--color-info: #1D4ED8;',
-    ]) {
-      expect(tokens, `语义色被改动：${literal}`).toContain(literal);
+  it('语义色 / 图表 / 媒体 / 顺序色阶也一律引用 Radix 色阶', () => {
+    const lines = tokens.split('\n').map((line) => line.trim());
+    const expected: ReadonlyArray<readonly [string, string]> = [
+      ['--color-success', 'var(--green-9)'],
+      ['--color-success-weak', 'var(--green-3)'],
+      ['--color-warning', 'var(--amber-9)'],
+      ['--color-warning-weak', 'var(--amber-3)'],
+      ['--color-danger', 'var(--red-9)'],
+      ['--color-danger-weak', 'var(--red-3)'],
+      ['--color-info', 'var(--blue-9)'],
+      ['--color-info-weak', 'var(--blue-3)'],
+      ['--chart-1', 'var(--teal-9)'],
+      ['--chart-2', 'var(--blue-9)'],
+      ['--chart-3', 'var(--amber-9)'],
+      ['--chart-4', 'var(--purple-9)'],
+      ['--chart-5', 'var(--cyan-9)'],
+      ['--chart-6', 'var(--lime-9)'],
+      ['--chart-7', 'var(--crimson-9)'],
+      ['--chart-8', 'var(--gray-9)'],
+      ['--media-electric', 'var(--amber-9)'],
+      ['--media-water', 'var(--cyan-9)'],
+      ['--media-gas', 'var(--purple-9)'],
+      ['--media-heat', 'var(--red-9)'],
+      ...Array.from({ length: 10 }, (_, i) => [`--scale-${i + 1}`, `var(--teal-${i + 1})`] as const),
+    ];
+    for (const [name, value] of expected) {
+      const hit = lines.find((line) => line.startsWith(`${name}:`) && line.includes(value));
+      expect(hit, `${name} 未指向 ${value}`).toBeDefined();
     }
+  });
+
+  it('颜色类令牌里不再有字面色（--color-* / --chart-* / --media-* / --scale-*）', () => {
+    // 只约束「颜色令牌」：--shadow-* 里的 rgba 是阴影的半透明度，不是颜色角色，
+    // 也不匹配验收用的 `:  #hex|rgba(` 形态；要一并默认化得改 --black-aN（会从蓝黑变纯黑）。
+    const COLOR_TOKENS = /^--(?:color|chart|media|scale)-[\w-]+\s*:/;
+    const offenders = tokens
+      .split('\n')
+      .map((line, index) => ({ line: line.trim(), index: index + 1 }))
+      .filter(({ line }) => COLOR_TOKENS.test(line))
+      .filter(({ line }) => /#[0-9A-Fa-f]{3,8}\b|\brgba?\(|\bhsla?\(/.test(line));
+    expect(offenders, `残留字面色：${offenders.map((o) => o.index).join(',')}`).toEqual([]);
   });
 
   it('.radix-themes 上钉回 Radix 的同名变量（元素自身声明压过继承）', () => {
