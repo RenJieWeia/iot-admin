@@ -36,6 +36,8 @@
   --color-surface-2: var(--color-surface-2);
   --color-border-strong: var(--color-border-strong);
   --color-border-subtle: var(--color-border-subtle);
+  /* sticky 列的方向性投影基色（@utility sticky-shadow-* 直接用 var，这里补上 Tailwind 名以便复用） */
+  --shadow-sticky: var(--color-shadow-sticky);
   --color-faint: var(--color-faint);
   --color-primary-weak: var(--color-primary-weak);
   --color-success: var(--color-success);

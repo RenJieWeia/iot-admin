@@ -37,9 +37,12 @@
     font: inherit;
   }
 
+  /* 双层 focus ring：surface 内圈 + primary 外圈。
+     石墨主题的主色接近正文色，单圈会糊；内圈用底色把控件与主色圈分开。 */
   :focus-visible {
     outline: 2px solid var(--color-primary);
     outline-offset: 2px;
+    box-shadow: 0 0 0 2px var(--color-surface);
   }
 
   .visually-hidden {

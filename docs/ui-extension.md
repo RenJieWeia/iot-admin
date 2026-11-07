@@ -211,6 +211,27 @@
 DOM 里的完整文本与详情页，**不为每格加 `tabIndex`**——大表会产生成百上千个 tab 停留点，
 反而把键盘用户困在表格里。这是有意为之，不是遗漏。
 
+## 5.7 配色主题
+
+三套配色，只换「皮肤」，不换语义：
+
+| 主题 | `data-theme` | 用途 | 主色 |
+|---|---|---|---|
+| 深青（默认） | `teal` | 默认外观，工业监控场景的低饱和底色 | `#0F766E` |
+| 电蓝 | `blue` | 偏仪表盘/演示，蓝色主色更接近常见后台 | `#2563EB` |
+| 石墨 | `graphite` | 中性灰黑，弱化装饰、强调内容 | `#1F2937` |
+
+约定：
+
+1. **切换位置**：顶栏右侧、页面操作按钮左边的分段控件（`深青 / 电蓝 / 石墨`），点击即时生效、**不刷新**。
+2. **持久化**：`localStorage['iot-theme']`，合法值只有 `teal` / `blue` / `graphite`；缺失或非法一律回落到 `teal`。
+   首帧在 `createRoot().render()` 之前同步写入 `document.documentElement.dataset.theme`，避免闪一次默认主题。
+3. **主题只覆盖 14 个令牌**：`bg / surface / surface-2 / border-subtle / border / border-strong / text / muted / faint / primary / primary-hover / primary-weak / on-primary / shadow-sticky`。
+4. **语义色与图表色不随主题变**：成功/警告/危险/信息、`--chart-1..8`、`--media-*`、`--scale-1..10` 三套完全一致——红永远是危险，琥珀永远是电。
+   组件里不允许出现颜色字面量，主题色只能写在 `styles/tokens.css`。
+5. **石墨的链接与导航选中项带下划线**：石墨主色（`#1F2937`）接近正文色，仅靠颜色无法表达可点性，因此 `[data-theme='graphite']` 下链接与 `[aria-current='page']` 统一 `text-decoration: underline`；其它主题不变。
+6. **focus ring 双层**：外圈主色 2px + 内圈 surface 2px（`outline-offset: 2px`），深色主色下也分得清。
+
 ## 6. 已知行为（不是缺陷，不要"修"）
 
 | 行为 | 触发条件 | 为什么这样是对的 |

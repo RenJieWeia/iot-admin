@@ -1,36 +1,63 @@
 /* 设计令牌 v2（task-014 §2 步 1）：颜色/字号/形状的唯一来源。
    页面与组件只允许引用变量，或引用 tailwind.css 里映射到这些变量的工具类。 */
 :root {
-  /* 表面与层次 */
-  --color-bg: #f7f8fa;
-  --color-surface: #ffffff;
-  --color-surface-2: #f1f3f6;
-  --color-border: #e5e7eb;
-  --color-border-strong: #d1d5db;
-  /* 行分隔线：比 border 更浅一档，用于表格行线降噪 */
-  --color-border-subtle: #eef1f5;
-  /* sticky 列的方向性投影基色（最深文字色 + 低透明度） */
-  --color-shadow-sticky: rgba(16, 24, 40, 0.12);
+  /* ===== 主题 A（深青 teal）：默认值，同时是 :root 的取值 =====
+     这 14 个变量是三套主题唯一的差异面；其余令牌在下方共享层，三套完全一致。 */
+  --color-bg: #F5F7F9;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #EFF2F5;
+  --color-border-subtle: #E9EDF2;
+  --color-border: #DDE2E9;
+  --color-border-strong: #C6CDD6;
+  --color-text: #0F172A;
+  --color-muted: #5B6472;
+  --color-faint: #68727F;
+  --color-primary: #0F766E;
+  --color-primary-hover: #115E59;
+  --color-primary-weak: #F0FDFA;
+  --color-on-primary: #FFFFFF;
+  --color-shadow-sticky: rgba(15, 23, 42, 0.14);
 
-  /* 文本三档 */
-  --color-text: #111827;
-  --color-muted: #6b7280;
-  --color-faint: #9ca3af;
+  /* ===== 共享层：语义色不随主题变（红=危险、琥珀=电）===== */
+  --color-success: #15803D;
+  --color-success-weak: #F0FDF4;
+  --color-warning: #B45309;
+  --color-warning-weak: #FFFBEB;
+  --color-danger: #B91C1C;
+  --color-danger-weak: #FEF2F2;
+  --color-info: #1D4ED8;
+  --color-info-weak: #EFF6FF;
 
-  /* 主色与语义色 */
-  --color-primary: #2563eb;
-  --color-primary-hover: #1d4ed8;
-  --color-primary-weak: #eff6ff;
-  --color-success: #15803d;
-  --color-success-weak: #f0fdf4;
-  --color-warning: #b45309;
-  --color-warning-weak: #fffbeb;
-  --color-danger: #b91c1c;
-  --color-danger-weak: #fef2f2;
-  --color-info: #1d4ed8;
-  --color-info-weak: #eff6ff;
-  --color-on-primary: #ffffff;
-  --color-skeleton: #e9edf2;
+  /* 图表分类色板（8 色） */
+  --chart-1: #0F766E;
+  --chart-2: #1D4ED8;
+  --chart-3: #B45309;
+  --chart-4: #7E22CE;
+  --chart-5: #0E7490;
+  --chart-6: #4D7C0F;
+  --chart-7: #9F1239;
+  --chart-8: #57534E;
+
+  /* 媒体色 */
+  --media-electric: #D97706;
+  --media-water: #0891B2;
+  --media-gas: #7C3AED;
+  --media-heat: #DC2626;
+
+  /* 顺序色阶（浅 → 深，10 档） */
+  --scale-1: #F0FDFA;
+  --scale-2: #CCFBF1;
+  --scale-3: #99F6E4;
+  --scale-4: #5EEAD4;
+  --scale-5: #2DD4BF;
+  --scale-6: #14B8A6;
+  --scale-7: #0D9488;
+  --scale-8: #0F766E;
+  --scale-9: #115E59;
+  --scale-10: #134E4A;
+
+  /* 其它共享色 */
+  --color-skeleton: #E9EDF2;
   --color-overlay: rgba(16, 24, 40, 0.45);
 
   /* 字号 / 行高 4 级 */
@@ -71,6 +98,9 @@
   --space-6: 24px;
   --space-8: 32px;
 
+  /* 下划线偏移（石墨主题的链接下划线用） */
+  --underline-offset: 2px;
+
   --z-drawer: 40;
   --z-toast: 60;
 
@@ -95,4 +125,65 @@
   --color-warning-text: var(--color-warning);
   --color-neutral-bg: var(--color-surface-2);
   --color-neutral-text: var(--color-muted);
+}
+
+/* ===== 三套主题：只覆盖上面 14 个变量 =====
+   A 的取值已写在 :root；[data-theme="teal"] 再显式声明一遍，便于主题测试与运行时切换。 */
+:root,
+[data-theme='teal'] {
+  --color-bg: #F5F7F9;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #EFF2F5;
+  --color-border-subtle: #E9EDF2;
+  --color-border: #DDE2E9;
+  --color-border-strong: #C6CDD6;
+  --color-text: #0F172A;
+  --color-muted: #5B6472;
+  --color-faint: #68727F;
+  --color-primary: #0F766E;
+  --color-primary-hover: #115E59;
+  --color-primary-weak: #F0FDFA;
+  --color-on-primary: #FFFFFF;
+  --color-shadow-sticky: rgba(15, 23, 42, 0.14);
+}
+
+[data-theme='blue'] {
+  --color-bg: #F4F7FB;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #EAF0F7;
+  --color-border-subtle: #E6ECF3;
+  --color-border: #D8E0EA;
+  --color-border-strong: #C2CDDA;
+  --color-text: #0D1B2A;
+  --color-muted: #556577;
+  --color-faint: #66788A;
+  --color-primary: #2563EB;
+  --color-primary-hover: #1D4ED8;
+  --color-primary-weak: #EFF6FF;
+  --color-on-primary: #FFFFFF;
+  --color-shadow-sticky: rgba(13, 27, 42, 0.14);
+}
+
+[data-theme='graphite'] {
+  --color-bg: #F6F6F7;
+  --color-surface: #FFFFFF;
+  --color-surface-2: #EDEDEF;
+  --color-border-subtle: #E7E7EA;
+  --color-border: #D9D9DE;
+  --color-border-strong: #C3C3CA;
+  --color-text: #111214;
+  --color-muted: #565A60;
+  --color-faint: #6A6E75;
+  --color-primary: #1F2937;
+  --color-primary-hover: #111827;
+  --color-primary-weak: #F3F4F6;
+  --color-on-primary: #FFFFFF;
+  --color-shadow-sticky: rgba(17, 18, 20, 0.14);
+}
+
+/* 石墨主题主色接近正文色：链接与导航选中项靠**下划线**表达可点性（令牌驱动，其它主题不变）。 */
+:where([data-theme='graphite']) a,
+:where([data-theme='graphite']) [aria-current='page'] {
+  text-decoration: underline;
+  text-underline-offset: var(--underline-offset);
 }

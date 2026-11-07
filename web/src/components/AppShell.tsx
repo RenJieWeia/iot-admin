@@ -16,6 +16,7 @@ import { useMeta } from '../api/meta';
 import { cn } from '../lib/cn';
 import { NARROW_QUERY } from '../lib/breakpoint';
 import { Drawer } from './Drawer';
+import { ThemeSwitcher } from './ThemeSwitcher';
 
 interface Props {
   title: string;
@@ -203,7 +204,10 @@ export function AppShell({ title, subtitle, actions, children }: Props) {
               {subtitle && <p className="m-0 text-sm leading-meta text-muted">{subtitle}</p>}
             </div>
           </div>
-          {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
+          <div className="flex shrink-0 items-center gap-2">
+            <ThemeSwitcher />
+            {actions}
+          </div>
         </header>
         <main id="main" className="min-w-0 flex-1 p-6 max-lg:p-4">
           <section className="content-card p-5">{children}</section>
