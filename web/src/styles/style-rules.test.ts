@@ -13,6 +13,8 @@ import { describe, expect, it } from 'vitest';
  * 3. 禁止 Tailwind 默认调色板（bg-slate-100 / text-red-500 等）；
  * 4. 颜色令牌只能在 tokens.css 的 :root 定义；
  * 5. 间距守 4px 网格：p-[Npx]/m-[Npx]/gap-[Npx] 的 N 必须是 4 的倍数。
+ * 6. TSX 里不得再出现自研控件类名（`btn` / `input` / `select`，P5 已删其样式）；
+ * 7. 全站 CSS 里不得再定义这三个自研控件类（防止样式被「顺手加回来」）。
  */
 const SRC = join(process.cwd(), 'src');
 const TOKENS = join(SRC, 'styles/tokens.css');
@@ -39,6 +41,29 @@ const DEFAULT_PALETTE =
   /\b(?:bg|text|border|ring|outline|fill|stroke)-(?:slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose)-\d{2,3}\b/;
 
 const SPACING_ARBITRARY = /\b(?:p|px|py|pt|pb|pl|pr|m|mx|my|mt|mb|ml|mr|gap)-\[(\d+)px\]/g;
+
+/**
+ * 自研控件类名（P5 已删除 `.btn*` / `.input` / `.select` 的样式定义）。
+ * 只匹配**类名字符串里的独立词**：`btn` / `btn-*` / `input` / `input-*` / `select` / `select-*`。
+ *
+ * 白名单（窄口子，逐个都有理由）：
+ * - `select-none|select-text|select-all|select-auto`：Tailwind 的 `user-select` 工具类，
+ *   与自研 `.select` 无关，名字撞车纯属巧合；
+ * - 以 `rt-` 开头的类（Radix Themes）天然不匹配本正则，无需显式放行；
+ * - `select` 作为**原生 HTML 元素名/属性名**（`<select>`、`options` 等）不会出现在
+ *   className / cn() 的字符串里，因此本规则不涉及；`TextField` / `FilterMultiSelect`
+ *   这类组件名同理（不是类名）。
+ */
+const LEGACY_CONTROL_TOKEN = /(?:^|\s)(?:btn(?:-[\w-]+)?|input(?:-[\w-]+)?|select(?:-[\w-]+)?)(?=$|\s)/;
+const TAILWIND_SELECT_UTILITIES = new Set(['select-none', 'select-text', 'select-all', 'select-auto']);
+
+/** 去掉 CSS 注释，避免把注释里提到的类名当成规则定义。 */
+function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '');
+}
+
+/** 选择器位置上的自研控件类：`.btn` / `.btn-primary` / `.input` / `.select`（含 `.field-error .input` 这种复合选择器）。 */
+const LEGACY_CONTROL_SELECTOR = /(?:^|[\s,>+~(])\.(?:btn|input|select)(?![\w])/;
 
 function classAttributeValues(code: string): string[] {
   const values: string[] = [];
@@ -172,6 +197,36 @@ describe('样式规则（Tailwind 迁移后）', () => {
           }
         }
       });
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('P5：TSX 里不得再出现自研控件类名（btn / input / select）', () => {
+    // 样式已删（global.css 的 .btn* / .input / .select 整段移除）：类名一旦写回，
+    // 控件就会变成「有类名没样式」的裸元素——比留着旧样式更难查，所以在这里锁死。
+    const offenders: string[] = [];
+    for (const file of tsxFiles) {
+      for (const value of classAttributeValues(readFileSync(file, 'utf8'))) {
+        for (const token of value.split(/\s+/)) {
+          // 去掉 `!` 重要性与 `hover:` / `md:` 之类的变体前缀，再判定。
+          const bare = token.replace(/^!/, '').split(':').pop() ?? '';
+          if (TAILWIND_SELECT_UTILITIES.has(bare)) continue;
+          if (LEGACY_CONTROL_TOKEN.test(` ${bare}`)) offenders.push(`${file}: ${token}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it('P5：样式表里不得再定义 .btn / .input / .select', () => {
+    // 与上一条配对：TSX 不再写这些类，样式表也不许再把它们定义回来（含注释外的复合选择器）。
+    const offenders: string[] = [];
+    for (const file of cssFiles) {
+      stripCssComments(readFileSync(file, 'utf8'))
+        .split('\n')
+        .forEach((line, index) => {
+          if (LEGACY_CONTROL_SELECTOR.test(line)) offenders.push(`${file}:${index + 1}: ${line.trim()}`);
+        });
     }
     expect(offenders).toEqual([]);
   });
