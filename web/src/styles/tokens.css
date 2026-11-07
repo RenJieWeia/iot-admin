@@ -82,15 +82,18 @@
   --color-skeleton: var(--slate-4);
   --color-overlay: var(--black-a6);
 
-  /* 字号 / 行高 4 级 */
-  --text-page: 20px;
-  --lh-page: 28px;
-  --text-section: 16px;
-  --lh-section: 24px;
-  --text-body: 14px;
-  --lh-body: 22px;
-  --text-meta: 12px;
-  --lh-meta: 18px;
+  /* 字号 / 行高 4 级：改走 Radix 排版刻度，档位按任务表 meta→1 / body→2 / section→3 / page→5。
+     `--font-size-N` / `--line-height-N` 只定义在 `.radix-themes` 上，:root 解析不到，
+     所以这里带「该档库默认值」兜底给 html/body/portal；主题子树内另有不带兜底的声明（见钉回块）。
+     行高会比改前紧：meta 18→16px、body 22→20px（section/page 不变：24/28px）。 */
+  --text-page: var(--font-size-5, 20px);
+  --lh-page: var(--line-height-5, 28px);
+  --text-section: var(--font-size-3, 16px);
+  --lh-section: var(--line-height-3, 24px);
+  --text-body: var(--font-size-2, 14px);
+  --lh-body: var(--line-height-2, 20px);
+  --text-meta: var(--font-size-1, 12px);
+  --lh-meta: var(--line-height-1, 16px);
   --text-nav: 11px;
   --tracking-nav: 0.04em;
   --font-mono: "SFMono-Regular", "Menlo", "Consolas", monospace;
@@ -197,6 +200,15 @@
   --space-5: 20px;
   --space-6: 24px;
   --space-8: 32px;
+  /* 排版刻度同理：子树内取不带兜底的值，跟随 <Theme scaling>。 */
+  --text-page: var(--font-size-5);
+  --lh-page: var(--line-height-5);
+  --text-section: var(--font-size-3);
+  --lh-section: var(--line-height-3);
+  --text-body: var(--font-size-2);
+  --lh-body: var(--line-height-2);
+  --text-meta: var(--font-size-1);
+  --lh-meta: var(--line-height-1);
 }
 
 /* 石墨主题主色接近正文色：链接与导航选中项靠**下划线**表达可点性（令牌驱动，其它主题不变）。 */

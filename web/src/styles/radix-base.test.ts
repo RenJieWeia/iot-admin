@@ -127,4 +127,27 @@ describe('Radix Themes 基座', () => {
     // Radix 没有通用的 --radius-full 变量，药丸圆角只能用字面值（注释里已说明）。
     expect(tokens, '--radius-pill 应保留字面值').toContain('--radius-pill: 999px;');
   });
+
+  it('字号与行高引用 Radix 排版刻度（meta→1 / body→2 / section→3 / page→5）', () => {
+    const pairs: ReadonlyArray<readonly [string, string]> = [
+      ['--text-meta', 'var(--font-size-1, 12px)'],
+      ['--lh-meta', 'var(--line-height-1, 16px)'],
+      ['--text-body', 'var(--font-size-2, 14px)'],
+      ['--lh-body', 'var(--line-height-2, 20px)'],
+      ['--text-section', 'var(--font-size-3, 16px)'],
+      ['--lh-section', 'var(--line-height-3, 24px)'],
+      ['--text-page', 'var(--font-size-5, 20px)'],
+      ['--lh-page', 'var(--line-height-5, 28px)'],
+    ];
+    const lines = tokens.split('\n').map((line) => line.trim());
+    for (const [name, value] of pairs) {
+      expect(lines.includes(`${name}: ${value};`), `${name} 未指向 ${value}`).toBe(true);
+    }
+    // 主题子树内不带兜底（跟随 <Theme scaling>）；--text-nav（11px）没有对应 Radix 档位，保持字面值。
+    const block = tokens.slice(tokens.indexOf('.radix-themes {'));
+    for (const decl of ['--text-body: var(--font-size-2);', '--lh-body: var(--line-height-2);']) {
+      expect(block, `主题子树内未走 ${decl}`).toContain(decl);
+    }
+    expect(tokens, '--text-nav 应保持字面值').toContain('--text-nav: 11px;');
+  });
 });
