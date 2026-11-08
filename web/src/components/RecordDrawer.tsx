@@ -123,6 +123,8 @@ export function RecordDrawer({
   const [formError, setFormError] = useState('');
   const [saving, setSaving] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // 网关新建后 Broker 只回一次密码：用弹窗展示，确认"已保存"后再关抽屉。
+  const [credential, setCredential] = useState<{ username: string; password: string } | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   const editableFields = useMemo(() => entity.fields.filter((field) => field.editable), [entity.fields]);
@@ -201,8 +203,17 @@ export function RecordDrawer({
     }
     setSaving(true);
     try {
-      if (mode === 'create') await createRow(entity.name, body);
-      else await updateRow(entity.name, String(id), body);
+      const saved = mode === 'create'
+        ? await createRow(entity.name, body)
+        : await updateRow(entity.name, String(id), body);
+      if (mode === 'create' && typeof saved.broker_password === 'string' && saved.broker_password) {
+        setCredential({
+          username: String(saved.gateway_id ?? body.gateway_id ?? ''),
+          password: saved.broker_password,
+        });
+        onSaved?.();
+        return;
+      }
       toast.success(mode === 'create' ? `已新建${entity.title}` : `已保存${entity.title}`);
       onSaved?.();
       onOpenChange(false);
@@ -482,6 +493,37 @@ export function RecordDrawer({
           </div>
         )}
       </Drawer>
+      {credential ? (
+        <ConfirmDialog
+          open
+          danger={false}
+          title="网关凭证（仅显示一次）"
+          description={
+            <span className="block">
+              网关已在 Broker 注册，用下面的账号连接。密码只显示这一次，请立即保存。
+              <span className="mt-2 block rounded-md bg-surface-2 p-2 font-mono text-xs text-fg">
+                用户名：{credential.username}
+                <br />
+                密码：{credential.password}
+              </span>
+            </span>
+          }
+          confirmLabel="我已保存"
+          cancelLabel="关闭"
+          onConfirm={() => {
+            setCredential(null);
+            toast.success('已新建网关');
+            onOpenChange(false);
+          }}
+          onOpenChange={(open) => {
+            if (!open) {
+              setCredential(null);
+              toast.success('已新建网关');
+              onOpenChange(false);
+            }
+          }}
+        />
+      ) : null}
       <ConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
