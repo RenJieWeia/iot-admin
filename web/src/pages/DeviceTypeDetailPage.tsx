@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Plus, RotateCw } from 'lucide-react';
 import { fetchList, fetchOne } from '../api/client';
 import type { EntityMeta, RowData } from '../api/types';
@@ -18,6 +18,7 @@ interface DrawerState {
 /** 终端类型详情：把「类型绑定的字段（物模型属性）」与「该类型的终端实例」放在一页。 */
 export function DeviceTypeDetailPage() {
   const { id = '' } = useParams();
+  const navigate = useNavigate();
   const meta = useMeta();
   const typeEntity = meta.entities.find((entity) => entity.name === 'device-types');
   const propertyEntity = (meta.subresources ?? []).find(
@@ -163,7 +164,10 @@ export function DeviceTypeDetailPage() {
               rows={terminals}
               loading={loading}
               empty="这个类型下还没有终端"
-              onRowClick={(row) => setDrawer({ open: true, mode: 'view', row })}
+              onRowClick={(row) => {
+                if (row.id === undefined || row.id === null) return;
+                navigate(`/e/terminals/${String(row.id)}`);
+              }}
               entityName="terminals"
             />
 

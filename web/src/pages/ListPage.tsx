@@ -123,6 +123,10 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
         navigate(`/e/device-types/${String(row.id)}`);
         return;
       }
+      if (kind === 'entity' && name === 'terminals' && row.id !== undefined) {
+        navigate(`/e/terminals/${String(row.id)}`);
+        return;
+      }
       setDrawer({ open: true, row, mode: 'view' });
     },
     [kind, name, navigate],
