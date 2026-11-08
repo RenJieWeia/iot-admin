@@ -46,8 +46,8 @@ func TestExceptionPagesShape(t *testing.T) {
 	}
 
 	// 实体集合收敛为 8 个（含六档配置与绑定），异常表不得进 Entities。
-	if len(Entities) != 9 {
-		t.Fatalf("admin.Entities = %d，期望 9", len(Entities))
+	if len(Entities) != 10 {
+		t.Fatalf("admin.Entities = %d，期望 10", len(Entities))
 	}
 	for _, e := range Entities {
 		if strings.HasPrefix(e.Name, "exception-") {

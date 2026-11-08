@@ -362,6 +362,10 @@ var Entities = []Entity{
 	// 档位本身不可新增（行集固定），步长白名单与 0013 的 CHECK 同源。
 	{Name: "snapshot-slots", FixedRows: true, PKey: "granularity",
 		Table: "snapshot_slot_config", Cols: []string{"enabled", "step"}},
+	// 快照查询模板：服务端共享，保存「终端类型 + 字段」的展示配置（档位/时间在查询时选）。
+	{Name: "snapshot-queries", Table: "snapshot_query_template",
+		Cols: []string{"name", "description", "device_type_ids", "item_codes"},
+		JSONB: []string{"device_type_ids", "item_codes"}},
 	// 绑定：一条 = 一个作用域目标 + 一个数据项数组（jsonb）；作用域二选一（类型级或实例级）。
 	// item_codes 走已有的 ::jsonb 转换；列表额外下发派生列「字段数」供前端显示。
 	{Name: "snapshot-bindings", Hidden: true, Table: "snapshot_binding",
@@ -412,6 +416,8 @@ func (a *API) Handler() http.Handler {
 	mux := http.NewServeMux()
 	// 字面量段优先于通配段：_meta 与 exceptions/* 不会被 {entity} / {entity}/{id} 抢走。
 	mux.HandleFunc("GET /admin/v1/_meta", a.meta)
+	// 快照查询：按模板 + 档位 + 时间范围透视出「终端 × 字段」的最新值。
+	mux.HandleFunc("GET /admin/v1/snapshot-query", a.snapshotQuery)
 	mux.HandleFunc("GET /admin/v1/exceptions/{slot}", a.exceptionList)
 	mux.HandleFunc("GET /admin/v1/readonly/{slot}", a.readonlyList)
 	mux.HandleFunc("GET /admin/v1/options/{entity}", a.options)

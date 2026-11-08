@@ -30,6 +30,8 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		"exception_interval": true, "exception_count": true, "schema_migrations": true,
 		// 0016：边缘网关注册表（接入鉴权，不属于已收敛的报表/权限类能力）。
 		"gateway": true,
+		// 0018：快照查询模板（展示配置，不涉及新的报表/权限能力）。
+		"snapshot_query_template": true,
 		// R-034（task-013）曾新增，收敛后由 0008 删除：补录留痕的版本记录表
 		"snapshot_cell_history": true,
 	}
@@ -94,7 +96,8 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 	// 管理 API 只暴露数据源/网关注册实体（结算窗口随 0009 下线）；nil pool 即可验证 404 路径不碰数据库。
 	wantEntities := []string{
 		"data-domains", "device-types", "thing-model-properties",
-		"terminals", "gateways", "quality-rules", "snapshot-slots", "snapshot-bindings", "snapshot-settings",
+		"terminals", "gateways", "quality-rules", "snapshot-slots", "snapshot-queries",
+		"snapshot-bindings", "snapshot-settings",
 	}
 	if len(admin.Entities) != len(wantEntities) {
 		t.Fatalf("管理 API 实体数 = %d，期望 %d", len(admin.Entities), len(wantEntities))
@@ -111,8 +114,8 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 
 	// 双口径：可 CRUD = 9（上面已断言）；可导航 = 6（属性 / 绑定 / 保留期是子资源，不进导航）。
 	meta := admin.BuildMeta()
-	if len(meta.Entities) != 6 {
-		t.Fatalf("可导航实体 = %d，期望 6（可 CRUD 仍是 %d）", len(meta.Entities), len(admin.Entities))
+	if len(meta.Entities) != 7 {
+		t.Fatalf("可导航实体 = %d，期望 7（可 CRUD 仍是 %d）", len(meta.Entities), len(admin.Entities))
 	}
 	for _, ent := range meta.Entities {
 		if ent.Name == "thing-model-properties" {

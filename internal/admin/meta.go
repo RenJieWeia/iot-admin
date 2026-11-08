@@ -26,13 +26,13 @@ var entityLabels = map[string]string{
 	"gateways":               "边缘网关",
 	"quality-rules":          "质量规则",
 	"snapshot-slots":         "快照计划",
+	"snapshot-queries":       "快照查询",
 	"snapshot-bindings":      "快照绑定",
 	"snapshot-settings":      "存储与保留",
 	"exception-events":       "异常事件",
 	"latest-values":          "最新值",
 	// 三个快照存储：导航里由前端按 snapshot- 前缀合并成一项「快照」，
 	// 页面内的「存储」切换用这里的标题（粗表要连档位一起说清，否则用户不知道能筛档）。
-	"snapshot": "快照",
 	"snapshot-minute": "快照 · 分钟",
 	}
 

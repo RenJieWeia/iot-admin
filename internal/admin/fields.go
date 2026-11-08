@@ -357,7 +357,6 @@ var fieldSets = map[string]fieldSet{
 	// 只读源只剩「最新值」：公共 8 列由 runtimeCommonFields 提供。
 	"latest-values": {fields: runtimeCommonFields()},
 	// 快照三页：游标分页（不报总数），字段与三张表真实列一致；粗表含档位列。
-	"snapshot": {fields: snapshotFields(true)},
 	"snapshot-minute": {fields: snapshotFields(false)},
 		// 全局六档配置：六行固定（主键 granularity），只能改 enabled / step。
 	// step 不挂枚举：白名单按档位不同（秒/分最多 30；小时/日/月/年固定 1，即每自然单位一份），
@@ -391,6 +390,22 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "none", WidthStrategy: "flex"},
 			{Key: "created_at", Label: "注册时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
+		},
+	},
+	// 快照查询模板：name/description 直接可编辑；类型与字段数组由专用编辑页维护。
+	"snapshot-queries": {
+		fields: []FieldMeta{
+			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
+			{Key: "name", Label: "名称", Type: "text", Visible: true, Sortable: true, Filterable: true,
+				Required: true, FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
+			{Key: "description", Label: "说明", Type: "text", Visible: true, Sortable: false, Filterable: false,
+				FilterType: "none", WidthStrategy: "flex"},
+			{Key: "device_type_ids", Label: "终端类型", Type: "json", Visible: false, Sortable: false, Filterable: false,
+				FilterType: "none", WidthStrategy: "flex"},
+			{Key: "item_codes", Label: "字段", Type: "json", Visible: false, Sortable: false, Filterable: false,
+				FilterType: "none", WidthStrategy: "flex"},
+			{Key: "updated_at", Label: "更新时间", Type: "datetime", Visible: true, Sortable: true, Filterable: false,
+				FilterType: "none", WidthStrategy: "min"},
 		},
 	},
 	// 绑定：一条 = 一个作用域目标 + 一个数据项数组；item_codes 与 quality_rule.params 同为 jsonb。
