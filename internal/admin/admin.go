@@ -549,6 +549,10 @@ func (a *API) update(w http.ResponseWriter, r *http.Request) {
 	for i, c := range cols {
 		sets[i] = c + " = " + e.placeholder(i+1, c)
 	}
+	// 快照计划每次保存都要刷新「更新时间」，否则页面在保存后仍显示旧时间，像没存上。
+	if e.Name == "snapshot-slots" {
+		sets = append(sets, "updated_at = now()")
+	}
 	vals = append(vals, r.PathValue("id"))
 	row, err := a.queryOne(r, e, updateSQL(e, sets, len(cols)+1), vals...)
 	if errors.Is(err, pgx.ErrNoRows) {
