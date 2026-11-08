@@ -423,6 +423,7 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/v1/options/{entity}", a.options)
 	mux.HandleFunc("GET /admin/v1/{entity}", a.list)
 	mux.HandleFunc("POST /admin/v1/{entity}", a.create)
+	mux.HandleFunc("POST /admin/v1/{entity}/batch", a.batch)
 	mux.HandleFunc("GET /admin/v1/{entity}/{id}", a.get)
 	mux.HandleFunc("PUT /admin/v1/{entity}/{id}", a.update)
 	mux.HandleFunc("DELETE /admin/v1/{entity}/{id}", a.delete)
