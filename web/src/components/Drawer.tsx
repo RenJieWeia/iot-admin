@@ -1,65 +1,62 @@
 import * as Dialog from '@radix-ui/react-dialog';
+import { X } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { cn } from '../lib/cn';
-import { Button } from '@radix-ui/themes';
 
-interface Props {
+export interface DrawerProps {
   open: boolean;
-  title: string;
-  children: ReactNode;
-  /** 底部操作区（取消/保存/删除）；导航类抽屉没有底部操作时可省略。 */
-  footer?: ReactNode;
-  onClose: () => void;
-  onOpenChange?: (open: boolean) => void;
-  /** Radix Dialog 提供的 aria-describedby 目标；没有说明时传 undefined（DOM 上不出现该属性），避免读屏念出无关文本。 */
+  onOpenChange: (open: boolean) => void;
+  title: ReactNode;
   description?: string;
+  children: ReactNode;
+  footer?: ReactNode;
 }
 
-/**
- * 侧滑抽屉：Radix Dialog 提供 role=dialog / aria-modal / 焦点陷阱 / Esc 关闭 / 关闭后焦点归还。
- * 底部操作区固定，始终可见；没有底部操作的导航抽屉省略该区域（admin-ui-spec §5、§3.1）。
- *
- * 动效（1107022）：遮罩淡入淡出、面板沿 **X 轴** 滑入滑出，时长与曲线来自 --dur-base / --ease-out。
- * 关闭时不是靠 JS 延时卸载，而是让 Radix Presence 听到 `[data-state='closed']` 上的 CSS 动画播完再卸；
- * 动画全部写在 global.css 的 @keyframes + `.drawer-overlay` / `.drawer-panel` 选择器里
- * （选这个而不是 Tailwind 的 data-[state] 工具类：进出场要成对定义、还要和 reduced-motion 一起覆盖，
- *  集中在一个 CSS 段落比在 TSX 里散着写更好审计；且 animation 的 fillMode 在这里是必需的）。
- */
-export function Drawer({ open, title, children, footer, onClose, onOpenChange, description }: Props) {
+// Radix 的 Presence 只等 animationend、不等 transition，所以进出场用 keyframes；
+// 系统开启"减少动效"时整段媒体查询不生效，元素直接出现/消失。
+const motionCSS = `
+@keyframes iot-drawer-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+@keyframes iot-drawer-out { from { transform: translateX(0); } to { transform: translateX(100%); } }
+@keyframes iot-overlay-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes iot-overlay-out { from { opacity: 1; } to { opacity: 0; } }
+@media (prefers-reduced-motion: no-preference) {
+  .iot-drawer-overlay[data-state="open"] { animation: iot-overlay-in 200ms ease-out; }
+  .iot-drawer-overlay[data-state="closed"] { animation: iot-overlay-out 200ms ease-in; }
+  .iot-drawer-panel[data-state="open"] { animation: iot-drawer-in 200ms cubic-bezier(0.32, 0.72, 0, 1); }
+  .iot-drawer-panel[data-state="closed"] { animation: iot-drawer-out 200ms ease-in; }
+}
+`;
+
+/** 右侧抽屉：唯一浮层容器，记录查看/编辑都复用它。 */
+export function Drawer({ open, onOpenChange, title, description, children, footer }: DrawerProps) {
   return (
-    <Dialog.Root
-      open={open}
-      onOpenChange={(next) => {
-        onOpenChange?.(next);
-        if (!next) onClose();
-      }}
-    >
+    <Dialog.Root open={open} onOpenChange={onOpenChange}>
+      <style>{motionCSS}</style>
       <Dialog.Portal>
-        <Dialog.Overlay className="drawer-overlay fixed inset-0 z-40 bg-overlay" />
+        <Dialog.Overlay className="iot-drawer-overlay fixed inset-0 z-40 bg-black/40" />
         <Dialog.Content
-          className={cn(
-            'drawer-panel fixed inset-y-0 right-0 z-40 flex flex-col border-l border-border bg-surface',
-          )}
-          aria-describedby={description ? 'drawer-description' : undefined}
+          className="iot-drawer-panel fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col border-l border-line bg-surface shadow-panel outline-none sm:w-[520px]"
+          {...(description ? {} : { 'aria-describedby': undefined })}
         >
-          <div className="flex items-center justify-between gap-3 border-b border-border p-4">
-            <Dialog.Title className="m-0 text-lg">{title}</Dialog.Title>
+          <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+            <div className="min-w-0">
+              <Dialog.Title className="truncate text-base font-semibold text-fg">{title}</Dialog.Title>
+              {description && (
+                <Dialog.Description className="mt-1 text-xs text-muted">{description}</Dialog.Description>
+              )}
+            </div>
             <Dialog.Close asChild>
-              <Button type="button" aria-label="关闭" variant="surface" size="3">
-                ✕
-              </Button>
+              <button
+                type="button"
+                aria-label="关闭"
+                className="shrink-0 rounded-md p-1 text-muted hover:bg-surface-2 hover:text-fg"
+              >
+                <X size={16} />
+              </button>
             </Dialog.Close>
           </div>
-          {description && (
-            <p className="visually-hidden" id="drawer-description">
-              {description}
-            </p>
-          )}
-          <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">{children}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
           {footer && (
-            <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-border bg-surface px-4 py-3">
-              {footer}
-            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-line px-5 py-3">{footer}</div>
           )}
         </Dialog.Content>
       </Dialog.Portal>
