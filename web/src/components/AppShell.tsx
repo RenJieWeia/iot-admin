@@ -184,7 +184,10 @@ export function AppShell() {
           </button>
         </header>
         <main className="p-4 lg:p-6">
-          <Outlet />
+          {/* 以 pathname 作为 key：切页时重挂载内容并播放入场动画；同页刷新数据不会重播。 */}
+          <div key={pathname} className="page-enter">
+            <Outlet />
+          </div>
         </main>
       </div>
     </div>
