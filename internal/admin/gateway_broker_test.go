@@ -18,12 +18,12 @@ type fakeBroker struct {
 	unregistered  []string
 }
 
-func (f *fakeBroker) Register(_ context.Context, gw broker.Gateway) error {
+func (f *fakeBroker) Register(_ context.Context, gw broker.Gateway) (string, error) {
 	if f.registerErr != nil {
-		return f.registerErr
+		return "", f.registerErr
 	}
 	f.registered = append(f.registered, gw)
-	return nil
+	return "one-time-password", nil
 }
 
 func (f *fakeBroker) Unregister(_ context.Context, id string) error {

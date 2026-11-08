@@ -370,7 +370,8 @@ var Entities = []Entity{
 
 // BrokerAdmin 是网关注册/注销所需的 Broker 管理接口（HTTP 客户端或测试替身）。
 type BrokerAdmin interface {
-	Register(ctx context.Context, gw broker.Gateway) error
+	// Register 在 Broker 建号授权，返回一次性密码（只在创建响应里回给调用方）。
+	Register(ctx context.Context, gw broker.Gateway) (string, error)
 	Unregister(ctx context.Context, gatewayID string) error
 }
 
@@ -506,11 +507,14 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// 网关注册以 Broker 为准：先在 Broker 开通，失败就不写本地行（避免"本地有、Broker 没有"）。
+	var brokerPassword string
 	if e.Name == "gateways" && a.Broker != nil {
-		if err := a.Broker.Register(r.Context(), gatewayFromBody(body)); err != nil {
+		password, err := a.Broker.Register(r.Context(), gatewayFromBody(body))
+		if err != nil {
 			writeBrokerError(w, "broker_register_failed", err)
 			return
 		}
+		brokerPassword = password
 	}
 	placeholders := make([]string, len(cols))
 	for i, c := range cols {
@@ -525,6 +529,10 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		}
 		writeEntityDBError(w, e, err)
 		return
+	}
+	if brokerPassword != "" && row != nil {
+		// 密码只在创建时回一次（Broker 侧只存哈希），提示调用方立即交付给网关。
+		row["broker_password"] = brokerPassword
 	}
 	a.invalidate()
 	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: row})
@@ -766,15 +774,11 @@ func writeDBError(w http.ResponseWriter, err error) {
 	writeError(w, http.StatusInternalServerError, err.Error())
 }
 
-// gatewayFromBody 把创建网管的请求体映射成 Broker 注册参数。
+// gatewayFromBody 把创建网关的请求体映射成 Broker 注册参数。
 func gatewayFromBody(body map[string]any) broker.Gateway {
 	id, _ := body["gateway_id"].(string)
 	name, _ := body["name"].(string)
-	enabled := true // 库里 enabled 有默认值 true，没传就是启用
-	if raw, ok := body["enabled"].(bool); ok {
-		enabled = raw
-	}
-	return broker.Gateway{ID: id, Name: name, Enabled: enabled}
+	return broker.Gateway{ID: id, Name: name}
 }
 
 // writeBrokerError 把 Broker 侧失败落成 502：本平台不是网关配置的权威来源，
