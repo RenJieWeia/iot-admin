@@ -1,32 +1,31 @@
-import { Button } from '@radix-ui/themes';
+import { ChevronDown } from 'lucide-react';
 
-interface Props {
+interface CursorPagerProps {
   hasMore: boolean;
   loading: boolean;
-  /** 后端下发的单批条数。 */
-  limit: number;
-  /** 当前页已渲染的行数。 */
   loaded: number;
-  onMore: () => void;
+  onLoadMore: () => void;
 }
 
-/**
- * 游标分页器：只认 `hasMore`，**不显示总数**（分区表上 count(*) 会随月退化）。
- * 「加载更多」把 nextCursor 写进 URL，刷新/后退可以复原同一页。
- */
-export function CursorPager({ hasMore, loading, limit, loaded, onMore }: Props) {
+/** 游标分页：只能顺序加载，不可跳页（服务端 cursor 契约）。 */
+export function CursorPager({ hasMore, loading, loaded, onLoadMore }: CursorPagerProps) {
   return (
-    <div className="mt-4 flex flex-wrap items-center justify-end gap-3">
-      <span className="range-text text-muted">
-        已加载 {loaded} 条 · 每批 {limit || '—'} 条（游标分页，不显示总数；只能继续加载，不能回到指定页）
+    <div className="flex flex-wrap items-center justify-between gap-3 border-t border-line px-4 py-3 text-sm">
+      <span className="text-muted">
+        已加载 <span className="tabular text-fg">{loaded}</span> 条 · 游标分页（不可跳页）
       </span>
       {hasMore ? (
-        // 文案固定，避免「加载中…」让按钮变窄引起跳动；忙碌态只由 disabled + aria-busy 表达。
-        <Button type="button" onClick={onMore} disabled={loading} aria-busy={loading} variant="surface" size="3" className="touch-hit">
-          加载更多
-        </Button>
+        <button
+          type="button"
+          onClick={onLoadMore}
+          disabled={loading}
+          className="inline-flex items-center gap-1.5 rounded-md border border-line px-3 py-1.5 text-sm text-fg hover:bg-surface-2 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <ChevronDown className={loading ? 'size-4 animate-bounce' : 'size-4'} aria-hidden />
+          {loading ? '加载中…' : '加载更多'}
+        </button>
       ) : (
-        <span className="range-text text-muted">已到末尾</span>
+        <span className="text-xs text-muted">没有更多了</span>
       )}
     </div>
   );
