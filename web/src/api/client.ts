@@ -1,6 +1,13 @@
-import type { CursorMeta, Envelope, FilterOp, ListMeta, OptionItem, RowData } from './types';
+import type {
+  CursorMeta,
+  Envelope,
+  ListMeta,
+  MetaPayload,
+  OptionItem,
+  RowData,
+} from './types';
 
-/** API 前缀固定，SPA 与 Go 进程同源部署（dev 期由 vite proxy 转发）。 */
+/** SPA 与 Go 进程同源：dev 期由 vite proxy 转发 /admin。 */
 const BASE = '/admin/v1';
 
 export class ApiError extends Error {
@@ -8,46 +15,14 @@ export class ApiError extends Error {
   readonly code: string;
   readonly detail: string;
 
-  constructor(status: number, code: string, detail: string) {
-    // detail 直接来自后端 invalid_query: <原因>，保留原文便于定位与展示恢复路径。
-    super(detail || code);
+  constructor(status: number, message: string) {
+    // message 形如 "invalid_query: 未知排序字段 ..."，前半段当 code，整段当 detail。
+    super(message);
     this.name = 'ApiError';
     this.status = status;
-    this.code = code;
-    this.detail = detail;
+    this.code = message.replace(/:.*$/, '') || `http_${status}`;
+    this.detail = message;
   }
-}
-
-export interface ListQuery {
-  q?: string;
-  filters?: Array<{ field: string; op: FilterOp | ''; values: string[] }>;
-  sort?: string;
-  order?: 'asc' | 'desc';
-  page?: number;
-  pageSize?: number;
-}
-
-/**
- * 把 QueryState 序列化成后端白名单认识的 search params：
- * 无操作符的字段用 filter.<col>（服务端取该字段声明的第一个操作符），
- * 有操作符的用 filter.<col>.<op>；in 用重复参数表达多值。
- */
-export function toSearchParams(query: ListQuery): URLSearchParams {
-  const params = new URLSearchParams();
-  if (query.q) params.set('q', query.q);
-  if (query.sort) params.set('sort', query.sort);
-  if (query.order) params.set('order', query.order);
-  if (query.page !== undefined) params.set('page', String(query.page));
-  if (query.pageSize !== undefined) params.set('pageSize', String(query.pageSize));
-  for (const filter of query.filters ?? []) {
-    // op 为空时只发字段名，由服务端按该字段声明的第一个操作符执行。
-    const key = filter.op ? `filter.${filter.field}.${filter.op}` : `filter.${filter.field}`;
-    for (const value of filter.values) {
-      if (value === '') continue;
-      params.append(key, value);
-    }
-  }
-  return params;
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<Envelope<T>> {
@@ -66,103 +41,111 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<Envelop
     payload = null;
   }
   if (!response.ok || (payload && payload.code !== 0)) {
-    const message = payload?.message ?? '';
-    const code = message.replace(/:.*$/, '') || `http_${response.status}`;
-    const detail = message || `HTTP ${response.status}`;
-    throw new ApiError(response.status, code, detail);
+    throw new ApiError(response.status, payload?.message ?? `HTTP ${response.status}`);
   }
   return payload ?? { code: 0, message: 'ok' };
 }
 
-export interface ListResponse {
-  rows: RowData[];
-  meta: ListMeta;
+export async function fetchMeta(): Promise<MetaPayload> {
+  const payload = await request<MetaPayload>('/_meta');
+  return payload.data as MetaPayload;
 }
 
+export type ListKind = 'entity' | 'readonly' | 'exception';
+
+export function listPath(kind: ListKind, name: string): string {
+  switch (kind) {
+    case 'readonly':
+      return `/readonly/${name}`;
+    case 'exception':
+      return `/exceptions/${name}`;
+    default:
+      return `/${name}`;
+  }
+}
+
+export interface ListResult {
+  rows: RowData[];
+  meta: ListMeta;
+  cursor?: CursorMeta;
+}
+
+/** 列表查询：分页/筛选/排序全部交给服务端（白名单在 Go 侧）。 */
 export async function fetchList(
-  entity: string,
-  query: ListQuery,
+  kind: ListKind,
+  name: string,
+  params: URLSearchParams,
   signal?: AbortSignal,
-): Promise<ListResponse> {
-  const suffix = toSearchParams(query).toString();
-  const payload = await request<RowData[]>(`/${entity}${suffix ? `?${suffix}` : ''}`, { signal });
+): Promise<ListResult> {
+  const suffix = params.toString();
+  const payload = await request<RowData[]>(`${listPath(kind, name)}${suffix ? `?${suffix}` : ''}`, {
+    signal,
+  });
+  const meta = payload.meta;
   return {
     rows: Array.isArray(payload.data) ? payload.data : [],
-    meta: payload.meta ?? {
-      total: 0,
-      page: query.page ?? 1,
-      pageSize: query.pageSize ?? 10,
-      sort: query.sort ?? '',
-      order: query.order ?? 'desc',
+    meta: {
+      total: meta?.total ?? 0,
+      page: meta?.page ?? 1,
+      pageSize: meta?.pageSize ?? 10,
+      sort: meta?.sort ?? '',
+      order: (meta?.order as 'asc' | 'desc') ?? 'desc',
     },
+    cursor: meta && typeof meta.hasMore === 'boolean'
+      ? {
+          hasMore: meta.hasMore,
+          nextCursor: meta.nextCursor ?? null,
+          limit: meta.limit ?? 0,
+        }
+      : undefined,
   };
 }
 
-/**
- * 关联字段选项（R-019：GET /admin/v1/options/{entity}，上限 1000 行）。
- * 用于关系下拉、关系筛选项与关系列的名称回填。
- */
-/** 下拉搜索：q 为空时按无参查询（后端等价于全量前 limit 行）。 */
-export async function fetchOptionsSearch(
+export async function fetchOne(
   entity: string,
-  params: { q?: string; limit?: number },
+  id: string,
+  signal?: AbortSignal,
+): Promise<RowData> {
+  const payload = await request<RowData>(`/${entity}/${encodeURIComponent(id)}`, { signal });
+  return (payload.data ?? {}) as RowData;
+}
+
+export async function createRow(entity: string, body: RowData): Promise<RowData> {
+  const payload = await request<RowData>(`/${entity}`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+  return (payload.data ?? {}) as RowData;
+}
+
+export async function updateRow(entity: string, id: string, body: RowData): Promise<RowData> {
+  const payload = await request<RowData>(`/${entity}/${encodeURIComponent(id)}`, {
+    method: 'PUT',
+    body: JSON.stringify(body),
+  });
+  return (payload.data ?? {}) as RowData;
+}
+
+export async function deleteRow(entity: string, id: string): Promise<void> {
+  await request<null>(`/${entity}/${encodeURIComponent(id)}`, { method: 'DELETE' });
+}
+
+/** 关联选项：ids 精确回填，q 模糊搜索，二者互斥（服务端约束）。 */
+export async function fetchOptions(
+  entity: string,
+  params: { q?: string; ids?: string[]; limit?: number } = {},
   signal?: AbortSignal,
 ): Promise<OptionItem[]> {
   const search = new URLSearchParams();
-  if (params.q) search.set('q', params.q);
-  if (params.limit) search.set('limit', String(params.limit));
+  if (params.ids?.length) search.set('ids', params.ids.join(','));
+  else {
+    if (params.q) search.set('q', params.q);
+    if (params.limit) search.set('limit', String(params.limit));
+  }
   const suffix = search.toString();
   const payload = await request<OptionItem[]>(
     `/options/${entity}${suffix ? `?${suffix}` : ''}`,
     { signal },
   );
   return Array.isArray(payload.data) ? payload.data : [];
-}
-
-export async function fetchOptions(entity: string, signal?: AbortSignal): Promise<OptionItem[]> {
-  const payload = await request<OptionItem[]>(`/options/${entity}`, { signal });
-  return Array.isArray(payload.data) ? payload.data : [];
-}
-
-
-/**
- * 游标分页列表（分区表）：请求带 `cursor`/`limit`，响应 meta 只有
- * `hasMore`/`nextCursor`/`limit`，**没有 total**（count(*) 会随分区增长退化）。
- */
-export async function fetchCursorPage(
-  path: string,
-  params: URLSearchParams,
-  signal?: AbortSignal,
-): Promise<{ rows: RowData[]; meta: CursorMeta }> {
-  const suffix = params.toString();
-  const payload = await request<RowData[]>(`/${path}${suffix ? `?${suffix}` : ''}`, { signal });
-  const meta = (payload.meta ?? {}) as unknown as CursorMeta;
-  return {
-    rows: Array.isArray(payload.data) ? payload.data : [],
-    meta: {
-      hasMore: Boolean(meta.hasMore),
-      nextCursor: meta.nextCursor ?? null,
-      limit: Number(meta.limit ?? params.get('limit') ?? 0) || 0,
-    },
-  };
-}
-
-export async function fetchOne(entity: string, id: string, signal?: AbortSignal): Promise<RowData> {
-  const payload = await request<RowData>(`/${entity}/${encodeURIComponent(id)}`, { signal });
-  return payload.data ?? {};
-}
-
-export async function createRow(entity: string, body: RowData): Promise<void> {
-  await request<RowData>(`/${entity}`, { method: 'POST', body: JSON.stringify(body) });
-}
-
-export async function updateRow(entity: string, id: string, body: RowData): Promise<void> {
-  await request<RowData>(`/${entity}/${encodeURIComponent(id)}`, {
-    method: 'PUT',
-    body: JSON.stringify(body),
-  });
-}
-
-export async function deleteRow(entity: string, id: string): Promise<void> {
-  await request<null>(`/${entity}/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }
