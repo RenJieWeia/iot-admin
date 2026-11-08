@@ -404,6 +404,9 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
 			{Key: "last_seen_at", Label: "最近上报", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
+			{Key: "online", Label: "在线状态", Type: "boolean", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "boolean", Operators: []string{"eq"}, OptionsSource: "static",
+				Options: onlineOptions, WidthStrategy: "fixed"},
 			{Key: "mqtt_topic", Label: "MQTT 主题", Type: "text", Visible: true, Derived: true,
 				WidthStrategy: "min"},
 			// 用户名就是 gateway_id，列表不重复占列；凭据弹窗里完整展示。

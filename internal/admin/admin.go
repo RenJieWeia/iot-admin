@@ -361,7 +361,7 @@ var Entities = []Entity{
 	// 边缘网关注册表：接入面按 gateway_id 鉴权（未注册/停用直接 403），主键不是 id。
 	{Name: "gateways", Table: "gateway", PKey: "gateway_id",
 		Cols:     []string{"gateway_id", "name", "enabled", "remark"},
-		ReadCols: []string{"created_at", "last_seen_at"},
+		ReadCols: []string{"created_at", "last_seen_at", "online"},
 		ExtraSelect: []string{
 			"'iot/ingest/' || gateway.gateway_id as mqtt_topic",
 			"gateway.gateway_id as mqtt_username",
@@ -416,6 +416,27 @@ func New(pool *pgxpool.Pool) *API {
 }
 
 // invalidate 安全调用失效钩子。
+// SetGatewayOnline 应用 Broker 的上下线事件：离线时同时把该网关下终端置离线。
+func (a *API) SetGatewayOnline(ctx context.Context, gatewayID string, online bool) error {
+	tag, err := a.Pool.Exec(ctx,
+		`update gateway set online = $2, online_at = now() where gateway_id = $1`, gatewayID, online)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return nil
+	}
+	if !online {
+		if _, err := a.Pool.Exec(ctx,
+			`update terminal set online = false
+			 where gateway_id = $1 and deleted_at is null and online`, gatewayID); err != nil {
+			return err
+		}
+	}
+	a.invalidate()
+	return nil
+}
+
 func (a *API) invalidate() {
 	if a.Invalidate != nil {
 		a.Invalidate()

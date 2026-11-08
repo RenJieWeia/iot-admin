@@ -80,6 +80,9 @@ func run(log *slog.Logger) error {
 	}
 
 	adminAPI := admin.New(pool)
+	if err := ingest.SubscribeGatewayStatus(client, adminAPI.SetGatewayOnline, log); err != nil {
+		return err
+	}
 	// 网关注册/注销走 Broker 的开放接口（HTTP），平台不直接改 Broker 的库或配置。
 	if base := env("IOT_BROKER_ADMIN_URL", ""); base != "" {
 		adminAPI.Broker = broker.New(base, env("IOT_BROKER_USERNAME", ""), env("IOT_BROKER_PASSWORD", ""))
