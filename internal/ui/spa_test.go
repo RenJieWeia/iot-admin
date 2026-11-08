@@ -5,74 +5,101 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/fstest"
 )
 
-// SPA 处理器：入口、深链 fallback、资源命中、方法限制。
+func fixtureFS() fstest.MapFS {
+	return fstest.MapFS{
+		"index.html": &fstest.MapFile{
+			Data: []byte(`<!doctype html><html><body><div id="root"></div></body></html>`),
+		},
+		"assets/app-abc123.js": &fstest.MapFile{Data: []byte(`console.log(1)`)},
+	}
+}
+
 func TestSPAHandler(t *testing.T) {
-	h := Handler()
+	h := NewSPAHandler(fixtureFS())
 
 	cases := []struct {
-		name   string
-		method string
-		path   string
-		status int
+		name       string
+		method     string
+		target     string
+		wantStatus int
+		wantBody   string
+		wantCache  string
+		wantType   string
 	}{
-		{name: "入口", method: http.MethodGet, path: "/", status: http.StatusOK},
-		{name: "深链 fallback", method: http.MethodGet, path: "/terminals", status: http.StatusOK},
-		{name: "异常页 fallback", method: http.MethodGet, path: "/exceptions/intervals", status: http.StatusOK},
-		{name: "HEAD 允许", method: http.MethodHead, path: "/", status: http.StatusOK},
-		{name: "POST 拒绝", method: http.MethodPost, path: "/terminals", status: http.StatusMethodNotAllowed},
+		{name: "根路径出入口", method: http.MethodGet, target: "/", wantStatus: http.StatusOK, wantBody: `id="root"`, wantCache: "no-cache", wantType: "text/html; charset=utf-8"},
+		{name: "入口文件", method: http.MethodGet, target: "/index.html", wantStatus: http.StatusOK, wantBody: `id="root"`, wantCache: "no-cache", wantType: "text/html; charset=utf-8"},
+		{name: "深链回退", method: http.MethodGet, target: "/e/terminals", wantStatus: http.StatusOK, wantBody: `id="root"`, wantCache: "no-cache", wantType: "text/html; charset=utf-8"},
+		{name: "哈希资源长缓存", method: http.MethodGet, target: "/assets/app-abc123.js", wantStatus: http.StatusOK, wantBody: "console.log(1)", wantCache: "public, max-age=31536000, immutable"},
+		{name: "缺失资源不回退", method: http.MethodGet, target: "/assets/missing.js", wantStatus: http.StatusNotFound},
+		{name: "favicon 缺失", method: http.MethodGet, target: "/favicon.ico", wantStatus: http.StatusNotFound},
 	}
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			rec := httptest.NewRecorder()
-			h.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.path, nil))
-			if rec.Code != tc.status {
-				t.Fatalf("%s %s → %d，期望 %d", tc.method, tc.path, rec.Code, tc.status)
+			h.ServeHTTP(rec, httptest.NewRequest(tc.method, tc.target, nil))
+			if rec.Code != tc.wantStatus {
+				t.Fatalf("GET %s → %d，期望 %d", tc.target, rec.Code, tc.wantStatus)
 			}
-			if tc.method == http.MethodPost && rec.Header().Get("Allow") == "" {
-				t.Fatalf("405 响应缺少 Allow 头")
+			if tc.wantBody != "" && !strings.Contains(rec.Body.String(), tc.wantBody) {
+				t.Fatalf("GET %s 响应体 = %q，期望包含 %q", tc.target, rec.Body.String(), tc.wantBody)
+			}
+			if tc.wantCache != "" {
+				if got := rec.Header().Get("Cache-Control"); got != tc.wantCache {
+					t.Fatalf("GET %s Cache-Control = %q，期望 %q", tc.target, got, tc.wantCache)
+				}
+			}
+			if tc.wantType != "" {
+				if got := rec.Header().Get("Content-Type"); got != tc.wantType {
+					t.Fatalf("GET %s Content-Type = %q，期望 %q", tc.target, got, tc.wantType)
+				}
 			}
 		})
 	}
 }
 
-// 入口 HTML 不缓存，避免发布后仍拿旧 index；哈希资源长缓存。
-func TestSPACacheControl(t *testing.T) {
-	h := Handler()
+func TestSPAHandlerHeadAndMethod(t *testing.T) {
+	h := NewSPAHandler(fixtureFS())
 
 	rec := httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	if cc := rec.Header().Get("Cache-Control"); cc != "no-cache" {
-		t.Fatalf("入口 Cache-Control = %q，期望 no-cache", cc)
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodHead, "/", nil))
+	if rec.Code != http.StatusOK || rec.Body.Len() != 0 {
+		t.Fatalf("HEAD / → %d，body %d 字节，期望 200 且无 body", rec.Code, rec.Body.Len())
 	}
-
-	index := rec.Body.String()
-	start := strings.Index(index, "assets/")
-	if start < 0 {
-		t.Fatalf("入口 HTML 未引用构建资源")
+	if got := rec.Header().Get("Content-Length"); got == "" {
+		t.Fatal("HEAD / 缺少 Content-Length")
 	}
-	rest := index[start:]
-	end := strings.IndexAny(rest, `"`)
-	if end < 0 {
-		t.Fatalf("入口 HTML 资源引用格式异常")
-	}
-	asset := "/" + rest[:end]
 
 	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, asset, nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET %s → %d，期望 200", asset, rec.Code)
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("POST / → %d，期望 405", rec.Code)
 	}
-	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
-		t.Fatalf("%s Cache-Control = %q，期望 immutable", asset, cc)
+	if got := rec.Header().Get("Allow"); got != "GET, HEAD" {
+		t.Fatalf("POST / Allow = %q，期望 GET, HEAD", got)
 	}
 }
 
-// 产物必须真的含入口文件，否则 embed 常量或构建目录写错。
-func TestEmbeddedDistHasIndex(t *testing.T) {
-	if _, err := distFS.ReadFile("dist/index.html"); err != nil {
-		t.Fatalf("dist/index.html 未入仓: %v", err)
+func TestSPAHandlerMissingIndex(t *testing.T) {
+	h := NewSPAHandler(fstest.MapFS{})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/e/terminals", nil))
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("缺 index.html 时 GET /e/terminals → %d，期望 500", rec.Code)
+	}
+}
+
+// embed 里的 dist 必须能编译进二进制，且入口可出页面（占位或真实构建产物都含 id="root"）。
+func TestEmbeddedHandler(t *testing.T) {
+	rec := httptest.NewRecorder()
+	Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET / → %d，期望 200", rec.Code)
+	}
+	if !strings.Contains(rec.Body.String(), `id="root"`) {
+		t.Fatalf("嵌入的 index.html 不含 id=\"root\"：%q", rec.Body.String())
 	}
 }

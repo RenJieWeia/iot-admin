@@ -2,75 +2,71 @@ package ui
 
 import (
 	"io/fs"
+	"mime"
 	"net/http"
 	"path"
+	"strconv"
 	"strings"
 )
 
-// spaHandler 服务 /ui/*：命中真实文件就原样返回，未命中的路径一律回退 index.html，
-// 交给前端路由（/ui/terminals、/ui/exceptions/events 等深链刷新都能用）。
-type spaHandler struct {
-	dist  fs.FS
-	files http.Handler
+// SPAHandler 从 fsys 根提供静态文件：命中直出，未命中的非资源路径回退 index.html。
+// 资源类路径（assets/ 下或带扩展名）缺失时直接 404，避免前端拿到一页 HTML 当 JS/图片。
+type SPAHandler struct {
+	fsys fs.FS
 }
 
-// Handler 返回管理后台 SPA 的静态处理器（挂到 /ui/ 下，调用方负责 StripPrefix）。
-func Handler() http.Handler {
-	sub, err := fs.Sub(distFS, "dist")
-	if err != nil {
-		// dist 由 //go:embed 固定，取不到说明产物缺失或常量写错：这是构建期错误，直接暴露。
-		panic("ui: 读取嵌入的 SPA 产物失败: " + err.Error())
-	}
-	return &spaHandler{dist: sub, files: http.FileServer(http.FS(sub))}
+// NewSPAHandler 用任意 fs.FS 构造 SPA 处理器（用例里用 fstest.MapFS 驱动）。
+func NewSPAHandler(fsys fs.FS) http.Handler {
+	return &SPAHandler{fsys: fsys}
 }
 
-func (h *spaHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+func (h *SPAHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet && r.Method != http.MethodHead {
 		w.Header().Set("Allow", "GET, HEAD")
 		http.Error(w, "method_not_allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
-	cleaned := path.Clean("/" + r.URL.Path)
-	if cleaned == "/" || cleaned == "/index.html" {
-		h.serveIndex(w, r)
+	name := strings.TrimPrefix(path.Clean("/"+r.URL.Path), "/")
+	if name == "" {
+		name = "index.html"
+	}
+	if data, err := fs.ReadFile(h.fsys, name); err == nil {
+		h.write(w, r, name, data)
 		return
 	}
-	if h.exists(cleaned) {
-		// 带内容哈希的资源可长缓存；其余（如 favicon）交给 FileServer 的默认策略。
-		if strings.HasPrefix(cleaned, "/assets/") {
-			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
-		}
-		h.files.ServeHTTP(w, r)
+	if strings.HasPrefix(name, "assets/") || path.Ext(name) != "" {
+		http.NotFound(w, r)
 		return
 	}
-	h.serveIndex(w, r)
+
+	index, err := fs.ReadFile(h.fsys, "index.html")
+	if err != nil {
+		http.Error(w, "前端产物缺失：先 cd web && npm run build", http.StatusInternalServerError)
+		return
+	}
+	h.write(w, r, "index.html", index)
 }
 
-// exists 判断产物里是否有这个文件（目录不算命中，交给 fallback）。
-func (h *spaHandler) exists(cleaned string) bool {
-	f, err := h.dist.Open(strings.TrimPrefix(cleaned, "/"))
-	if err != nil {
-		return false
+// write 统一打缓存头：哈希资源长缓存 immutable，入口与其它的静态文件每次回源。
+func (h *SPAHandler) write(w http.ResponseWriter, r *http.Request, name string, data []byte) {
+	header := w.Header()
+	if path.Ext(name) == ".html" {
+		header.Set("Content-Type", "text/html; charset=utf-8")
+	} else if contentType := mime.TypeByExtension(path.Ext(name)); contentType != "" {
+		header.Set("Content-Type", contentType)
+	} else {
+		header.Set("Content-Type", "application/octet-stream")
 	}
-	defer func() { _ = f.Close() }()
-	info, err := f.Stat()
-	return err == nil && !info.IsDir()
-}
-
-// serveIndex 直接写入口 HTML：不走 FileServer，避免它对 "/index.html" 做目录重定向（301）。
-// 入口不放缓存，保证发布后立即生效。
-func (h *spaHandler) serveIndex(w http.ResponseWriter, r *http.Request) {
-	page, err := fs.ReadFile(h.dist, "index.html")
-	if err != nil {
-		http.Error(w, "spa_index_missing", http.StatusInternalServerError)
-		return
+	if strings.HasPrefix(name, "assets/") {
+		header.Set("Cache-Control", "public, max-age=31536000, immutable")
+	} else {
+		header.Set("Cache-Control", "no-cache")
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	w.Header().Set("Cache-Control", "no-cache")
-	w.WriteHeader(http.StatusOK)
+	header.Set("Content-Length", strconv.Itoa(len(data)))
 	if r.Method == http.MethodHead {
+		w.WriteHeader(http.StatusOK)
 		return
 	}
-	_, _ = w.Write(page)
+	_, _ = w.Write(data)
 }
