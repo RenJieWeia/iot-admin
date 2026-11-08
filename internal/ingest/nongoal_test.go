@@ -32,6 +32,8 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		"gateway": true,
 		// 0018：快照查询模板（展示配置，不涉及新的报表/权限能力）。
 		"snapshot_query_template": true,
+		// 0022：网关 MQTT 密码密文（凭据展示，不新增报表/权限能力）。
+		"gateway_credential": true,
 		// R-034（task-013）曾新增，收敛后由 0008 删除：补录留痕的版本记录表
 		"snapshot_cell_history": true,
 	}
