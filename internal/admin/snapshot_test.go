@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"regexp"
 	"sort"
 	"strconv"
@@ -573,5 +574,25 @@ func TestThingModelPropertyIDColumnHidden(t *testing.T) {
 		if f.Key == "id" && !f.Visible {
 			t.Fatal("terminals 的 ID 列应保持可见")
 		}
+	}
+}
+
+// 快照计划的档位是主键（不在写白名单 Cols 里），但 _meta 声明它可筛选：
+// filter.granularity 必须能生成 SQL，而不是被当成未知字段 400。
+func TestSnapshotSlotGranularityFilterable(t *testing.T) {
+	e, ok := lookup("snapshot-slots")
+	if !ok {
+		t.Fatal("缺少 snapshot-slots 实体")
+	}
+	qs, err := ParseQueryState(e, url.Values{"filter.granularity": {"hour"}})
+	if err != nil {
+		t.Fatalf("filter.granularity 解析失败: %v", err)
+	}
+	sql, args, err := BuildListQuery(e, qs)
+	if err != nil {
+		t.Fatalf("filter.granularity 生成 SQL 失败: %v", err)
+	}
+	if !strings.Contains(sql, "granularity") || len(args) == 0 {
+		t.Fatalf("SQL 未按档位过滤: %s %v", sql, args)
 	}
 }

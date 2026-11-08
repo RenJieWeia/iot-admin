@@ -339,7 +339,9 @@ func buildWhere(e Entity, qs QueryState) (string, []any, error) {
 
 	for _, flt := range qs.Filters {
 		f, ok := FieldMetaOf(e.Name, flt.Field)
-		if !ok || !hasColumn(e, f.Key) {
+		// 可筛选字段可能是主键（如快照计划的 granularity），它不在写白名单 Cols 里，
+		// 但确实是表上的列，按主键放行。
+		if !ok || !(hasColumn(e, f.Key) || f.Key == e.pk()) {
 			return "", nil, invalidQuery("未知筛选字段 %q", flt.Field)
 		}
 		switch flt.Op {
