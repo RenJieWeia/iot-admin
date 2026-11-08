@@ -39,7 +39,7 @@ var entityLabels = map[string]string{
 
 // entityDescriptions 是各实体页面顶部的说明文案（没有条目的实体不显示说明）。
 var entityDescriptions = map[string]string{
-	"gateways": "注册后才能接入：新增会同步在 Broker 开通收发账号，删除时同步回收；停用的网关在接入面直接拒绝。",
+	"gateways": "只有启用的网关能在 Broker 收发消息：新增时选择启用即在 Broker 建号，停用即注销，删除时一并回收；未启用/未注册的网关在接入面直接拒绝。",
 }
 
 // EntityLabel 返回实体或只读页的中文名；未知名字原样返回，不吞掉新实体。

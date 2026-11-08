@@ -506,9 +506,9 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "empty_body")
 		return
 	}
-	// 网关注册以 Broker 为准：先在 Broker 开通，失败就不写本地行（避免"本地有、Broker 没有"）。
+	// 只有"启用"的网关才在 Broker 注册；新增时先建号，失败就不写本地行。
 	var brokerPassword string
-	if e.Name == "gateways" && a.Broker != nil {
+	if e.Name == "gateways" && a.Broker != nil && gatewayEnabled(body) {
 		password, err := a.Broker.Register(r.Context(), gatewayFromBody(body))
 		if err != nil {
 			writeBrokerError(w, "broker_register_failed", err)
@@ -576,6 +576,33 @@ func (a *API) update(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "empty_body")
 		return
 	}
+	// 网关：启用状态切换时同步 Broker（开→注册，关→注销），其余字段照常只改本地。
+	var brokerPassword string
+	if e.Name == "gateways" && a.Broker != nil {
+		if enabled, ok := body["enabled"].(bool); ok {
+			current, name, err := a.gatewayState(r.Context(), r.PathValue("id"))
+			switch {
+			case err != nil && !errors.Is(err, pgx.ErrNoRows):
+				writeDBError(w, err)
+				return
+			case err == nil && !current && enabled:
+				if raw, ok := body["name"].(string); ok && raw != "" {
+					name = raw
+				}
+				password, err := a.Broker.Register(r.Context(), broker.Gateway{ID: r.PathValue("id"), Name: name})
+				if err != nil {
+					writeBrokerError(w, "broker_register_failed", err)
+					return
+				}
+				brokerPassword = password
+			case err == nil && current && !enabled:
+				if err := a.Broker.Unregister(r.Context(), r.PathValue("id")); err != nil {
+					writeBrokerError(w, "broker_unregister_failed", err)
+					return
+				}
+			}
+		}
+	}
 	sets := make([]string, len(cols))
 	for i, c := range cols {
 		sets[i] = c + " = " + e.placeholder(i+1, c)
@@ -593,6 +620,9 @@ func (a *API) update(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeEntityDBError(w, e, err)
 		return
+	}
+	if brokerPassword != "" && row != nil {
+		row["broker_password"] = brokerPassword
 	}
 	a.invalidate()
 	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: row})
@@ -785,4 +815,22 @@ func gatewayFromBody(body map[string]any) broker.Gateway {
 // 不能假装成功，也不能把它说成数据错误（400）。
 func writeBrokerError(w http.ResponseWriter, code string, err error) {
 	writeError(w, http.StatusBadGateway, code+": "+err.Error())
+}
+
+// gatewayEnabled 读创建请求里的启用状态；缺省按库里默认值 true 处理。
+func gatewayEnabled(body map[string]any) bool {
+	if raw, ok := body["enabled"].(bool); ok {
+		return raw
+	}
+	return true
+}
+
+// gatewayState 读网关当前的启用状态与名称（启用切换时判断是否需要同步 Broker）。
+func (a *API) gatewayState(ctx context.Context, id string) (bool, string, error) {
+	var (
+		enabled bool
+		name    string
+	)
+	err := a.Pool.QueryRow(ctx, `select enabled, name from gateway where gateway_id = $1`, id).Scan(&enabled, &name)
+	return enabled, name, err
 }

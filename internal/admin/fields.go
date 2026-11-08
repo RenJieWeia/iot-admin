@@ -388,7 +388,8 @@ var fieldSets = map[string]fieldSet{
 				Required: true, FilterType: "text", Operators: []string{"eq", "prefix"}, WidthStrategy: "fixed"},
 			{Key: "name", Label: "名称", Type: "text", Visible: true, Sortable: true, Filterable: true,
 				Required: true, FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
-			{Key: "enabled", Label: "启用", Type: "boolean", Visible: true, Sortable: true, Filterable: true,
+			// 启用以开关形式放在列表最后一列（操作栏），不再占一个普通列。
+			{Key: "enabled", Label: "启用", Type: "boolean", Visible: false, Sortable: true, Filterable: true,
 				FilterType: "boolean", Operators: []string{"eq"}, OptionsSource: "static",
 				Options: enabledOptions, WidthStrategy: "fixed"},
 			{Key: "remark", Label: "备注", Type: "text", Visible: true, Sortable: false, Filterable: false,
