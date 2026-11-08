@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { Plus, RotateCw } from 'lucide-react';
 import { fetchList, fetchOne } from '../api/client';
 import type { EntityMeta, RowData } from '../api/types';
@@ -15,22 +15,18 @@ interface DrawerState {
   row: RowData | null;
 }
 
-/** 物模型详情：把「绑定的字段（物模型属性）」与「使用该物模型的终端实例」放在一页。 */
+/** 物模型详情：维护它绑定的字段（物模型属性）；终端实例不在本页展示。 */
 export function DeviceTypeDetailPage() {
   const { id = '' } = useParams();
-  const navigate = useNavigate();
   const meta = useMeta();
   const typeEntity = meta.entities.find((entity) => entity.name === 'thing-models');
   const propertyEntity = (meta.subresources ?? []).find(
     (entity) => entity.name === 'thing-model-properties',
   );
-  const terminalEntity = meta.entities.find((entity) => entity.name === 'terminals');
 
   const [typeRow, setTypeRow] = useState<RowData | null>(null);
   const [properties, setProperties] = useState<RowData[]>([]);
-  const [terminals, setTerminals] = useState<RowData[]>([]);
   const [propertyTotal, setPropertyTotal] = useState(0);
-  const [terminalTotal, setTerminalTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<DrawerState>({ open: false, mode: 'view', row: null });
@@ -42,20 +38,17 @@ export function DeviceTypeDetailPage() {
     setLoading(true);
     setError(null);
     try {
-      const [row, props, terms] = await Promise.all([
+      const [row, props] = await Promise.all([
         fetchOne('thing-models', id),
         fetchList(
           'entity',
           'thing-model-properties',
           new URLSearchParams({ 'filter.type_id': id, pageSize: '100' }),
         ),
-        fetchList('entity', 'terminals', new URLSearchParams({ 'filter.type_id': id, pageSize: '100' })),
       ]);
       setTypeRow(row);
       setProperties(props.rows);
-      setTerminals(terms.rows);
       setPropertyTotal(props.meta.total);
-      setTerminalTotal(terms.meta.total);
     } catch (err) {
       setError(err instanceof Error ? err.message : '物模型详情加载失败');
     } finally {
@@ -72,15 +65,10 @@ export function DeviceTypeDetailPage() {
     () => (propertyEntity?.fields ?? []).filter((field) => field.visible && field.key !== 'type_id'),
     [propertyEntity],
   );
-  const terminalFields = useMemo(
-    () => (terminalEntity?.fields ?? []).filter((field) => field.visible),
-    [terminalEntity],
-  );
-
-  if (!typeEntity || !propertyEntity || !terminalEntity) {
+  if (!typeEntity || !propertyEntity) {
     return (
       <div className="mx-auto max-w-[1400px] px-6 py-5">
-        <EmptyState title="元数据缺失" hint="thing-models / thing-model-properties / terminals 未在 _meta 中下发。" />
+        <EmptyState title="元数据缺失" hint="thing-models / thing-model-properties 未在 _meta 中下发。" />
       </div>
     );
   }
@@ -94,8 +82,7 @@ export function DeviceTypeDetailPage() {
           <p className="text-xs text-muted">管理后台 / 物模型 / 详情</p>
           <h1 className="mt-1 truncate text-xl font-semibold text-fg">{typeName}</h1>
           <p className="mt-1 truncate text-xs text-muted">
-            编码 {typeRow ? String(typeRow.code ?? '—') : '—'} · 绑定字段 {propertyTotal} 个 · 终端实例{' '}
-            {terminalTotal} 台
+            编码 {typeRow ? String(typeRow.code ?? '—') : '—'} · 绑定字段 {propertyTotal} 个
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -150,32 +137,6 @@ export function DeviceTypeDetailPage() {
             />
           </Section>
 
-          <Section
-            className="mt-4"
-            title="终端实例"
-            hint="终端是物模型的实例：同一物模型下终端共享上面这套字段"
-            action={
-              <Link
-                to="/e/terminals"
-                className="inline-flex h-8 items-center rounded-md border border-line px-2.5 text-xs text-fg hover:bg-surface-2"
-              >
-                去终端列表
-              </Link>
-            }
-          >
-            <SimpleTable
-              fields={terminalFields}
-              rows={terminals}
-              loading={loading}
-              empty="这个物模型下还没有终端"
-              onRowClick={(row) => {
-                if (row.id === undefined || row.id === null) return;
-                navigate(`/e/terminals/${String(row.id)}`);
-              }}
-              entityName="terminals"
-            />
-
-          </Section>
         </>
       )}
 
