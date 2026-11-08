@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { ArrowLeft, Plus, RotateCw } from 'lucide-react';
+import { Plus, RotateCw } from 'lucide-react';
 import { fetchList, fetchOne } from '../api/client';
 import type { EntityMeta, RowData } from '../api/types';
 import { FieldValue } from '../components/FieldValue';
@@ -84,16 +84,11 @@ export function DeviceTypeDetailPage() {
 
   return (
     <div className="mx-auto max-w-[1400px] px-6 py-5">
-      <Link to="/e/device-types" className="inline-flex items-center gap-1 text-xs text-muted hover:text-fg">
-        <ArrowLeft className="size-3.5" aria-hidden />
-        返回终端类型
-      </Link>
-
-      <div className="mt-2 flex flex-wrap items-end justify-between gap-3">
+      <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
           <p className="text-xs text-muted">管理后台 / 终端类型 / 详情</p>
           <h1 className="mt-1 truncate text-xl font-semibold text-fg">{typeName}</h1>
-          <p className="mt-1 text-xs text-muted">
+          <p className="mt-1 truncate text-xs text-muted">
             编码 {typeRow ? String(typeRow.code ?? '—') : '—'} · 绑定字段 {properties.length} 个 · 终端实例{' '}
             {terminals.length} 台
           </p>

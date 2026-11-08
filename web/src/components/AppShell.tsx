@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
-import { Cpu, Menu, Moon, Sun } from 'lucide-react';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { ArrowLeft, Cpu, Menu, Moon, Sun } from 'lucide-react';
 import type { MetaPayload } from '../api/types';
 import { cn } from '../lib/cn';
 import { useMeta } from '../meta';
@@ -78,19 +78,16 @@ export function applyStoredTheme() {
 export function AppShell() {
   const meta = useMeta();
   const { pathname } = useLocation();
+  const navigate = useNavigate();
   const [navOpen, setNavOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(readTheme);
 
   const sections = useMemo(() => navSections(meta), [meta]);
-  const title = useMemo(() => {
-    const items = sections.flatMap((s) => s.items);
-    // 详情页（如 /e/device-types/1）按前缀归到所属导航项。
-    return (
-      items.find((item) => item.to === pathname)?.label ??
-      items.find((item) => pathname.startsWith(item.to + '/'))?.label ??
-      '控制台'
-    );
-  }, [sections, pathname]);
+  // 详情页（如 /e/device-types/1）的父级导航项：顶栏据此渲染"返回"。
+  const parent = useMemo(
+    () => sections.flatMap((s) => s.items).find((item) => pathname.startsWith(item.to + '/')),
+    [sections, pathname],
+  );
 
   useEffect(() => applyTheme(theme), [theme]);
   useEffect(() => setNavOpen(false), [pathname]);
@@ -169,7 +166,18 @@ export function AppShell() {
           >
             <Menu className="size-4" aria-hidden />
           </button>
-          <h1 className="min-w-0 truncate text-sm font-medium">{title}</h1>
+          {parent ? (
+            <button
+              type="button"
+              onClick={() => navigate(parent.to)}
+              aria-label={`返回${parent.label}`}
+              title={`返回${parent.label}`}
+              className="inline-flex h-8 items-center gap-1 rounded-md px-2 text-sm text-muted hover:bg-neutral-soft hover:text-fg"
+            >
+              <ArrowLeft className="size-4" aria-hidden />
+              返回
+            </button>
+          ) : null}
           <button
             type="button"
             className="ml-auto rounded-md p-1.5 text-muted hover:bg-neutral-soft hover:text-fg"

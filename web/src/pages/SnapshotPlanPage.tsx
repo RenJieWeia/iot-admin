@@ -123,7 +123,7 @@ export function SnapshotPlanPage() {
         <div className="min-w-0">
           <p className="text-xs text-muted">管理后台 / 快照</p>
           <h1 className="mt-1 truncate text-xl font-semibold text-fg">快照计划</h1>
-          <p className="mt-1 text-xs text-muted">
+          <p className="mt-1 truncate text-xs text-muted">
             小时 / 日 / 月 / 年四档按自然边界出快照，步长固定 1 个自然单位；已启用{' '}
             {enabledCoarse}/{COARSE.length} 档
           </p>
