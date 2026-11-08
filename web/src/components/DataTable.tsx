@@ -124,7 +124,7 @@ export function DataTable({
             {renderActions ? (
               <th
                 scope="col"
-                className={cn('sticky right-0 z-10 border-b border-l border-line bg-surface-2 text-right font-medium', cellPad)}
+                className={cn('sticky right-0 z-10 w-28 min-w-28 border-b border-l border-line bg-surface-2 text-right font-medium whitespace-nowrap', cellPad)}
               >
                 操作
               </th>
@@ -214,7 +214,7 @@ export function DataTable({
                   })}
                   {renderActions ? (
                     <td
-                      className={cn('sticky right-0 z-10 border-l border-line bg-surface align-middle', cellPad)}
+                      className={cn('sticky right-0 z-10 w-28 min-w-28 border-l border-line bg-surface align-middle whitespace-nowrap', cellPad)}
                       onClick={(event) => event.stopPropagation()}
                     >
                       <div className="flex justify-end">{renderActions(row)}</div>
