@@ -220,6 +220,18 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
   }, [selection, list.rows]);
 
   const clearSelection = () => setSelection(null);
+
+  // 选中状态下按 Esc 取消选择；右键菜单/对话框打开时先交给它们自己处理。
+  useEffect(() => {
+    if (!selection) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      if (rowMenu || pendingDelete || pendingBatchDelete || batchResult) return;
+      clearSelection();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selection, rowMenu, pendingDelete, pendingBatchDelete, batchResult]);
   const toggleSelect = (row: RowData) => {
     const key = rowKey(row);
     setSelection((current) => {
