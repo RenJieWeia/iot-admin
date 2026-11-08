@@ -16,6 +16,7 @@ import { CursorPager } from '../components/CursorPager';
 import { EmptyState } from '../components/States';
 import { RecordDrawer } from '../components/RecordDrawer';
 import { GatewayEnabledSwitch } from '../components/GatewayEnabledSwitch';
+import { TerminalEnabledSwitch } from '../components/TerminalEnabledSwitch';
 import { CardGrid } from '../components/CardGrid';
 import { readDensity, readViewMode, writeDensity, writeViewMode } from '../lib/viewPrefs';
 import type { CardDensity, ViewMode } from '../lib/viewPrefs';
@@ -145,7 +146,9 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
   const rowActions =
     kind === 'entity' && page.name === 'gateways'
       ? (row: RowData) => <GatewayEnabledSwitch row={row} onSaved={list.reload} />
-      : undefined;
+      : kind === 'entity' && page.name === 'terminals'
+        ? (row: RowData) => <TerminalEnabledSwitch row={row} onSaved={list.reload} />
+        : undefined;
   const sortLabel = query.sort
     ? (page.fields.find((field) => field.key === query.sort)?.label ?? query.sort)
     : '默认';

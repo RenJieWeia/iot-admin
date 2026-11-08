@@ -5,6 +5,7 @@ import { fetchList, fetchOne } from '../api/client';
 import type { EntityMeta, MetaPayload, RowData } from '../api/types';
 import { FieldValue } from '../components/FieldValue';
 import { RecordDrawer } from '../components/RecordDrawer';
+import { TerminalEnabledSwitch } from '../components/TerminalEnabledSwitch';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
 import { cn } from '../lib/cn';
 import { isBlank } from '../lib/format';
@@ -108,6 +109,7 @@ export function TerminalDetailPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          {terminal ? <TerminalEnabledSwitch row={terminal} onSaved={() => void load()} /> : null}
           <button
             type="button"
             onClick={() => setDrawerOpen(true)}
