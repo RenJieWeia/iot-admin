@@ -134,23 +134,8 @@ func stepOptions(unit string, values ...string) []Option {
 	return out
 }
 
-var (
-	secondStepOptions = stepOptions("秒", "1", "2", "3", "4", "5", "6", "10", "12", "15", "20", "30")
-	minuteStepOptions = stepOptions("分", "1", "2", "3", "4", "5", "6", "10", "12", "15", "20", "30")
-	hourStepOptions   = stepOptions("时", "1", "2", "3", "4", "6", "8", "12")
-	dayStepOptions    = stepOptions("日", "1")
-	monthStepOptions  = stepOptions("月", "1", "2", "3", "4", "6", "12")
-	yearStepOptions   = stepOptions("年", "1")
-)
-
-// snapshotStepField 生成一个档位步长字段（enum + 静态选项）。
-func snapshotStepField(key, label string, options []Option) FieldMeta {
-	return FieldMeta{
-		Key: key, Label: label, Type: "enum", Visible: true, Sortable: false, Filterable: true,
-		FilterType: "multiSelect", Operators: []string{"in"}, OptionsSource: "static",
-		Options: options, WidthStrategy: "fixed",
-	}
-}
+// minuteStepOptions 是分钟档的倍数步长（快照只剩这一档需要步长下拉）。
+var minuteStepOptions = stepOptions("分", "1", "2", "3", "4", "5", "6", "10", "12", "15", "20", "30")
 
 // snapshotEnabledField 生成一个档位启用字段（boolean）。
 func snapshotEnabledField(key, label string) FieldMeta {
@@ -206,12 +191,18 @@ var segmentStartField = FieldMeta{
 	FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min",
 }
 
-// snapshotGranularityOptions 是粗表的四档（与迁移 0010 的 CHECK 闭集一致）。
+// snapshotGranularityOptions 是快照数据页的档位闭集（时/日/月/年，与 0010 的 CHECK 一致）。
 var snapshotGranularityOptions = []Option{
 	{Value: "hour", Label: "小时", Tone: "neutral"},
 	{Value: "day", Label: "日", Tone: "neutral"},
 	{Value: "month", Label: "月", Tone: "neutral"},
 	{Value: "year", Label: "年", Tone: "neutral"},
+}
+
+// snapshotSlotOptions 是「快照计划」配置页的两行：快照（统管四档）+ 分钟档。
+var snapshotSlotOptions = []Option{
+	{Value: "snapshot", Label: "快照", Tone: "neutral"},
+	{Value: "minute", Label: "分钟", Tone: "neutral"},
 }
 
 // granularityField 是粗表的档位列（分表/秒表各自只有一档，没有这一列）。
@@ -366,17 +357,16 @@ var fieldSets = map[string]fieldSet{
 	// 只读源只剩「最新值」：公共 8 列由 runtimeCommonFields 提供。
 	"latest-values": {fields: runtimeCommonFields()},
 	// 快照三页：游标分页（不报总数），字段与三张表真实列一致；粗表含档位列。
-	"snapshot-coarse": {fields: snapshotFields(true)},
+	"snapshot": {fields: snapshotFields(true)},
 	"snapshot-minute": {fields: snapshotFields(false)},
-	"snapshot-second": {fields: snapshotFields(false)},
-	// 全局六档配置：六行固定（主键 granularity），只能改 enabled / step。
+		// 全局六档配置：六行固定（主键 granularity），只能改 enabled / step。
 	// step 不挂枚举：白名单按档位不同（秒/分最多 30；小时/日/月/年固定 1，即每自然单位一份），
 	// 逐档选项由 Go 侧 Validate 兜底并给出可读原因；_meta.enums 里仍下发六档步长字典供前端复用。
 	"snapshot-slots": {
 		fields: []FieldMeta{
 			{Key: "granularity", Label: "档位", Type: "enum", Visible: true, Sortable: true, Required: true,
 				Filterable: true, FilterType: "multiSelect", Operators: []string{"in"}, OptionsSource: "static",
-				Options: snapshotGranularityOptions, WidthStrategy: "min"},
+				Options: snapshotSlotOptions, WidthStrategy: "min"},
 			{Key: "enabled", Label: "启用", Type: "boolean", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "boolean", Operators: []string{"eq"}, OptionsSource: "static", Options: enabledOptions,
 				WidthStrategy: "fixed"},

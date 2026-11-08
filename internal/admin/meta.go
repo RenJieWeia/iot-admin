@@ -32,10 +32,9 @@ var entityLabels = map[string]string{
 	"latest-values":          "最新值",
 	// 三个快照存储：导航里由前端按 snapshot- 前缀合并成一项「快照」，
 	// 页面内的「存储」切换用这里的标题（粗表要连档位一起说清，否则用户不知道能筛档）。
-	"snapshot-coarse": "快照 · 时/日/月/年",
+	"snapshot": "快照",
 	"snapshot-minute": "快照 · 分钟",
-	"snapshot-second": "快照 · 秒",
-}
+	}
 
 // entityDescriptions 是各实体页面顶部的说明文案（没有条目的实体不显示说明）。
 var entityDescriptions = map[string]string{
@@ -251,18 +250,13 @@ func labelKeyOf(entity string) string {
 	return "id"
 }
 
-// enumDictionaries 下发静态枚举字典（value_type / rule_type / 六档步长），文案仍以 fields.go 为准。
-// 步长字典的 key 与字段名一致（second_step…year_step），前端下拉直接按字段名取。
+// enumDictionaries 下发静态枚举字典（value_type / rule_type / 分钟步长）。
+// 快照只剩分钟档需要步长下拉（时/日/月/年合并后步长固定 1），文案仍以 fields.go 为准。
 func enumDictionaries() map[string]map[string]string {
 	return map[string]map[string]string{
 		"value_type":  optionLabels(valueTypeOptions),
 		"rule_type":   optionLabels(ruleTypeOptions),
-		"second_step": optionLabels(secondStepOptions),
 		"minute_step": optionLabels(minuteStepOptions),
-		"hour_step":   optionLabels(hourStepOptions),
-		"day_step":    optionLabels(dayStepOptions),
-		"month_step":  optionLabels(monthStepOptions),
-		"year_step":   optionLabels(yearStepOptions),
 	}
 }
 

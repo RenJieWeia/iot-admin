@@ -286,8 +286,8 @@ func TestMetaFieldShape(t *testing.T) {
 			sections = append(sections, item)
 		}
 	}
-	if len(sections) != 14 {
-		t.Fatalf("元数据段数 = %d，期望 6 导航实体 + 3 子资源 + 1 异常页 + 4 只读源（最新值 + 三张快照）", len(sections))
+	if len(sections) != 13 {
+		t.Fatalf("元数据段数 = %d，期望 6 导航实体 + 3 子资源 + 1 异常页 + 3 只读源（最新值 + 快照 + 分钟）", len(sections))
 	}
 }
 
@@ -399,9 +399,7 @@ func TestMetaDictionaries(t *testing.T) {
 	}
 	wantEnums := map[string][]Option{
 		"value_type": valueTypeOptions, "rule_type": ruleTypeOptions,
-		"second_step": secondStepOptions, "minute_step": minuteStepOptions,
-		"hour_step": hourStepOptions, "day_step": dayStepOptions,
-		"month_step": monthStepOptions, "year_step": yearStepOptions,
+		"minute_step": minuteStepOptions,
 	}
 	if len(enums) != len(wantEnums) {
 		t.Fatalf("enums 字典 = %v，期望只有 %d 张", enums, len(wantEnums))

@@ -18,37 +18,23 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// 六档步长白名单必须与 0013 的 CHECK 约束同源：改迁移不改这里（或反之）测试会红。
+// 分钟档步长白名单必须与 0017 的 CHECK 约束同源：改迁移不改这里（或反之）测试会红。
 func TestSnapshotStepOptionsMatchDDL(t *testing.T) {
-	ddl := string(mustReadMigrations(t, "0013_snapshot_slots_and_bindings.sql"))
-	// 0013 是单列 step + CASE：when '<档>' then step is null or step in (...)，日/年为 step = 1。
-	found := 0
-	for _, g := range []string{"second", "minute", "hour", "month"} {
-		re := regexp.MustCompile(`when '` + g + `'\s+then step is null or step in \(([^)]*)\)`)
-		m := re.FindStringSubmatch(ddl)
-		if m == nil {
-			t.Fatalf("0013 里没有 %s 档的步长白名单 CHECK", g)
-		}
-		found++
-		have := optionValues(stepOptionsOf(g + "_step"))
-		for _, token := range strings.Split(m[1], ",") {
-			token = strings.TrimSpace(token)
-			if !contains(have, token) {
-				t.Fatalf("%s 档的 DDL 白名单包含 %q，但后台下拉没有该选项", g, token)
-			}
+	ddl := string(mustReadMigrations(t, "0017_snapshot_merge_levels.sql"))
+	re := regexp.MustCompile(`granularity = 'minute' and \(step is null or step in \(([^)]*)\)\)`)
+	m := re.FindStringSubmatch(ddl)
+	if m == nil {
+		t.Fatal("0017 里没有分钟档的步长白名单 CHECK")
+	}
+	have := optionValues(stepOptionsOf("minute_step"))
+	for _, token := range strings.Split(m[1], ",") {
+		token = strings.TrimSpace(token)
+		if !contains(have, token) {
+			t.Fatalf("分钟档 DDL 白名单包含 %q，但后台下拉没有该选项", token)
 		}
 	}
-	if found != 4 {
-		t.Fatalf("解析到 %d 组白名单，期望 4（秒/分/时/月）", found)
-	}
-	for _, g := range []string{"day", "year"} {
-		re := regexp.MustCompile(`when '` + g + `'\s+then step is null or step = 1`)
-		if !re.MatchString(ddl) {
-			t.Fatalf("0013 里 %s 档的 CHECK 不是 step = 1", g)
-		}
-		if v := optionValues(stepOptionsOf(g + "_step")); len(v) != 1 || v[0] != "1" {
-			t.Fatalf("%s_step 选项 = %v，期望 [1]", g, v)
-		}
+	if len(have) == 0 {
+		t.Fatal("minute_step 选项为空")
 	}
 }
 
@@ -73,8 +59,8 @@ func TestSnapshotSlotEntityShape(t *testing.T) {
 	for _, f := range fields {
 		byKey[f.Key] = f
 	}
-	if g := byKey["granularity"]; g.Type != "enum" || !g.Required || g.Editable || len(g.Options) != 4 {
-		t.Fatalf("granularity 字段不符（应为不可编辑的 4 值枚举）: %+v", g)
+	if g := byKey["granularity"]; g.Type != "enum" || !g.Required || g.Editable || len(g.Options) != 2 {
+		t.Fatalf("granularity 字段不符（应为不可编辑的快照/分钟两值枚举）: %+v", g)
 	}
 	if en := byKey["enabled"]; en.Type != "boolean" || !en.Editable {
 		t.Fatalf("enabled 字段不符: %+v", en)
@@ -108,26 +94,16 @@ func TestSnapshotSlotStepWhitelist(t *testing.T) {
 	handler := New(nil).Handler() // nil pool：非法步长在碰库之前就被拒
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut,
-		"/admin/v1/snapshot-slots/hour", strings.NewReader(`{"step":5}`)))
+		"/admin/v1/snapshot-slots/minute", strings.NewReader(`{"step":7}`)))
 	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "步长") {
-		t.Fatalf("hour 档 step=5 应 400，实际 %d %s", rec.Code, rec.Body.String())
+		t.Fatalf("分钟档 step=7 应 400，实际 %d %s", rec.Code, rec.Body.String())
 	}
+	// 快照（时/日/月/年）步长固定 1：给 2 必须拒绝。
 	rec = httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut,
-		"/admin/v1/snapshot-slots/day", strings.NewReader(`{"step":"2"}`)))
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("day 档 step=2 应 400，实际 %d %s", rec.Code, rec.Body.String())
-	}
-	// 粗档只允许自然单位步长：hour=2、month=2 都必须拒绝。
-	for _, tc := range []struct{ path, body string }{
-		{"/admin/v1/snapshot-slots/hour", `{"step":2}`},
-		{"/admin/v1/snapshot-slots/month", `{"step":2}`},
-	} {
-		rec = httptest.NewRecorder()
-		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, tc.path, strings.NewReader(tc.body)))
-		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "步长") {
-			t.Fatalf("%s %s 应 400，实际 %d %s", tc.path, tc.body, rec.Code, rec.Body.String())
-		}
+		"/admin/v1/snapshot-slots/snapshot", strings.NewReader(`{"step":2}`)))
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "步长") {
+		t.Fatalf("快照档 step=2 应 400，实际 %d %s", rec.Code, rec.Body.String())
 	}
 }
 

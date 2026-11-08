@@ -20,8 +20,8 @@ import (
 // 小时级历史下线后（0009）只读源只剩「最新值」一页。
 func TestReadonlyPagesShape(t *testing.T) {
 	pages := ReadonlyPages()
-	if len(pages) != 4 {
-		t.Fatalf("只读页数 = %d，期望 4（最新值 + 三张快照）", len(pages))
+	if len(pages) != 3 {
+		t.Fatalf("只读页数 = %d，期望 3（最新值 + 快照 + 分钟）", len(pages))
 	}
 	p := pages[0]
 	if p.Slot != "latest-values" || p.Entity.Name != "latest-values" ||
@@ -38,19 +38,16 @@ func TestReadonlyPagesShape(t *testing.T) {
 			t.Fatalf("latest-values 第 %d 列 = %q，期望 %q", i, p.Entity.Cols[i], c)
 		}
 	}
-	// 三张快照页：游标分页，列与真实表一致（粗表多一列 granularity）。
+	// 两张快照页：游标分页，列与真实表一致（「快照」页多一列 granularity）。
 	wantSnapshot := []struct {
 		slot  string
 		table string
 		cols  []string
 	}{
-		{"snapshot-coarse", "snapshot_coarse", []string{
+		{"snapshot", "snapshot_coarse", []string{
 			"terminal_id", "item_code", "granularity", "segment_start", "value_num", "value_text",
 			"unit", "value_time", "quality", "quality_reason", "revision", "updated_at"}},
 		{"snapshot-minute", "snapshot_minute", []string{
-			"terminal_id", "item_code", "segment_start", "value_num", "value_text",
-			"unit", "value_time", "quality", "quality_reason", "revision", "updated_at"}},
-		{"snapshot-second", "snapshot_second", []string{
 			"terminal_id", "item_code", "segment_start", "value_num", "value_text",
 			"unit", "value_time", "quality", "quality_reason", "revision", "updated_at"}},
 	}
@@ -117,8 +114,8 @@ func TestReadonlyRouteWhitelist(t *testing.T) {
 // _meta.readonly：只剩 1 项 8 字段，quality 带 8 种组合；exceptions 段保持 2 项（防回归）。
 func TestMetaReadonlySection(t *testing.T) {
 	payload := BuildMeta()
-	if len(payload.Readonly) != 4 {
-		t.Fatalf("readonly 段 = %d 项，期望 4（最新值 + 三张快照）", len(payload.Readonly))
+	if len(payload.Readonly) != 3 {
+		t.Fatalf("readonly 段 = %d 项，期望 3（最新值 + 快照 + 分钟）", len(payload.Readonly))
 	}
 	var latest MetaReadonly
 	// 三张快照页必须是 cursor 分页（分区表不报总数）。
@@ -127,12 +124,12 @@ func TestMetaReadonlySection(t *testing.T) {
 		if p.Slot == "latest-values" {
 			latest = p
 		}
-		if strings.HasPrefix(p.Slot, "snapshot-") && p.Pagination == PaginationCursor {
+		if strings.HasPrefix(p.Slot, "snapshot") && p.Pagination == PaginationCursor {
 			cursors++
 		}
 	}
-	if cursors != 3 {
-		t.Fatalf("快照页 cursor 分页数 = %d，期望 3", cursors)
+	if cursors != 2 {
+		t.Fatalf("快照页 cursor 分页数 = %d，期望 2", cursors)
 	}
 	page := latest
 	if page.Slot != "latest-values" || page.Title != "最新值" || !page.ReadOnly ||
@@ -173,7 +170,7 @@ func TestMetaReadonlyWorksWithoutPool(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("响应不是合法 JSON: %v", err)
 	}
-	if len(resp.Data.Readonly) != 4 || resp.Data.Readonly[0].Slot != "latest-values" {
+	if len(resp.Data.Readonly) != 3 || resp.Data.Readonly[0].Slot != "latest-values" {
 		t.Fatalf("readonly 段不符: %+v", resp.Data.Readonly)
 	}
 }
@@ -395,7 +392,7 @@ func TestSnapshotReadonlyWithDB(t *testing.T) {
 		if cursor != "" {
 			raw += "&cursor=" + url.QueryEscape(cursor)
 		}
-		p := fetch("snapshot-coarse", raw)
+		p := fetch("snapshot", raw)
 		if len(p.Rows) == 0 {
 			t.Fatalf("第 %d 页不应为空", i+1)
 		}
@@ -421,7 +418,7 @@ func TestSnapshotReadonlyWithDB(t *testing.T) {
 	}
 
 	// 2) 粗表按档位筛选：granularity=hour 只有 3 行。
-	hours := fetch("snapshot-coarse", terminalFilter+"&filter.granularity=hour&limit=10")
+	hours := fetch("snapshot", terminalFilter+"&filter.granularity=hour&limit=10")
 	if len(hours.Rows) != 3 || hours.HasMore {
 		t.Fatalf("granularity=hour 行数 = %d hasMore=%v，期望 3/false", len(hours.Rows), hours.HasMore)
 	}
@@ -432,7 +429,7 @@ func TestSnapshotReadonlyWithDB(t *testing.T) {
 	}
 
 	// 3) 分表 / 秒表各 2 行，limit=1 时 hasMore=true。
-	for _, slot := range []string{"snapshot-minute", "snapshot-second"} {
+	for _, slot := range []string{"snapshot-minute", "snapshot"} {
 		p := fetch(slot, terminalFilter+"&limit=1")
 		if len(p.Rows) != 1 || !p.HasMore || p.Cursor == "" {
 			t.Fatalf("%s 首页 rows=%d hasMore=%v cursor=%q", slot, len(p.Rows), p.HasMore, p.Cursor)
@@ -444,7 +441,7 @@ func TestSnapshotReadonlyWithDB(t *testing.T) {
 	}
 
 	// 4) 空结果是正常空态：分区被保留期清掉后查不到数据不是错误。
-	empty := fetch("snapshot-second", "filter.terminal_id.eq="+url.QueryEscape("no-such-terminal"))
+	empty := fetch("snapshot", "filter.terminal_id.eq="+url.QueryEscape("no-such-terminal"))
 	if len(empty.Rows) != 0 || empty.HasMore || empty.Cursor != "" {
 		t.Fatalf("空结果应为空数组 + hasMore=false，实际 %+v", empty)
 	}
@@ -453,7 +450,7 @@ func TestSnapshotReadonlyWithDB(t *testing.T) {
 	for _, raw := range []string{"cursor=!!!", "sort=segment_start", "order=asc"} {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet,
-			"/admin/v1/readonly/snapshot-coarse?"+raw, nil))
+			"/admin/v1/readonly/snapshot?"+raw, nil))
 		if rec.Code != http.StatusBadRequest {
 			t.Fatalf("%s = %d，期望 400: %s", raw, rec.Code, rec.Body.String())
 		}

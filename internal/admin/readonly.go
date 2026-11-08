@@ -7,11 +7,10 @@ import "net/http"
 //
 // 只读源：
 //   - latest-values    latest_value      offset 分页（行数受「终端 × 数据项」约束）
-//   - snapshot-coarse  snapshot_coarse   游标分页（时/日/月/年四档，含 granularity 列）
+//   - snapshot         snapshot_coarse   游标分页（时/日/月/年统一为「快照」，含 granularity 列）
 //   - snapshot-minute  snapshot_minute   游标分页
-//   - snapshot-second  snapshot_second   游标分页
 //
-// 快照三页都是分区表：count(*) 会随存活分区数退化，因此只做游标分页、不报总数；
+// 两张快照表都是分区表：count(*) 会随存活分区数退化，因此只做游标分页、不报总数；
 // 保留期把老分区 DROP 之后查不到数据 = 正常空结果（不是错误）。
 //
 // 分页方式由 Pagination 显式声明并随 _meta.readonly[].pagination 下发。
@@ -27,11 +26,10 @@ const (
 	PaginationCursor = "cursor"
 )
 
-// 快照三档的 URL 段（前端在一页里按 slot 切换存储，后端各给一份字段元数据）。
+// 快照只读页的 URL 段：时/日/月/年合并为「快照」一页，分钟档一页；秒档已随 0017 下线。
 const (
-	SlotSnapshotCoarse = "snapshot-coarse"
+	SlotSnapshot       = "snapshot"
 	SlotSnapshotMinute = "snapshot-minute"
-	SlotSnapshotSecond = "snapshot-second"
 )
 
 var readonlyPages = []ReadonlyPage{
@@ -48,9 +46,9 @@ var readonlyPages = []ReadonlyPage{
 		Pagination: PaginationOffset,
 	},
 	{
-		Slot: SlotSnapshotCoarse,
+		Slot: SlotSnapshot,
 		Entity: Entity{
-			Name:  "snapshot-coarse",
+			Name:  "snapshot",
 			Table: "snapshot_coarse",
 			Cols: []string{
 				"terminal_id", "item_code", "granularity", "segment_start",
@@ -65,19 +63,6 @@ var readonlyPages = []ReadonlyPage{
 		Entity: Entity{
 			Name:  "snapshot-minute",
 			Table: "snapshot_minute",
-			Cols: []string{
-				"terminal_id", "item_code", "segment_start",
-				"value_num", "value_text", "unit", "value_time", "quality", "quality_reason",
-				"revision", "updated_at",
-			},
-		},
-		Pagination: PaginationCursor,
-	},
-	{
-		Slot: SlotSnapshotSecond,
-		Entity: Entity{
-			Name:  "snapshot-second",
-			Table: "snapshot_second",
 			Cols: []string{
 				"terminal_id", "item_code", "segment_start",
 				"value_num", "value_text", "unit", "value_time", "quality", "quality_reason",

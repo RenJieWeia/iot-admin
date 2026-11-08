@@ -185,7 +185,7 @@ type snapshotCursorResponse struct {
 
 // writeSnapshotList 处理 snapshot-* 三个只读 slot 的游标分页请求。
 func (a *API) writeSnapshotList(w http.ResponseWriter, r *http.Request, page ReadonlyPage) {
-	withGranularity := page.Slot == SlotSnapshotCoarse
+	withGranularity := page.Slot == SlotSnapshot
 	qs, err := ParseQueryState(page.Entity, r.URL.Query())
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
