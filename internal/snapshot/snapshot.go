@@ -32,13 +32,16 @@ var AllGranularities = []Granularity{Second, Minute, Hour, Day, Month, Year}
 // GracePeriod 是每档的迟到宽限：段结束 + 15 分钟内仍可写。
 const GracePeriod = 15 * time.Minute
 
-// 步长白名单：必须与 migrations/0010 的 CHECK 约束逐项一致（DB 是最后一道，服务层先返回 400）。
+// 步长白名单：必须与 migrations/0015 的 CHECK 约束逐项一致（DB 是最后一道，服务层先返回 400）。
+//
+// 粗档（小时/日/月/年）只按自然边界出快照：步长固定 1 个自然单位，
+// 不再支持"每 2 小时/每 3 个月"这类倍数聚合；秒/分档仍保留倍数步长。
 var stepWhitelist = map[Granularity][]int{
 	Second: {1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30},
 	Minute: {1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30},
-	Hour:   {1, 2, 3, 4, 6, 8, 12},
+	Hour:   {1},
 	Day:    {1},
-	Month:  {1, 2, 3, 4, 6, 12},
+	Month:  {1},
 	Year:   {1},
 }
 

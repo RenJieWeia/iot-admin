@@ -82,8 +82,8 @@ func TestValidate(t *testing.T) {
 		step int
 	}{
 		{snapshot.Second, 1}, {snapshot.Second, 30},
-		{snapshot.Minute, 20}, {snapshot.Hour, 8}, {snapshot.Day, 1},
-		{snapshot.Month, 12}, {snapshot.Year, 1},
+		{snapshot.Minute, 20}, {snapshot.Hour, 1}, {snapshot.Day, 1},
+		{snapshot.Month, 1}, {snapshot.Year, 1},
 	}
 	for _, c := range ok {
 		if err := snapshot.Validate(c.step, c.g); err != nil {
@@ -95,7 +95,8 @@ func TestValidate(t *testing.T) {
 		step int
 	}{
 		{snapshot.Second, 7}, {snapshot.Minute, 60}, {snapshot.Hour, 5},
-		{snapshot.Day, 2}, {snapshot.Month, 5}, {snapshot.Year, 2},
+		{snapshot.Hour, 2}, {snapshot.Day, 2}, {snapshot.Month, 5}, {snapshot.Month, 12},
+		{snapshot.Year, 2},
 		{snapshot.Granularity("week"), 1},
 	}
 	for _, c := range bad {

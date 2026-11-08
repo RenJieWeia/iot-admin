@@ -117,6 +117,17 @@ func TestSnapshotSlotStepWhitelist(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("day 档 step=2 应 400，实际 %d %s", rec.Code, rec.Body.String())
 	}
+	// 粗档只允许自然单位步长：hour=2、month=2 都必须拒绝。
+	for _, tc := range []struct{ path, body string }{
+		{"/admin/v1/snapshot-slots/hour", `{"step":2}`},
+		{"/admin/v1/snapshot-slots/month", `{"step":2}`},
+	} {
+		rec = httptest.NewRecorder()
+		handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, tc.path, strings.NewReader(tc.body)))
+		if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "步长") {
+			t.Fatalf("%s %s 应 400，实际 %d %s", tc.path, tc.body, rec.Code, rec.Body.String())
+		}
+	}
 }
 
 // 绑定实体：不进导航（Hidden），可增删，item_codes 是 jsonb 数组，列表带派生列「字段数」。

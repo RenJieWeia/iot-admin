@@ -365,7 +365,7 @@ var fieldSets = map[string]fieldSet{
 	"snapshot-minute": {fields: snapshotFields(false)},
 	"snapshot-second": {fields: snapshotFields(false)},
 	// 全局六档配置：六行固定（主键 granularity），只能改 enabled / step。
-	// step 不挂枚举：白名单按档位不同（秒/分最多 30、时最多 12、日/年只有 1），
+	// step 不挂枚举：白名单按档位不同（秒/分最多 30；小时/日/月/年固定 1，即每自然单位一份），
 	// 逐档选项由 Go 侧 Validate 兜底并给出可读原因；_meta.enums 里仍下发六档步长字典供前端复用。
 	"snapshot-slots": {
 		fields: []FieldMeta{
