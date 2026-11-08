@@ -491,25 +491,32 @@ export function FilterBar({ fields, query, onChange }: FilterBarProps) {
           </button>
         ) : null}
 
-        {dirty ? (
-          <button
-            type="button"
-            onClick={() => {
-              setSearch('');
-              onChange({ ...query, q: '', filters: [], page: 1 });
-            }}
-            className="ml-auto inline-flex h-9 items-center rounded-md px-2 text-sm text-muted hover:text-fg"
-          >
-            重置
-          </button>
-        ) : null}
+        {/* 常驻按钮占位：有无筛选都保留宽度，避免工具栏换行导致表格上下跳。 */}
+        <button
+          type="button"
+          disabled={!dirty}
+          onClick={() => {
+            setSearch('');
+            onChange({ ...query, q: '', filters: [], page: 1 });
+          }}
+          className={cn(
+            'ml-auto inline-flex h-9 items-center rounded-md px-2 text-sm text-muted hover:text-fg',
+            !dirty && 'invisible',
+          )}
+        >
+          重置
+        </button>
       </div>
 
-      {chips.length ? (
-        <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-2">
-          <span className="text-xs text-muted">已选条件</span>
-          {chips.map(({ cond, label }) => (
-            <span key={`${cond.field}-${cond.op ?? ''}-${cond.values.join('|')}`} className={chipClass}>
+      {/* 状态栏固定高度 + 单行横滚：增删筛选条件不改表格位置，chips 再多也不换行。 */}
+      <div className="flex h-10 items-center gap-2 overflow-x-auto border-t border-line px-4 whitespace-nowrap">
+        <span className="shrink-0 text-xs text-muted">已选条件</span>
+        {chips.length ? (
+          chips.map(({ cond, label }) => (
+            <span
+              key={`${cond.field}-${cond.op ?? ''}-${cond.values.join('|')}`}
+              className={cn(chipClass, 'shrink-0')}
+            >
               {label}
               <button
                 type="button"
@@ -520,9 +527,11 @@ export function FilterBar({ fields, query, onChange }: FilterBarProps) {
                 <X className="size-3" aria-hidden />
               </button>
             </span>
-          ))}
-        </div>
-      ) : null}
+          ))
+        ) : (
+          <span className="text-xs text-muted">未设置筛选条件</span>
+        )}
+      </div>
     </div>
   );
 }
