@@ -132,13 +132,16 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
               {page.description}
             </p>
           ) : null}
-          <p className="mt-1 truncate text-xs text-muted">
-            {visibleFields.length} 列 ·{' '}
-            {cursorMode
-              ? '游标分页（顺序由服务端固定）'
-              : `排序 ${sortLabel} · ${query.order === 'asc' ? '升序' : '降序'}`}{' '}
-            · 分页与筛选均由服务端执行
-          </p>
+          {/* 有实体说明时只显示说明，不再叠一行技术性摘要。 */}
+          {!page.description ? (
+            <p className="mt-1 truncate text-xs text-muted">
+              {visibleFields.length} 列 ·{' '}
+              {cursorMode
+                ? '游标分页（顺序由服务端固定）'
+                : `排序 ${sortLabel} · ${query.order === 'asc' ? '升序' : '降序'}`}{' '}
+              · 分页与筛选均由服务端执行
+            </p>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <button
