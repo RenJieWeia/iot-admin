@@ -70,7 +70,18 @@ npm run build      # 类型检查 + 构建，产物直接写进 internal/ui/dist
 
 管理面「边缘网关」页维护 `网关 ID / 名称 / 启用 / 备注`；写入后注册表缓存立即失效，
 绕过管理面直接改库最多脏 `gateway.DefaultTTL`（30s）。
-Broker 侧的连接账号与 ACL 仍由 Broker 管理，两处名单需要同步开通。
+平台与 Broker 之间**只走开放接口**（HTTP 管理 API），不直接改 Broker 的库或配置文件：
+
+```
+POST   {IOT_BROKER_ADMIN_URL}/api/gateways        {"gatewayId","name","enabled"}
+DELETE {IOT_BROKER_ADMIN_URL}/api/gateways/{id}
+Authorization: Bearer {IOT_BROKER_TOKEN}
+```
+
+- 新增网关：先在 Broker 注册，成功后再写本地表；本地写入失败会补偿注销
+- 删除网关：先注销 Broker 账号，成功后再删本地行（Broker 404 视为已注销）
+- Broker 调用失败返回 `502 broker_register_failed / broker_unregister_failed`，本地不做半套变更
+- 未配置 `IOT_BROKER_ADMIN_URL` 时只写本地注册表并打告警（本地开发/离线环境）
 
 ## 校验
 
