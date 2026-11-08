@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Check, Plus, RotateCw } from 'lucide-react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
-import { updateRow } from '../api/client';
+import { deleteRow, updateRow } from '../api/client';
 import type { ListKind } from '../api/client';
 import type { MetaPayload, PageMeta, ReadonlyMeta, RowData } from '../api/types';
 import { cn } from '../lib/cn';
@@ -20,6 +20,7 @@ import { RecordDrawer } from '../components/RecordDrawer';
 import { GatewayEnabledSwitch } from '../components/GatewayEnabledSwitch';
 import { TerminalEnabledSwitch } from '../components/TerminalEnabledSwitch';
 import { CardGrid } from '../components/CardGrid';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { RowMenu } from '../components/RowMenu';
 import type { RowMenuItem } from '../components/RowMenu';
 import { useToast } from '../components/Toast';
@@ -75,6 +76,8 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
   const toast = useToast();
   const relationLabel = useRelationLabels();
   const [rowMenu, setRowMenu] = useState<{ x: number; y: number; row: RowData } | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<RowData | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const cardEnabled = supportsCard(kind, name);
   // 视图与密度都按实体记在浏览器里；切实体时重新读取自己的偏好。
   const [viewMode, setViewMode] = useState<ViewMode>(() => (cardEnabled ? readViewMode(name) : 'table'));
@@ -291,8 +294,52 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
         break;
       }
     }
+
+    // ④ 删除（终端的删除是软删除：标记 + 隐藏，保留历史数据）
+    const deletable = ['data-domains', 'thing-models', 'terminals', 'gateways', 'quality-rules'];
+    if (deletable.includes(name) && rowID) {
+      items.push({
+        key: 'delete',
+        section: '危险操作',
+        label: '删除',
+        danger: true,
+        onSelect: () => setPendingDelete(row),
+      });
+    }
     return items;
   };
+
+  const confirmDelete = async () => {
+    if (!pendingDelete || !page) return;
+    setDeleting(true);
+    try {
+      await deleteRow(name, String(pendingDelete.id ?? pendingDelete.gateway_id ?? ''));
+      toast.success(`已删除${page.title}`);
+      setPendingDelete(null);
+      list.reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '删除失败');
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const deleteDescription = (() => {
+    if (!pendingDelete) return '';
+    const label = String(pendingDelete.name ?? pendingDelete.id ?? pendingDelete.gateway_id ?? '');
+    switch (name) {
+      case 'terminals':
+        return `「${label}」将被标记为已删除并从列表隐藏；最新值/快照等历史数据保留。`;
+      case 'thing-models':
+        return `删除物模型「${label}」会同时删除它绑定的字段；不可恢复。`;
+      case 'gateways':
+        return `删除网关「${label}」会同时注销其 Broker 账号；下挂终端需先解绑。`;
+      case 'data-domains':
+        return `删除数据域「${label}」前需先清理它下面的物模型。`;
+      default:
+        return `删除「${label}」后不可恢复。`;
+    }
+  })();
 
   return (
     <div className="mx-auto max-w-[1400px] px-6 py-5">
@@ -443,6 +490,18 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
           />
         ) : null}
       </div>
+
+      <ConfirmDialog
+        open={pendingDelete !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+        title={`删除${page.title}`}
+        description={deleteDescription}
+        confirmLabel="删除"
+        loading={deleting}
+        onConfirm={() => void confirmDelete()}
+      />
 
       {rowMenu ? (
         <RowMenu
