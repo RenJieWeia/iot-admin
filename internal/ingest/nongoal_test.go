@@ -95,7 +95,7 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 
 	// 管理 API 只暴露数据源/网关注册实体（结算窗口随 0009 下线）；nil pool 即可验证 404 路径不碰数据库。
 	wantEntities := []string{
-		"data-domains", "device-types", "thing-model-properties",
+		"data-domains", "thing-models", "thing-model-properties",
 		"terminals", "gateways", "quality-rules", "snapshot-slots", "snapshot-queries",
 		"snapshot-bindings", "snapshot-settings",
 	}

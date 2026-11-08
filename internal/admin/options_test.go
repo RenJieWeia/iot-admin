@@ -143,10 +143,10 @@ func TestOptionsWithDB(t *testing.T) {
 		t.Fatalf("空 name 的选项 = %+v/%v，期望 label=%s", got, ok, prefix+"blank")
 	}
 
-	// 3) device-types：label 取 name；value 是 id 文本。
-	got, ok = find(options("device-types"), fmt.Sprint(typeID))
+	// 3) thing-models：label 取 name；value 是 id 文本（旧名 device-types 走别名同样可用）。
+	got, ok = find(options("thing-models"), fmt.Sprint(typeID))
 	if !ok || got.Label != "泵站类型" {
-		t.Fatalf("device-type 选项 = %+v/%v，期望 label=泵站类型", got, ok)
+		t.Fatalf("物模型选项 = %+v/%v，期望 label=泵站类型", got, ok)
 	}
 
 	// 4) 上限 1000：插入 1001 行后仍只返回 1000 行。

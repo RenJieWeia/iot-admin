@@ -45,10 +45,10 @@ func TestAdminAPICRUD(t *testing.T) {
 	domain := resp["data"].(map[string]any)
 	domainID := domain["id"].(float64)
 
-	status, resp = do("POST", "/admin/v1/device-types",
+	status, resp = do("POST", "/admin/v1/thing-models",
 		`{"code":"pump","name":"泵站","domain_id":`+jsonNum(domainID)+`}`)
 	if status != 200 {
-		t.Fatalf("建终端类型失败: %d %v", status, resp)
+		t.Fatalf("建物模型失败: %d %v", status, resp)
 	}
 	typeID := resp["data"].(map[string]any)["id"].(float64)
 

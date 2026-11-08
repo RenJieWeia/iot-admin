@@ -254,7 +254,7 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "flex"},
 		},
 	},
-	"device-types": {
+	"thing-models": {
 		fields: []FieldMeta{
 			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
 			{Key: "code", Label: "编码", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
@@ -277,7 +277,7 @@ var fieldSets = map[string]fieldSet{
 			// 唯一消费方是终端类型详情页的属性表（7 列挤在 1024~1366 视口里）。
 			// 其它实体（终端/数据域/规则…）的 ID 列保持可见。
 			{Key: "id", Label: "ID", Type: "id", Visible: false, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
-			{Key: "type_id", Label: "终端类型", Type: "relation", Visible: true, Sortable: true, Filterable: true, Required: true,
+			{Key: "type_id", Label: "物模型", Type: "relation", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
 			{Key: "item_code", Label: "数据项编码", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
@@ -298,13 +298,13 @@ var fieldSets = map[string]fieldSet{
 			{Key: "max_value", Label: "最大值", Type: "number", Visible: false, Sortable: true, Filterable: true,
 				FilterType: "numberRange", Operators: []string{"gte", "lte"}, AdvancedOnly: true, WidthStrategy: "fixed"},
 		},
-		relations: map[string]string{"type_id": "device-types"},
+		relations: map[string]string{"type_id": "thing-models"},
 	},
 	"terminals": {
 		fields: []FieldMeta{
 			{Key: "id", Label: "终端 ID", Type: "id", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"eq", "prefix"}, WidthStrategy: "min"},
-			{Key: "type_id", Label: "终端类型", Type: "relation", Visible: true, Sortable: true, Filterable: true, Required: true,
+			{Key: "type_id", Label: "物模型", Type: "relation", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
 			{Key: "gateway_id", Label: "网关 ID", Type: "text", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
@@ -320,7 +320,7 @@ var fieldSets = map[string]fieldSet{
 			{Key: "last_seen_at", Label: "最近上报", Type: "datetime", Visible: false, Sortable: true, Filterable: false,
 				FilterType: "none", WidthStrategy: "min"},
 		},
-		relations: map[string]string{"type_id": "device-types"},
+		relations: map[string]string{"type_id": "thing-models"},
 	},
 	"quality-rules": {
 		fields: []FieldMeta{
@@ -412,7 +412,7 @@ var fieldSets = map[string]fieldSet{
 				Required: true, FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
 			{Key: "description", Label: "说明", Type: "text", Visible: true, Sortable: false, Filterable: false,
 				FilterType: "none", WidthStrategy: "flex"},
-			{Key: "device_type_ids", Label: "终端类型", Type: "json", Visible: false, Sortable: false, Filterable: false,
+			{Key: "device_type_ids", Label: "物模型", Type: "json", Visible: false, Sortable: false, Filterable: false,
 				FilterType: "none", WidthStrategy: "flex"},
 			{Key: "item_codes", Label: "字段", Type: "json", Visible: false, Sortable: false, Filterable: false,
 				FilterType: "none", WidthStrategy: "flex"},
@@ -425,7 +425,7 @@ var fieldSets = map[string]fieldSet{
 	"snapshot-bindings": {
 		fields: []FieldMeta{
 			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},
-			{Key: "device_type_id", Label: "终端类型（类型级）", Type: "relation", Visible: true, Sortable: true, Filterable: true,
+			{Key: "device_type_id", Label: "物模型（类型级）", Type: "relation", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
 			{Key: "terminal_id", Label: "终端（实例级）", Type: "relation", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
@@ -436,7 +436,7 @@ var fieldSets = map[string]fieldSet{
 			{Key: "created_at", Label: "创建时间", Type: "datetime", Visible: true, Sortable: true, Filterable: false,
 				FilterType: "none", WidthStrategy: "min"},
 		},
-		relations: map[string]string{"device_type_id": "device-types", "terminal_id": "terminals"},
+		relations: map[string]string{"device_type_id": "thing-models", "terminal_id": "terminals"},
 	},
 	// 表级保留期：三行固定，只能改 retention_days；空值 = 永久保留。
 	"snapshot-settings": {
@@ -478,7 +478,7 @@ func FieldMetaOf(entity, key string) (FieldMeta, bool) {
 	return FieldMeta{}, false
 }
 
-// RelationTarget 返回关联字段的目标实体（"terminals" 的 type_id → "device-types"）。
+// RelationTarget 返回关联字段的目标实体（"terminals" 的 type_id → "thing-models"）。
 func RelationTarget(entity, key string) (string, bool) {
 	target, ok := fieldSets[entity].relations[key]
 	return target, ok

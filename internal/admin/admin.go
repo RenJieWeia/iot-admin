@@ -345,7 +345,7 @@ func writeValidateError(w http.ResponseWriter, err error) {
 var Entities = []Entity{
 	{Name: "data-domains", Table: "data_domain", Cols: []string{"code", "name"}},
 	// 终端类型：列表带两个派生计数，让"类型绑定字段 / 类型下有几台终端"一眼可见。
-	{Name: "device-types", Table: "device_type", Cols: []string{"code", "name", "domain_id"},
+	{Name: "thing-models", Table: "device_type", Cols: []string{"code", "name", "domain_id"},
 		ExtraSelect: []string{
 			"(select count(*) from thing_model_property p where p.type_id = device_type.id) as properties_count",
 			"(select count(*) from terminal t where t.type_id = device_type.id) as terminals_count",
@@ -430,6 +430,10 @@ func (a *API) Handler() http.Handler {
 }
 
 func lookup(name string) (Entity, bool) {
+	// 兼容旧 URL：device-types 是 thing-models 的历史名字（表名仍是 device_type）。
+	if name == "device-types" {
+		name = "thing-models"
+	}
 	for _, e := range Entities {
 		if e.Name == name {
 			return e, true

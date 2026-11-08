@@ -373,7 +373,7 @@ func TestMetaRoutePrecedence(t *testing.T) {
 func TestEntityLabelsCoverAllSections(t *testing.T) {
 	want := map[string]string{
 		"data-domains":           "数据域",
-		"device-types":           "终端类型",
+		"thing-models":           "物模型",
 		"thing-model-properties": "终端属性",
 		"terminals":              "终端",
 		"quality-rules":          "质量规则",

@@ -20,7 +20,7 @@ import "net/http"
 // 实体与异常页的中文名：_meta 下发，上层复用同一份，避免同一文案散落多处。
 var entityLabels = map[string]string{
 	"data-domains":           "数据域",
-	"device-types":           "终端类型",
+	"thing-models":           "物模型",
 	"thing-model-properties": "终端属性",
 	"terminals":              "终端",
 	"gateways":               "边缘网关",
