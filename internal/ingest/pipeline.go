@@ -264,10 +264,9 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 		qualityNotes[code] = append(qualityNotes[code], note)
 	}
 	var (
-		cleaned          []clean.Out
-		unknownCodes     []string
-		violations       []violationHit
-		unitUnknownHours []time.Time
+		cleaned      []clean.Out
+		unknownCodes []string
+		violations   []violationHit
 	)
 	cleanFailed := 0 // 项级 value_type 失败数（用于 okCount 与事件明细）
 	for _, item := range tp.Items {
@@ -284,11 +283,6 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 				Code: item.Code, Reason: validate.ItemValueType, Detail: cerr.Error(),
 			})
 			continue
-		}
-		if out.UnitUnknown {
-			unitUnknownHours = append(unitUnknownHours, staging.HourStart(out.Time))
-			markQuality(out.Code, store.QualityUnitUnknown,
-				fmt.Sprintf("source=clean item=%s 单位不在换算闭集内，已透传原单位", out.Code))
 		}
 		for _, v := range vios { // 物模型 min/max 越界
 			detail := fmt.Sprintf("%s: %s", v.RuleType, v.Detail)
@@ -395,9 +389,6 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 	for _, v := range violations {
 		p.Exc.Event(ctx, exception.QualityViolation, term.ID, ingress, v.hour, 1,
 			fmt.Sprintf("source=%s item=%s %s", v.source, v.code, v.detail))
-	}
-	for _, h := range unitUnknownHours {
-		p.Exc.Event(ctx, exception.CleanFailed, term.ID, ingress, h, 1, "单位不在换算闭集内，已透传原单位")
 	}
 	if len(unknownCodes) > 0 {
 		// 只关心目标字段：未在物模型里声明的数据项静默丢弃，不记异常。

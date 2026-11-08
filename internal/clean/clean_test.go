@@ -218,25 +218,22 @@ func TestCheckRuleTypes(t *testing.T) {
 	}
 }
 
-// 19) unit 闭集外 → UnitUnknown=true、Unit 保持原值、Number 不被换算。
-func TestItemUnitUnknown(t *testing.T) {
+// 19) 网关侧 unit 一律忽略：单位取物模型声明，数值不换算、不判 UnitUnknown。
+func TestItemUnitIgnored(t *testing.T) {
 	p := validate.Property{ItemCode: "temp", ValueType: "number", Unit: "C", Precision: intp(1)}
 	out, vs, err := clean.Item(p, rawItem(t, "temp", `300`, "K", atOK))
 	if err != nil {
 		t.Fatalf("期望不返回 error，实际 %v", err)
 	}
-	if !out.UnitUnknown {
-		t.Fatalf("UnitUnknown: 期望 true，实际 false")
-	}
-	if out.Unit != "K" {
-		t.Fatalf("Unit: 期望透传原单位 K，实际 %q", out.Unit)
+	if out.Unit != "C" {
+		t.Fatalf("Unit: 期望取物模型 C，实际 %q", out.Unit)
 	}
 	if out.Number == nil {
 		t.Fatalf("Number 不应为 nil")
 	}
-	approx(t, "未换算", *out.Number, 300, 1e-9)
+	approx(t, "不换算", *out.Number, 300, 1e-9)
 	if len(vs) != 0 {
-		t.Fatalf("闭集外单位期望无 violation，实际 %v", vs)
+		t.Fatalf("单位忽略时期望无 violation，实际 %v", vs)
 	}
 }
 
@@ -255,15 +252,15 @@ func TestItemPrecision(t *testing.T) {
 		t.Fatalf("Value 应同步取整为 25.5，实际 %v", out.Value)
 	}
 
-	// 换算后再取整：F→C 的 100.04 ℉ ≈ 37.8 ℃。
+	// 网关单位被忽略：F 不换算，按原值 100.04 取整为 100.0，单位取物模型 C。
 	pf := validate.Property{ItemCode: "temp", ValueType: "number", Unit: "C", Precision: intp(1)}
 	outF, _, err := clean.Item(pf, rawItem(t, "temp", `100.04`, "F", atOK))
 	if err != nil {
-		t.Fatalf("F→C: 期望成功，实际 %v", err)
+		t.Fatalf("原值取整: 期望成功，实际 %v", err)
 	}
-	approx(t, "F→C 后取整", *outF.Number, 37.8, 1e-9)
+	approx(t, "原值取整", *outF.Number, 100.0, 1e-9)
 	if outF.Unit != "C" {
-		t.Fatalf("换算后单位: 期望 C，实际 %q", outF.Unit)
+		t.Fatalf("单位: 期望物模型 C，实际 %q", outF.Unit)
 	}
 	if !outF.Time.Equal(mustTime(t, atOK)) {
 		t.Fatalf("Time 应透传 ParsedTime，实际 %s", outF.Time)

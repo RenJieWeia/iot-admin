@@ -31,20 +31,20 @@ func TestQualityRuleViolationStillPersisted(t *testing.T) {
 	}
 }
 
-// 用例 29：单位闭集内换算（kW→W、F→C）结果正确；闭集外单位透传 + clean_failed。
-func TestUnitConversionClosedSet(t *testing.T) {
+// 用例 29：单位只取服务端物模型——网关侧 unit 不换算、不落库、不判质量。
+func TestGatewayUnitIgnored(t *testing.T) {
 	e := newEnv(t)
 	at := baseTime.Add(5 * time.Minute)
 
-	// 物模型声明 temp=C、power=kW；上游分别发 F 与 W
+	// 物模型声明 temp=C、power=kW；上游发 F / W 也按原值入库，单位仍取物模型。
 	res := e.handle(single(testTerminalID,
 		it("temp", 50.0, "F", at),
 		it("power", 1500.0, "W", at)))
 	if r := resultOf(t, res, testTerminalID); !r.Accepted || r.Written != 2 {
-		t.Fatalf("闭集内单位换算应入库: %+v", r)
+		t.Fatalf("应入库且不换算: %+v", r)
 	}
-	e.requireLatestNum(testTerminalID, "temp", 10.0)
-	e.requireLatestNum(testTerminalID, "power", 1.5)
+	e.requireLatestNum(testTerminalID, "temp", 50.0)
+	e.requireLatestNum(testTerminalID, "power", 1500.0)
 	var unit string
 	if err := e.pool.QueryRow(context.Background(), `
 		select coalesce(unit,'') from latest_value where terminal_id = $1 and item_code = 'temp'`,
@@ -52,27 +52,26 @@ func TestUnitConversionClosedSet(t *testing.T) {
 		t.Fatalf("读取单位: %v", err)
 	}
 	if unit != "C" {
-		t.Fatalf("换算后单位应为物模型声明单位 C，实际 %q", unit)
+		t.Fatalf("单位应取物模型 C，实际 %q", unit)
+	}
+	if n := e.eventCount(testTerminalID, exception.CleanFailed, hourOf(at)); n != 0 {
+		t.Fatalf("网关单位不应触发 clean_failed，实际 %d", n)
 	}
 
-	// 闭集外单位（hp）：透传原单位 + clean_failed 计数，不拒收
+	// 闭集外单位（hp）同样忽略：单位仍是 kW，数值原样保留。
 	e.clock.Add(1 * time.Minute)
 	res = e.handle(single(testTerminalID,
 		it("temp", 20.0, "C", at.Add(time.Minute)),
 		it("power", 3.0, "hp", at.Add(time.Minute))))
-	r := resultOf(t, res, testTerminalID)
-	if !r.Accepted {
-		t.Fatalf("闭集外单位不应拒收: %+v", r)
+	if r := resultOf(t, res, testTerminalID); !r.Accepted {
+		t.Fatalf("不应拒收: %+v", r)
 	}
 	num, _, unit, _, ok := e.latestOf(testTerminalID, "power")
 	if !ok || num == nil || *num != 3.0 {
-		t.Fatalf("闭集外单位应透传原值 3.0，实际 %v", num)
+		t.Fatalf("数值应原样保留 3.0，实际 %v", num)
 	}
-	if unit != "hp" {
-		t.Fatalf("闭集外单位应透传原单位 hp，实际 %q", unit)
-	}
-	if n := e.eventCount(testTerminalID, exception.CleanFailed, hourOf(at.Add(time.Minute))); n != 1 {
-		t.Fatalf("clean_failed 计数 = %d，期望 1", n)
+	if unit != "kW" {
+		t.Fatalf("单位应取物模型 kW，实际 %q", unit)
 	}
 }
 
@@ -160,7 +159,7 @@ func TestQualityFlags(t *testing.T) {
 		t.Fatalf("叠加 quality=%d reason=%q，期望 3 + 两个来源", q, reason)
 	}
 
-	// 4) 仅物模型越界（T2 无规则）→ 1；单位闭集外 → 4。
+	// 4) 仅物模型越界（T2 无规则）→ 1；网关单位 hp 被忽略 → power 无质量位。
 	if r := resultOf(t, e.handle(single(testTerminalB,
 		it("temp", 150.0, "C", at.Add(2*time.Minute)),
 		it("power", 3.0, "hp", at.Add(2*time.Minute)))), testTerminalB); !r.Accepted {
@@ -170,9 +169,8 @@ func TestQualityFlags(t *testing.T) {
 		!strings.Contains(reason, "source=thing_model") {
 		t.Fatalf("仅越界 quality=%d reason=%q，期望 1 + source=thing_model", q, reason)
 	}
-	if q, reason := qualityOf(testTerminalB, "power", "latest_value"); q != 4 ||
-		!strings.Contains(reason, "单位不在换算闭集内") {
-		t.Fatalf("单位闭集外 quality=%d reason=%q，期望 4", q, reason)
+	if q, reason := qualityOf(testTerminalB, "power", "latest_value"); q != 0 || reason != "" {
+		t.Fatalf("网关单位应被忽略，power quality=%d reason=%q，期望 0/空", q, reason)
 	}
 }
 

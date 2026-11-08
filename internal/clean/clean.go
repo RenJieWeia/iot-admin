@@ -22,9 +22,8 @@ type Out struct {
 	Number      *float64
 	Text        *string
 	Value       any
-	Unit        string
-	Time        time.Time
-	UnitUnknown bool // 单位不可识别/量纲不匹配：透传原单位 + clean_failed 计数，不拒收
+	Unit string // 单位只取物模型声明（服务端事实源），网关侧 unit 一律忽略
+	Time time.Time
 }
 
 // Item 按物模型声明做类型转换、单位换算、精度取整，并给出物模型边界违规。
@@ -60,28 +59,14 @@ func Item(prop validate.Property, raw validate.RawItem) (Out, []Violation, error
 		return out, nil, fmt.Errorf("%w: items[%s] 物模型 value_type 非法: %q", ErrConvert, prop.ItemCode, prop.ValueType)
 	}
 
+	// 单位只认服务端物模型：网关上传的 unit 不参与换算、不落库、不判质量。
+	target := strings.TrimSpace(prop.Unit)
+	out.Unit = target
 	if num == nil {
-		out.Unit = pickUnit("", prop.Unit)
 		return out, nil, nil
 	}
 
 	v := *num
-	from := strings.TrimSpace(raw.Unit)
-	target := strings.TrimSpace(prop.Unit)
-	switch {
-	case from == "":
-		out.Unit = target
-	case target == "" || from == target:
-		out.Unit = from
-	default:
-		if cv, ok := Convert(v, from, target); ok {
-			v = cv
-			out.Unit = target
-		} else {
-			out.Unit = from
-			out.UnitUnknown = true
-		}
-	}
 	if prop.Precision != nil {
 		v = roundTo(v, *prop.Precision)
 	}
@@ -124,13 +109,6 @@ func parseNumber(raw json.RawMessage) (float64, error) {
 		return f, nil
 	}
 	return 0, fmt.Errorf("值 %s 不是合法数值", string(raw))
-}
-
-func pickUnit(src, declared string) string {
-	if u := strings.TrimSpace(src); u != "" {
-		return u
-	}
-	return strings.TrimSpace(declared)
 }
 
 func roundTo(v float64, digits int) float64 {
