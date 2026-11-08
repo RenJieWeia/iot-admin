@@ -18,6 +18,7 @@ import (
 
 	"github.com/RenJieWeia/iot-admin/internal/broker"
 	"github.com/RenJieWeia/iot-admin/internal/clean"
+	"github.com/RenJieWeia/iot-admin/internal/secret"
 	"github.com/RenJieWeia/iot-admin/internal/snapshot"
 )
 
@@ -360,7 +361,12 @@ var Entities = []Entity{
 	// 边缘网关注册表：接入面按 gateway_id 鉴权（未注册/停用直接 403），主键不是 id。
 	{Name: "gateways", Table: "gateway", PKey: "gateway_id",
 		Cols:     []string{"gateway_id", "name", "enabled", "remark"},
-		ReadCols: []string{"created_at", "last_seen_at"}},
+		ReadCols: []string{"created_at", "last_seen_at"},
+		ExtraSelect: []string{
+			"'iot/ingest/' || gateway.gateway_id as mqtt_topic",
+			"gateway.gateway_id as mqtt_username",
+			"coalesce((select '••••••••' from gateway_credential c where c.gateway_id = gateway.gateway_id), '未保存') as mqtt_password",
+		}},
 	{Name: "quality-rules", Table: "quality_rule", Cols: []string{
 		"terminal_id", "item_code", "rule_type", "params", "enabled"}, JSONB: []string{"params"}},
 	// 全局六档配置：六行固定（granularity 主键），只允许改 enabled / step。
@@ -394,12 +400,20 @@ type API struct {
 	Pool *pgxpool.Pool
 	// Broker 非空时，网关的增删会同步到 Broker（注册/注销）；nil 表示未配置，只写本地注册表。
 	Broker BrokerAdmin
+	// Creds 用于加解密网关 MQTT 密码；未配置密钥时为 nil（凭据只读不可用）。
+	Creds *secret.Cipher
 	// Invalidate 在 create/update/delete 成功后调用，用于失效进程内元数据缓存。
 	// 列表与详情是只读操作，不失效。为 nil 时忽略（无缓存装配的调用方不受影响）。
 	Invalidate func()
 }
 
-func New(pool *pgxpool.Pool) *API { return &API{Pool: pool} }
+func New(pool *pgxpool.Pool) *API {
+	a := &API{Pool: pool}
+	if c, err := secret.Load(); err == nil {
+		a.Creds = c
+	}
+	return a
+}
 
 // invalidate 安全调用失效钩子。
 func (a *API) invalidate() {
@@ -429,6 +443,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/v1/{entity}", a.list)
 	mux.HandleFunc("POST /admin/v1/{entity}", a.create)
 	mux.HandleFunc("POST /admin/v1/{entity}/batch", a.batch)
+	mux.HandleFunc("GET /admin/v1/gateways/{id}/credential", a.credential)
+	mux.HandleFunc("POST /admin/v1/gateways/{id}/credential/reset", a.resetCredential)
 	mux.HandleFunc("GET /admin/v1/{entity}/{id}", a.get)
 	mux.HandleFunc("PUT /admin/v1/{entity}/{id}", a.update)
 	mux.HandleFunc("DELETE /admin/v1/{entity}/{id}", a.delete)
@@ -558,6 +574,7 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 	if brokerPassword != "" && row != nil {
 		// 密码只在创建时回一次（Broker 侧只存哈希），提示调用方立即交付给网关。
 		row["broker_password"] = brokerPassword
+		a.rememberCredential(r.Context(), gatewayFromBody(body).ID, brokerPassword)
 	}
 	a.invalidate()
 	writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: row})
@@ -620,6 +637,7 @@ func (a *API) update(w http.ResponseWriter, r *http.Request) {
 					return
 				}
 				brokerPassword = password
+				a.rememberCredential(r.Context(), r.PathValue("id"), password)
 			case err == nil && current && !enabled:
 				if err := a.Broker.Unregister(r.Context(), r.PathValue("id")); err != nil {
 					writeBrokerError(w, "broker_unregister_failed", err)

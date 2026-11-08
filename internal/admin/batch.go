@@ -88,6 +88,7 @@ func (a *API) batch(w http.ResponseWriter, r *http.Request) {
 		case "enable", "disable":
 			password, ferr = a.batchSetEnabled(r.Context(), e, id, req.Action == "enable")
 			if password != "" {
+				a.rememberCredential(r.Context(), id, password)
 				resp.Credentials = append(resp.Credentials, batchCredential{ID: id, Password: password})
 			}
 		case "delete":

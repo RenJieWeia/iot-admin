@@ -404,6 +404,13 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
 			{Key: "last_seen_at", Label: "最近上报", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
+			{Key: "mqtt_topic", Label: "MQTT 主题", Type: "text", Visible: true, Derived: true, Width: 200,
+				WidthStrategy: "fixed"},
+			// 用户名就是 gateway_id，列表不重复占列；凭据弹窗里完整展示。
+			{Key: "mqtt_username", Label: "MQTT 用户名", Type: "text", Visible: false, Derived: true, Width: 130,
+				WidthStrategy: "fixed"},
+			{Key: "mqtt_password", Label: "MQTT 密码", Type: "text", Visible: true, Derived: true, Width: 110,
+				WidthStrategy: "fixed"},
 		},
 	},
 	// 快照查询模板：name/description 直接可编辑；类型与字段数组由专用编辑页维护。
