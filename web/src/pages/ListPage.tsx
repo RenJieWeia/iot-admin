@@ -280,20 +280,32 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     setSelection(null);
   }, [name]);
 
+  // 已处于选择状态时，单击对象即切换选中；未选择时才延迟进详情（给双击留判定窗口）。
   const handleRowClick = useCallback(
     (row: RowData) => {
       if (clickTimer.current) window.clearTimeout(clickTimer.current);
       clickTimer.current = window.setTimeout(() => {
         clickTimer.current = null;
-        openRow(row);
+        if (selection) toggleSelect(row);
+        else openRow(row);
       }, 200);
     },
-    [openRow],
+    [openRow, selection],
   );
   const handleRowDoubleClick = (row: RowData) => {
     if (clickTimer.current) {
       window.clearTimeout(clickTimer.current);
       clickTimer.current = null;
+    }
+    if (selection) {
+      // 双击在选择状态下表示“把这个也选上”，不取消已选项。
+      const key = rowKey(row);
+      setSelection((current) => {
+        if (current?.mode !== 'ids') return { mode: 'ids', ids: [key] };
+        if (current.ids.includes(key)) return current;
+        return { mode: 'ids', ids: [...current.ids, key] };
+      });
+      return;
     }
     toggleSelect(row);
   };
