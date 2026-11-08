@@ -21,8 +21,10 @@ import { CardGrid } from '../components/CardGrid';
 import { readDensity, readViewMode, writeDensity, writeViewMode } from '../lib/viewPrefs';
 import type { CardDensity, ViewMode } from '../lib/viewPrefs';
 
-/** 卡片视图只对终端与网关开放；其它实体保持表格。 */
-const CARD_ENTITIES = new Set(['terminals', 'gateways']);
+/** 业务组（非快照实体）的列表都支持卡片视图；只读页/异常页仍只用表格。 */
+function supportsCard(kind: ListKind, name: string): boolean {
+  return kind === 'entity' && !name.startsWith('snapshot');
+}
 
 const KIND_LABEL: Record<ListKind, string> = {
   entity: '实体',
@@ -64,7 +66,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
   );
   const [drawer, setDrawer] = useState<DrawerState>({ open: false, row: null, mode: 'view' });
   const navigate = useNavigate();
-  const cardEnabled = kind === 'entity' && CARD_ENTITIES.has(name);
+  const cardEnabled = supportsCard(kind, name);
   // 视图与密度都按实体记在浏览器里；切实体时重新读取自己的偏好。
   const [viewMode, setViewMode] = useState<ViewMode>(() => (cardEnabled ? readViewMode(name) : 'table'));
   const [density, setDensity] = useState<CardDensity>(() => readDensity(name));
