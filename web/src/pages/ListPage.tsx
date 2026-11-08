@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, RotateCw } from 'lucide-react';
+import { Grid2x2, Grid3x3, LayoutGrid, Plus, RotateCw, Table2 } from 'lucide-react';
 import type { ListKind } from '../api/client';
 import type { MetaPayload, PageMeta, ReadonlyMeta, RowData } from '../api/types';
 import { cn } from '../lib/cn';
@@ -15,6 +15,12 @@ import { CursorPager } from '../components/CursorPager';
 import { EmptyState } from '../components/States';
 import { RecordDrawer } from '../components/RecordDrawer';
 import { GatewayEnabledSwitch } from '../components/GatewayEnabledSwitch';
+import { CardGrid } from '../components/CardGrid';
+import { readDensity, readViewMode, writeDensity, writeViewMode } from '../lib/viewPrefs';
+import type { CardDensity, ViewMode } from '../lib/viewPrefs';
+
+/** 卡片视图只对终端与网关开放；其它实体保持表格。 */
+const CARD_ENTITIES = new Set(['terminals', 'gateways']);
 
 const KIND_LABEL: Record<ListKind, string> = {
   entity: '实体',
@@ -56,6 +62,28 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
   );
   const [drawer, setDrawer] = useState<DrawerState>({ open: false, row: null, mode: 'view' });
   const navigate = useNavigate();
+  const cardEnabled = kind === 'entity' && CARD_ENTITIES.has(name);
+  // 视图与密度都按实体记在浏览器里；切实体时重新读取自己的偏好。
+  const [viewMode, setViewMode] = useState<ViewMode>(() => (cardEnabled ? readViewMode(name) : 'table'));
+  const [density, setDensity] = useState<CardDensity>(() => (cardEnabled ? readDensity(name) : 'comfortable'));
+
+  useEffect(() => {
+    if (!cardEnabled) {
+      setViewMode('table');
+      return;
+    }
+    setViewMode(readViewMode(name));
+    setDensity(readDensity(name));
+  }, [name, cardEnabled]);
+
+  const changeView = (mode: ViewMode) => {
+    setViewMode(mode);
+    writeViewMode(name, mode);
+  };
+  const changeDensity = (next: CardDensity) => {
+    setDensity(next);
+    writeDensity(name, next);
+  };
 
   // 切页 / 换实体：按页面默认排序重置查询，避免把上一页的排序字段带过去
   useEffect(() => {
@@ -144,6 +172,66 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
           ) : null}
         </div>
         <div className="flex items-center gap-2">
+          {cardEnabled ? (
+            <div className="inline-flex h-9 items-center rounded-md border border-line p-0.5" role="group" aria-label="视图切换">
+              <button
+                type="button"
+                aria-pressed={viewMode === 'table'}
+                title="表格视图"
+                onClick={() => changeView('table')}
+                className={cn(
+                  'inline-flex h-8 items-center gap-1 rounded px-2 text-xs',
+                  viewMode === 'table' ? 'bg-primary-soft text-primary' : 'text-muted hover:text-fg',
+                )}
+              >
+                <Table2 className="size-4" aria-hidden />
+                表格
+              </button>
+              <button
+                type="button"
+                aria-pressed={viewMode === 'card'}
+                title="卡片视图"
+                onClick={() => changeView('card')}
+                className={cn(
+                  'inline-flex h-8 items-center gap-1 rounded px-2 text-xs',
+                  viewMode === 'card' ? 'bg-primary-soft text-primary' : 'text-muted hover:text-fg',
+                )}
+              >
+                <LayoutGrid className="size-4" aria-hidden />
+                卡片
+              </button>
+            </div>
+          ) : null}
+          {cardEnabled && viewMode === 'card' ? (
+            <div className="inline-flex h-9 items-center rounded-md border border-line p-0.5" role="group" aria-label="卡片密度">
+              <button
+                type="button"
+                aria-pressed={density === 'comfortable'}
+                title="适中"
+                onClick={() => changeDensity('comfortable')}
+                className={cn(
+                  'inline-flex h-8 items-center rounded px-2 text-xs',
+                  density === 'comfortable' ? 'bg-primary-soft text-primary' : 'text-muted hover:text-fg',
+                )}
+              >
+                <Grid2x2 className="size-4" aria-hidden />
+                适中
+              </button>
+              <button
+                type="button"
+                aria-pressed={density === 'compact'}
+                title="紧凑"
+                onClick={() => changeDensity('compact')}
+                className={cn(
+                  'inline-flex h-8 items-center rounded px-2 text-xs',
+                  density === 'compact' ? 'bg-primary-soft text-primary' : 'text-muted hover:text-fg',
+                )}
+              >
+                <Grid3x3 className="size-4" aria-hidden />
+                紧凑
+              </button>
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={list.reload}
@@ -168,20 +256,34 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
 
       <div className="mt-4 overflow-hidden rounded-xl border border-line bg-surface shadow-panel">
         <FilterBar fields={page.fields} query={query} onChange={setQuery} />
-        <DataTable
-          fields={visibleFields}
-          rows={list.rows}
-          loading={list.loading}
-          error={list.error}
-          sort={query.sort}
-          order={query.order}
-          disableSort={cursorMode}
-          onSortChange={handleSort}
-          onRowClick={openRow}
-          renderActions={rowActions}
-          onRetry={list.reload}
-          onReset={resetQuery}
-        />
+        {cardEnabled && viewMode === 'card' ? (
+          <CardGrid
+            fields={visibleFields}
+            rows={list.rows}
+            loading={list.loading}
+            error={list.error}
+            density={density}
+            onRowClick={openRow}
+            renderActions={rowActions}
+            onRetry={list.reload}
+            onReset={resetQuery}
+          />
+        ) : (
+          <DataTable
+            fields={visibleFields}
+            rows={list.rows}
+            loading={list.loading}
+            error={list.error}
+            sort={query.sort}
+            order={query.order}
+            disableSort={cursorMode}
+            onSortChange={handleSort}
+            onRowClick={openRow}
+            renderActions={rowActions}
+            onRetry={list.reload}
+            onReset={resetQuery}
+          />
+        )}
         {cursorMode ? (
           <CursorPager
             hasMore={list.cursor?.hasMore ?? false}
