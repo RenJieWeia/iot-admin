@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Plus, RotateCw } from 'lucide-react';
 import type { ListKind } from '../api/client';
 import type { MetaPayload, PageMeta, ReadonlyMeta, RowData } from '../api/types';
@@ -54,6 +55,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     initQuery(page?.defaultSort ?? '', page?.defaultOrder ?? 'desc', defaultPageSize),
   );
   const [drawer, setDrawer] = useState<DrawerState>({ open: false, row: null, mode: 'view' });
+  const navigate = useNavigate();
 
   // 切页 / 换实体：按页面默认排序重置查询，避免把上一页的排序字段带过去
   useEffect(() => {
@@ -86,9 +88,17 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     setQuery((current) => ({ ...current, q: '', filters: [], page: 1 }));
   }, []);
 
-  const openRow = useCallback((row: RowData) => {
-    setDrawer({ open: true, row, mode: 'view' });
-  }, []);
+  const openRow = useCallback(
+    (row: RowData) => {
+      // 终端类型的"绑定关系"在详情页（字段 + 终端实例），行点击直接进详情。
+      if (kind === 'entity' && name === 'device-types' && row.id !== undefined) {
+        navigate(`/e/device-types/${String(row.id)}`);
+        return;
+      }
+      setDrawer({ open: true, row, mode: 'view' });
+    },
+    [kind, name, navigate],
+  );
 
   if (!page) {
     return (

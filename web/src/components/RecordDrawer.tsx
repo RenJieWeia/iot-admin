@@ -36,6 +36,8 @@ export interface RecordDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved?: () => void;
+  /** 创建时的预填值（如从终端类型详情页新增字段时带上 type_id）。 */
+  defaults?: RowData;
 }
 
 const inputClass =
@@ -90,11 +92,12 @@ function buildInitial(
   fields: FieldMeta[],
   row: RowData | null,
   creating: boolean,
+  defaults?: RowData,
 ): Record<string, unknown> {
   const form: Record<string, unknown> = {};
   for (const field of fields) {
     if (!field.editable) continue;
-    const raw = creating || !row ? undefined : row[field.key];
+    const raw = creating ? defaults?.[field.key] : (row?.[field.key] ?? undefined);
     if (field.type === 'boolean') {
       form[field.key] = raw === undefined ? emptyValue(field) : Boolean(raw);
     } else if (field.type === 'json') {
@@ -113,6 +116,7 @@ export function RecordDrawer({
   open,
   onOpenChange,
   onSaved,
+  defaults,
 }: RecordDrawerProps) {
   const toast = useToast();
   const relationLabel = useRelationLabels();
@@ -134,7 +138,7 @@ export function RecordDrawer({
   useEffect(() => {
     if (!open) return;
     setMode(modeProp);
-    const next = buildInitial(entity.fields, row, modeProp === 'create');
+    const next = buildInitial(entity.fields, row, modeProp === 'create', defaults);
     setForm(next);
     setInitial(next);
     setErrors({});
@@ -142,7 +146,7 @@ export function RecordDrawer({
     setSaving(false);
     setDeleting(false);
     setConfirmOpen(false);
-  }, [open, modeProp, row, entity.fields]);
+  }, [open, modeProp, row, entity.fields, defaults]);
 
   const setField = (key: string, value: unknown) => {
     setForm((prev) => ({ ...prev, [key]: value }));

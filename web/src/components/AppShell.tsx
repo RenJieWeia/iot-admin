@@ -82,10 +82,15 @@ export function AppShell() {
   const [theme, setTheme] = useState<Theme>(readTheme);
 
   const sections = useMemo(() => navSections(meta), [meta]);
-  const title = useMemo(
-    () => sections.flatMap((s) => s.items).find((i) => i.to === pathname)?.label ?? '控制台',
-    [sections, pathname],
-  );
+  const title = useMemo(() => {
+    const items = sections.flatMap((s) => s.items);
+    // 详情页（如 /e/device-types/1）按前缀归到所属导航项。
+    return (
+      items.find((item) => item.to === pathname)?.label ??
+      items.find((item) => pathname.startsWith(item.to + '/'))?.label ??
+      '控制台'
+    );
+  }, [sections, pathname]);
 
   useEffect(() => applyTheme(theme), [theme]);
   useEffect(() => setNavOpen(false), [pathname]);

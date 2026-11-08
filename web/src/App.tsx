@@ -5,6 +5,7 @@ import { useMetaState } from './meta';
 import type { ListKind } from './api/client';
 import { ListPage } from './pages/ListPage';
 import { SnapshotPlanPage } from './pages/SnapshotPlanPage';
+import { DeviceTypeDetailPage } from './pages/DeviceTypeDetailPage';
 
 /** 路由参数绑到 ListPage 的 props（路由声明仍是 /e/:name、/r/:slot、/x/:slot）。 */
 function ListRoute({ kind, param }: { kind: ListKind; param: 'name' | 'slot' }) {
@@ -34,6 +35,8 @@ export default function App() {
         />
         {/* 快照计划是固定六档的配置页，不进通用列表（分组 + 开关 + 固定操作列）。 */}
         <Route path="e/snapshot-slots" element={<SnapshotPlanPage />} />
+        {/* 终端类型详情：字段绑定 + 终端实例 */}
+        <Route path="e/device-types/:id" element={<DeviceTypeDetailPage />} />
         <Route path="e/:name" element={<ListRoute kind="entity" param="name" />} />
         <Route path="r/:slot" element={<ListRoute kind="readonly" param="slot" />} />
         <Route path="x/:slot" element={<ListRoute kind="exception" param="slot" />} />
