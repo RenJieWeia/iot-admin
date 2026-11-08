@@ -22,7 +22,7 @@ interface NavSection {
 export function navSections(meta: MetaPayload): NavSection[] {
   const entities = meta.entities.map((e) => ({ name: e.name, title: e.title }));
   const pages = meta.readonly ?? [];
-  const isSnapshot = (name: string) => name.startsWith('snapshot-');
+  const isSnapshot = (name: string) => name.startsWith('snapshot');
 
   const sections: NavSection[] = [
     {

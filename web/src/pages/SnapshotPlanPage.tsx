@@ -9,23 +9,18 @@ import { cn } from '../lib/cn';
 import { formatDateTime } from '../lib/format';
 import { useMeta } from '../meta';
 
-/** 粗档（小时/日/月/年）按自然边界出快照：步长固定 1 个自然单位，页面上不给倍数开关。 */
-const COARSE = [
-  { granularity: 'hour', label: '每小时', step: '每自然小时' },
-  { granularity: 'day', label: '每日', step: '每自然日' },
-  { granularity: 'month', label: '每月', step: '每自然月' },
-  { granularity: 'year', label: '每年', step: '每自然年' },
+/**
+ * 快照只有两个档位：
+ *   - snapshot：一个开关统管时/日/月/年四档，按自然边界各出一份；
+ *   - minute：独立开关，保留倍数步长（1/2/3/5…30 分钟）。
+ * 秒档已随 0017 下线。
+ */
+const ROWS = [
+  { granularity: 'snapshot', label: '快照', hint: '时 / 日 / 月 / 年各一份，自然边界对齐' },
+  { granularity: 'minute', label: '分钟', hint: '按所选步长切段' },
 ] as const;
 
-/** 细粒度档保留倍数步长（秒/分），步长选项取 _meta.enums。<granularity>_step。 */
-const FINE = [
-  { granularity: 'second', label: '每秒' },
-  { granularity: 'minute', label: '每分钟' },
-] as const;
-
-const LABELS: Record<string, string> = Object.fromEntries(
-  [...COARSE, ...FINE].map((item) => [item.granularity, item.label]),
-);
+const LABELS: Record<string, string> = { snapshot: '快照', minute: '分钟' };
 
 interface SlotState {
   enabled: boolean;
@@ -105,8 +100,8 @@ export function SnapshotPlanPage() {
     }
   };
 
-  const enabledCoarse = useMemo(
-    () => COARSE.filter((item) => draft[item.granularity]?.enabled).length,
+  const enabledCount = useMemo(
+    () => ROWS.filter((item) => draft[item.granularity]?.enabled).length,
     [draft],
   );
 
@@ -124,8 +119,8 @@ export function SnapshotPlanPage() {
           <p className="text-xs text-muted">管理后台 / 快照</p>
           <h1 className="mt-1 truncate text-xl font-semibold text-fg">快照计划</h1>
           <p className="mt-1 truncate text-xs text-muted">
-            小时 / 日 / 月 / 年四档按自然边界出快照，步长固定 1 个自然单位；已启用{' '}
-            {enabledCoarse}/{COARSE.length} 档
+            时 / 日 / 月 / 年合并为一个快照开关；关闭只停写、不清历史。已启用{' '}
+            {enabledCount}/{ROWS.length} 项
           </p>
         </div>
         <button
@@ -146,43 +141,35 @@ export function SnapshotPlanPage() {
       ) : (
         <>
           <PlanCard
-            title="自然时间档"
-            hint="每档一份快照，按本地自然小时 / 日 / 月 / 年对齐"
-            rows={COARSE.map((item) => ({
+            title="档位"
+            hint="快照 = 时/日/月/年（一个开关统管）；分钟档独立配置"
+            rows={ROWS.map((item) => ({
               granularity: item.granularity,
               label: item.label,
-              step: <span className="text-muted tabular">{item.step}</span>,
-            }))}
-            loading={loading}
-            rowsByGranularity={rows}
-            draft={draft}
-            saving={saving}
-            onChange={change}
-            onReset={reset}
-            onSave={(g) => void save(g)}
-          />
-          <PlanCard
-            className="mt-4"
-            title="细粒度档"
-            hint="秒 / 分档保留倍数步长，按所选步长切段"
-            rows={FINE.map((item) => ({
-              granularity: item.granularity,
-              label: item.label,
-              step: (
-                <select
-                  aria-label={`${item.label}步长`}
-                  value={String(draft[item.granularity]?.step ?? '')}
-                  onChange={(event) => change(item.granularity, { step: Number(event.target.value) })}
-                  className="h-8 rounded-md border border-line bg-surface px-2 text-sm text-fg"
-                >
-                  <option value="">未设置</option>
-                  {stepOptions(item.granularity).map((option) => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              ),
+              step:
+                item.granularity === 'minute' ? (
+                  <div className="flex items-center gap-2">
+                    <select
+                      aria-label="分钟步长"
+                      value={String(draft.minute?.step ?? '')}
+                      onChange={(event) => change('minute', { step: Number(event.target.value) })}
+                      className="h-8 rounded-md border border-line bg-surface px-2 text-sm text-fg"
+                    >
+                      <option value="">未设置</option>
+                      {stepOptions('minute').map((option) => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <span className="text-xs text-muted">{item.hint}</span>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted tabular">每自然时 / 日 / 月 / 年</span>
+                    <span className="text-xs text-muted">{item.hint}</span>
+                  </div>
+                ),
             }))}
             loading={loading}
             rowsByGranularity={rows}
