@@ -13,6 +13,7 @@ import (
 
 	"github.com/RenJieWeia/iot-admin/internal/clean"
 	"github.com/RenJieWeia/iot-admin/internal/exception"
+	"github.com/RenJieWeia/iot-admin/internal/gateway"
 	"github.com/RenJieWeia/iot-admin/internal/latest"
 	"github.com/RenJieWeia/iot-admin/internal/meta"
 	"github.com/RenJieWeia/iot-admin/internal/publish"
@@ -34,8 +35,11 @@ type Processor struct {
 	Locks *store.ShardedLock
 	// Snap 是六档快照的计划缓存；未装配时跳过快照（仅精简夹具会这样）。
 	Snap *snapshot.Store
-	Now  func() time.Time
-	Log  *slog.Logger
+	// Gateways 是边缘网关注册表缓存；未装配时跳过鉴权（仅精简夹具会这样）。
+	// 生产装配后：未注册 403 gateway_unknown，已注册但停用 403 gateway_disabled。
+	Gateways *gateway.Registry
+	Now      func() time.Time
+	Log      *slog.Logger
 }
 
 // 项级失败原因闭集（唯一来源在 validate，这里只做别名，方便 ingest 的调用方与用例引用）。
@@ -104,6 +108,25 @@ func (p *Processor) HandleSource(ctx context.Context, source, ingressGateway str
 	ingress := strings.TrimSpace(ingressGateway)
 	if ingress == "" {
 		ingress = env.GatewayID
+	}
+	// 接入鉴权：注册过的网关才允许发消息；平台发布实时消息用的是平台自身连接，不经此判定。
+	if p.Gateways != nil {
+		enabled, found, err := p.Gateways.Lookup(ctx, ingress)
+		if err != nil {
+			return BatchResult{}, err
+		}
+		if !found {
+			return BatchResult{}, &validate.EnvelopeError{
+				Reason: validate.ReasonGatewayUnknown,
+				Detail: fmt.Sprintf("网关 %q 未注册", ingress),
+			}
+		}
+		if !enabled {
+			return BatchResult{}, &validate.EnvelopeError{
+				Reason: validate.ReasonGatewayDisabled,
+				Detail: fmt.Sprintf("网关 %q 已停用", ingress),
+			}
+		}
 	}
 	p.Log.Debug("接入批量消息", "messageId", env.MessageID, "gateway", ingress,
 		"terminals", len(env.Terminals))

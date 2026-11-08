@@ -58,8 +58,14 @@ func (h *HTTPHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		var envelopeErr *validate.EnvelopeError
 		if errors.As(err, &envelopeErr) {
-			writeJSON(w, http.StatusBadRequest, Response{
-				Code: http.StatusBadRequest, Message: envelopeErr.Reason,
+			// 接入鉴权失败（未注册/停用）是 403：与数据问题（400）区分，网关侧可据此停止重传。
+			status := http.StatusBadRequest
+			switch envelopeErr.Reason {
+			case validate.ReasonGatewayUnknown, validate.ReasonGatewayDisabled:
+				status = http.StatusForbidden
+			}
+			writeJSON(w, status, Response{
+				Code: status, Message: envelopeErr.Reason,
 				Data: envelopeErrorBody{Reason: envelopeErr.Reason, Detail: envelopeErr.Detail},
 			})
 			return

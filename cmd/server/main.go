@@ -17,6 +17,7 @@ import (
 
 	"github.com/RenJieWeia/iot-admin/internal/admin"
 	"github.com/RenJieWeia/iot-admin/internal/exception"
+	"github.com/RenJieWeia/iot-admin/internal/gateway"
 	"github.com/RenJieWeia/iot-admin/internal/ingest"
 	"github.com/RenJieWeia/iot-admin/internal/meta"
 	"github.com/RenJieWeia/iot-admin/internal/publish"
@@ -61,25 +62,28 @@ func run(log *slog.Logger) error {
 	defer client.Disconnect(250)
 
 	snapStore := snapshot.NewStore(snapshot.NewPGLoader(pool), snapshot.DefaultTTL, now)
+	gateways := gateway.New(gateway.PGLoader{Pool: pool}, gateway.DefaultTTL, now)
 	proc := &ingest.Processor{
-		DB:    pool,
-		Meta:  meta.NewStore(meta.NewPGLoader(pool), meta.DefaultTTL, now),
-		Pub:   publish.NewMQTT(client),
-		Exc:   rec,
-		Locks: store.NewShardedLock(64),
-		Snap:  snapStore,
-		Now:   now,
-		Log:   log,
+		DB:       pool,
+		Meta:     meta.NewStore(meta.NewPGLoader(pool), meta.DefaultTTL, now),
+		Pub:      publish.NewMQTT(client),
+		Exc:      rec,
+		Locks:    store.NewShardedLock(64),
+		Snap:     snapStore,
+		Gateways: gateways,
+		Now:      now,
+		Log:      log,
 	}
 	if err := ingest.Subscribe(client, proc, log); err != nil {
 		return err
 	}
 
 	adminAPI := admin.New(pool)
-	// 管理面写入成功后失效进程内缓存：元数据与快照计划都清，下一条消息立即使用新定义。
+	// 管理面写入成功后失效进程内缓存：元数据、快照计划、网关注册表都清，下一条消息立即使用新定义。
 	adminAPI.Invalidate = func() {
 		proc.Meta.Flush()
 		snapStore.Invalidate()
+		gateways.Flush()
 	}
 
 	// 快照分区维护：开机先跑一次，之后每日一次；失败只告警，不阻塞上报。

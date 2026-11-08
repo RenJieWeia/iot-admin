@@ -18,7 +18,11 @@ const (
 	ReasonTerminalsInvalid   = "terminals_invalid"
 	ReasonUnsupportedVersion = "unsupported_version"
 	ReasonGatewayMissing     = "gateway_id_missing"
-	ReasonBodyTooLarge       = "body_too_large"
+	// ReasonGatewayUnknown / ReasonGatewayDisabled 是接入鉴权的整包级拒收：
+	// 未注册的网关不能在接入面发布消息（HTTP 403，MQTT 只记日志丢弃）。
+	ReasonGatewayUnknown  = "gateway_unknown"
+	ReasonGatewayDisabled = "gateway_disabled"
+	ReasonBodyTooLarge    = "body_too_large"
 )
 
 // 逐终端拒收的 reason。
