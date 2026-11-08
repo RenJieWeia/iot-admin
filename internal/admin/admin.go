@@ -364,7 +364,7 @@ var Entities = []Entity{
 		Table: "snapshot_slot_config", Cols: []string{"enabled", "step"}},
 	// 快照查询模板：服务端共享，保存「终端类型 + 字段」的展示配置（档位/时间在查询时选）。
 	{Name: "snapshot-queries", Table: "snapshot_query_template",
-		Cols: []string{"name", "description", "device_type_ids", "item_codes"},
+		Cols:  []string{"name", "description", "device_type_ids", "item_codes"},
 		JSONB: []string{"device_type_ids", "item_codes"}},
 	// 绑定：一条 = 一个作用域目标 + 一个数据项数组（jsonb）；作用域二选一（类型级或实例级）。
 	// item_codes 走已有的 ::jsonb 转换；列表额外下发派生列「字段数」供前端显示。
@@ -477,7 +477,11 @@ func (a *API) get(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "unknown_entity")
 		return
 	}
-	row, err := a.queryOne(r, e, fmt.Sprintf("select * from %s where %s::text = $1", e.Table, e.pk()), r.PathValue("id"))
+	where := fmt.Sprintf("%s::text = $1", e.pk())
+	if e.Name == "terminals" {
+		where += " and deleted_at is null"
+	}
+	row, err := a.queryOne(r, e, fmt.Sprintf("select * from %s where %s", e.Table, where), r.PathValue("id"))
 	if errors.Is(err, pgx.ErrNoRows) {
 		writeError(w, http.StatusNotFound, "not_found")
 		return
@@ -672,6 +676,31 @@ func (a *API) delete(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// 引用检查：有引用就阻断，避免孤儿配置（终端的历史观测数据除外，见软删除）。
+	if msg, blocked, err := a.deleteBlocked(r.Context(), e, r.PathValue("id")); err != nil {
+		writeDBError(w, err)
+		return
+	} else if blocked {
+		writeError(w, http.StatusBadRequest, msg)
+		return
+	}
+	// 终端软删除：保留历史观测数据，避免大批量行删造成膨胀。
+	if e.Name == "terminals" {
+		tag, err := a.Pool.Exec(r.Context(),
+			`update terminal set deleted_at = now(), enabled = false, online = false
+			 where id = $1 and deleted_at is null`, r.PathValue("id"))
+		if err != nil {
+			writeDBError(w, err)
+			return
+		}
+		if tag.RowsAffected() == 0 {
+			writeError(w, http.StatusNotFound, "not_found")
+			return
+		}
+		a.invalidate()
+		writeJSON(w, http.StatusOK, Response{Code: 0, Message: "ok", Data: map[string]any{"deleted": true}})
+		return
+	}
 	tag, err := a.Pool.Exec(r.Context(), fmt.Sprintf("delete from %s where %s::text = $1", e.Table, e.pk()), r.PathValue("id"))
 	if err != nil {
 		writeDBError(w, err)
@@ -813,6 +842,58 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	writeJSON(w, status, Response{Code: status, Message: msg})
+}
+
+// deleteBlocked 检查删除对象是否仍被引用；有引用时返回可读原因并阻断。
+// 终端的历史观测数据不在此列：终端走软删除，数据保留。
+func (a *API) deleteBlocked(ctx context.Context, e Entity, id string) (string, bool, error) {
+	count := func(sql string) (int, error) {
+		var n int
+		err := a.Pool.QueryRow(ctx, sql, id).Scan(&n)
+		return n, err
+	}
+	switch e.Name {
+	case "data-domains":
+		n, err := count(`select count(*) from device_type where domain_id::text = $1`)
+		if err != nil {
+			return "", false, err
+		}
+		if n > 0 {
+			return "数据域仍被物模型引用（" + strconv.Itoa(n) + " 个），请先删除或迁移这些物模型", true, nil
+		}
+	case "thing-models":
+		n, err := count(`select count(*) from terminal where type_id::text = $1 and deleted_at is null`)
+		if err != nil {
+			return "", false, err
+		}
+		if n > 0 {
+			return "物模型下仍有终端（" + strconv.Itoa(n) + " 台），请先删除或迁移终端", true, nil
+		}
+	case "gateways":
+		n, err := count(`select count(*) from terminal where gateway_id = $1 and deleted_at is null`)
+		if err != nil {
+			return "", false, err
+		}
+		if n > 0 {
+			return "网关下仍有终端（" + strconv.Itoa(n) + " 台），请先解绑或删除终端", true, nil
+		}
+	case "terminals":
+		n, err := count(`select count(*) from quality_rule where terminal_id = $1`)
+		if err != nil {
+			return "", false, err
+		}
+		if n > 0 {
+			return "终端仍有质量规则（" + strconv.Itoa(n) + " 条），请先删除规则", true, nil
+		}
+		n, err = count(`select count(*) from snapshot_binding where terminal_id = $1`)
+		if err != nil {
+			return "", false, err
+		}
+		if n > 0 {
+			return "终端仍被快照绑定引用（" + strconv.Itoa(n) + " 条），请先解除绑定", true, nil
+		}
+	}
+	return "", false, nil
 }
 
 // writeDBError 把约束类错误映射成 400，其余算平台故障。

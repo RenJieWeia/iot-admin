@@ -323,6 +323,11 @@ func buildWhere(e Entity, qs QueryState) (string, []any, error) {
 		clauses = append(clauses, fmt.Sprintf(format, len(args)))
 	}
 
+	// 终端软删除：列表/计数都只看未删除的行。
+	if e.Name == "terminals" {
+		clauses = append(clauses, "deleted_at is null")
+	}
+
 	if qs.Q != "" {
 		var ors []string
 		for _, f := range TextSearchFields(e.Name) {

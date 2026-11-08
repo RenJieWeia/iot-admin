@@ -521,10 +521,11 @@ func TestRequiredMatchesDDL(t *testing.T) {
 		}
 	}
 
-	// 0019 用 alter table add column 给 terminal 加列：按同样的语义合并进 table。
-	alterDDL := string(mustReadMigrations(t, "0019_terminal_online.sql"))
+	// 0019/0020 用 alter table add column 给 terminal 加列：按同样的语义合并进 table。
 	alterRe := regexp.MustCompile(`(?is)alter table (\w+) add column if not exists (\w+) ([^;]+);`)
-	for _, m := range alterRe.FindAllStringSubmatch(alterDDL, -1) {
+	alterSQL := string(mustReadMigrations(t, "0019_terminal_online.sql")) +
+		string(mustReadMigrations(t, "0020_terminal_soft_delete.sql"))
+	for _, m := range alterRe.FindAllStringSubmatch(alterSQL, -1) {
 		tableName, col, rest := m[1], m[2], strings.ToLower(m[3])
 		hasDefault := strings.Contains(rest, "default")
 		notNull := (strings.Contains(rest, "not null") || strings.Contains(rest, "primary key")) && !hasDefault
