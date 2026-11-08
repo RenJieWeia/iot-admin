@@ -70,16 +70,21 @@ npm run build      # 类型检查 + 构建，产物直接写进 internal/ui/dist
 
 管理面「边缘网关」页维护 `网关 ID / 名称 / 启用 / 备注`；写入后注册表缓存立即失效，
 绕过管理面直接改库最多脏 `gateway.DefaultTTL`（30s）。
-平台与 Broker 之间**只走开放接口**（HTTP 管理 API），不直接改 Broker 的库或配置文件：
+平台与 Broker 之间**只走开放接口**（HTTP 管理 API），不直接改 Broker 的库或配置文件。
+网关在 Broker 侧就是一个 MQTT 用户 + 一条发布 ACL：
 
 ```
-POST   {IOT_BROKER_ADMIN_URL}/api/gateways        {"gatewayId","name","enabled"}
-DELETE {IOT_BROKER_ADMIN_URL}/api/gateways/{id}
-Authorization: Bearer {IOT_BROKER_TOKEN}
+POST   {IOT_BROKER_ADMIN_URL}/api/auth/login   {"username","password"} → {"token"}
+POST   /api/mqtt/users                         {"username": 网关ID, "password": 一次性密码, "description"}
+POST   /api/acl                                {"mqtt_user_id", "topic": "iot/ingest/{网关ID}", "permission": "pub"}
+GET    /api/mqtt/users                         找 username=网关ID 的 id
+DELETE /api/mqtt/users/{id}                    删除用户（ACL 级联删除）
+Authorization: Bearer {token}
 ```
 
-- 新增网关：先在 Broker 注册，成功后再写本地表；本地写入失败会补偿注销
-- 删除网关：先注销 Broker 账号，成功后再删本地行（Broker 404 视为已注销）
+- 新增网关：先在 Broker 建号 + 授权，成功后再写本地表；本地写入失败会补偿注销
+  - 平台生成 43 位随机密码，**只在创建响应里回一次**（前端弹窗提示立即保存），Broker 只存哈希
+- 删除网关：先销号，成功后再删本地行；Broker 侧用户不存在视为已注销（幂等）
 - Broker 调用失败返回 `502 broker_register_failed / broker_unregister_failed`，本地不做半套变更
 - 未配置 `IOT_BROKER_ADMIN_URL` 时只写本地注册表并打告警（本地开发/离线环境）
 
