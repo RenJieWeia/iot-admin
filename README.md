@@ -60,6 +60,18 @@ npm run build      # 类型检查 + 构建，产物直接写进 internal/ui/dist
 测试用（不设置则跳过对应用例）：`IOT_TEST_DSN`（PG 用例，按包名建独立测试库）、`MQTT_BROKER_URL`（Broker 用例）、
 `IOT_CAPACITY=1`（容量实测）。
 
+## 边缘网关（接入鉴权）
+
+只有登记在 `gateway` 表、且 `enabled = true` 的网关才能在接入面发布消息：
+
+- HTTP：`X-Gateway-Id` 未注册 → `403 gateway_unknown`；已注册但停用 → `403 gateway_disabled`
+- MQTT：`iot/ingest/{gateway_id}` 主题做同一判定，失败只记日志丢弃（MQTT 没有应答码）
+- 平台自身向 Broker 发布实时消息使用平台连接，不经过该表
+
+管理面「边缘网关」页维护 `网关 ID / 名称 / 启用 / 备注`；写入后注册表缓存立即失效，
+绕过管理面直接改库最多脏 `gateway.DefaultTTL`（30s）。
+Broker 侧的连接账号与 ACL 仍由 Broker 管理，两处名单需要同步开通。
+
 ## 校验
 
 ```bash
