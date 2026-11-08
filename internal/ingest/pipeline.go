@@ -137,10 +137,38 @@ func (p *Processor) HandleSource(ctx context.Context, source, ingressGateway str
 		"terminals", len(env.Terminals))
 
 	out := BatchResult{Results: make([]Result, 0, len(env.Terminals))}
+	present := make([]string, 0, len(env.Terminals))
 	for _, tw := range env.Terminals {
+		present = append(present, tw.TerminalID)
 		out.Results = append(out.Results, p.handleTerminal(ctx, source, env, ingress, tw, now))
 	}
+	// 该网关的批次里没带上的终端 → 置离线（整机离线暂不处理）。
+	p.markMissingOffline(ctx, ingress, present)
 	return out, nil
+}
+
+// markOnline 把终端置为在线并刷新最近上报时间；失败只记日志，不影响入库。
+func (p *Processor) markOnline(ctx context.Context, terminalID string, now time.Time) {
+	if p.DB == nil {
+		return
+	}
+	if _, err := p.DB.Exec(ctx,
+		`update terminal set online = true, last_seen_at = $2 where id = $1`, terminalID, now); err != nil {
+		p.Log.Warn("更新终端在线状态失败", "terminal", terminalID, "err", err)
+	}
+}
+
+// markMissingOffline 把该网关下"本批次未出现"的终端置为离线。
+func (p *Processor) markMissingOffline(ctx context.Context, gatewayID string, present []string) {
+	if p.DB == nil || gatewayID == "" {
+		return
+	}
+	if _, err := p.DB.Exec(ctx,
+		`update terminal set online = false
+		 where gateway_id = $1 and online and not (id = any($2::text[]))`,
+		gatewayID, present); err != nil {
+		p.Log.Warn("更新终端离线状态失败", "gateway", gatewayID, "err", err)
+	}
 }
 
 // handleTerminal 处理单个终端；任何失败都只影响本终端。
@@ -159,12 +187,18 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 		if errors.Is(err, validate.ErrTerminalUnknown) {
 			return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
 				Reason: validate.ReasonTerminalUnknown,
-				Detail: "终端未注册或已停用: " + tp.TerminalID,
+				Detail: "终端未注册: " + tp.TerminalID,
 			}, "")
 		}
 		p.Log.Error("读取终端失败", "terminal", tp.TerminalID, "err", err)
 		return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}
 	}
+	// 停用终端：静默忽略（不写库、不记异常），响应视为已处理，避免网关反复重传。
+	if !term.Enabled {
+		return Result{TerminalID: tp.TerminalID, Accepted: true, Written: 0}
+	}
+	// 收到报文即在线（即使后续字段缺失/被剔除）。
+	p.markOnline(ctx, term.ID, now)
 	if item, bad := validate.FindFuture(tp.Items, now); bad {
 		return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
 			Reason: validate.ReasonProtocolError,
@@ -354,8 +388,8 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 		p.Exc.Event(ctx, exception.CleanFailed, term.ID, ingress, h, 1, "单位不在换算闭集内，已透传原单位")
 	}
 	if len(unknownCodes) > 0 {
-		p.Exc.Event(ctx, exception.CleanFailed, term.ID, ingress, staging.HourStart(now), 1,
-			fmt.Sprintf("物模型未声明的数据项被忽略: %v", unknownCodes))
+		// 只关心目标字段：未在物模型里声明的数据项静默丢弃，不记异常。
+		p.Log.Info("忽略未声明的数据项", "terminal", term.ID, "codes", unknownCodes)
 	}
 	return res
 }

@@ -126,23 +126,22 @@ func TestParseEnvelopeIgnoresGatewayID(t *testing.T) {
 	}
 }
 
-// 6) R-021：物模型声明的**全部**属性必填，required 列不参与校验。
+// 6) 只对 required=true 的字段报警：required=false 可不上报。
 func TestMissingRequired(t *testing.T) {
 	props := []validate.Property{
 		{ItemCode: "temp", Required: true},
 		{ItemCode: "hum", Required: true},
-		{ItemCode: "note", Required: false}, // required=false 也一样必填
+		{ItemCode: "note", Required: false},
 		{ItemCode: "batt", Required: true},
 	}
-	// 缺 hum 与 batt：required 真假不影响结果，两者都算缺失。
 	got := validate.MissingRequired(props, []validate.RawItem{{Code: "temp"}, {Code: "note"}})
 	if len(got) != 2 || got[0] != "hum" || got[1] != "batt" {
 		t.Fatalf("缺失 code: 期望 [hum batt]，实际 %v", got)
 	}
-	// 只差 required=false 的 note：R-021 后同样判缺失。
+	// 只差 required=false 的 note：不算缺失。
 	only := validate.MissingRequired(props, []validate.RawItem{{Code: "temp"}, {Code: "hum"}, {Code: "batt"}})
-	if len(only) != 1 || only[0] != "note" {
-		t.Fatalf("required=false 的属性也应必填，实际缺失 %v", only)
+	if len(only) != 0 {
+		t.Fatalf("required=false 的属性不应判缺失，实际 %v", only)
 	}
 	if all := validate.MissingRequired(props,
 		[]validate.RawItem{{Code: "temp"}, {Code: "hum"}, {Code: "batt"}, {Code: "note"}}); all != nil {

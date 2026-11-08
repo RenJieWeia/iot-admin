@@ -129,7 +129,7 @@ func TestAdminPropertyUpdateTakesEffectImmediately(t *testing.T) {
 	}
 }
 
-// 验收 §8：停用终端后 TTL 内仍判 terminal_unknown（负结果不缓存），重新启用后立即恢复。
+// 验收 §8：停用终端后静默忽略（accepted=true/written=0、不记异常），重新启用后立即恢复。
 func TestAdminTerminalToggleTakesEffectImmediately(t *testing.T) {
 	e := newEnv(t)
 	handler := admin.New(e.pool)
@@ -145,9 +145,12 @@ func TestAdminTerminalToggleTakesEffectImmediately(t *testing.T) {
 	e.clock.Add(5 * time.Second)
 	for i := 0; i < 2; i++ {
 		r := resultOf(t, e.handle(msg), testTerminalID)
-		if r.Accepted || r.Reason != validate.ReasonTerminalUnknown {
-			t.Fatalf("第 %d 次停用后应判 terminal_unknown，实际 %+v", i+1, r)
+		if !r.Accepted || r.Written != 0 || r.Reason != "" {
+			t.Fatalf("第 %d 次停用后应静默忽略（accepted/written=0），实际 %+v", i+1, r)
 		}
+	}
+	if n := e.count(`select count(*) from exception_count where terminal_id = $1 and error_type = 'terminal_unknown'`, testTerminalID); n != 0 {
+		t.Fatalf("停用终端不应记 terminal_unknown，实际 %d 条", n)
 	}
 
 	adminPut(t, handler.Handler(), "/admin/v1/terminals/"+testTerminalID, `{"enabled":true}`)

@@ -9,7 +9,8 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// ErrTerminalUnknown 用于"终端不存在或停用"这一类拒收（记 terminal_unknown）。
+// ErrTerminalUnknown 用于"终端不存在"这一类拒收（记 terminal_unknown）。
+// 停用不再视为未知：停用终端的报文静默忽略（不写库、不记异常）。
 var ErrTerminalUnknown = errors.New("terminal_unavailable")
 
 // Terminal 是校验与清洗需要的终端上下文（含实时主题要用的 domain/type 编码）。
@@ -30,8 +31,8 @@ type Property struct {
 	ValueType string // number | string | bool
 	Unit      string
 	Precision *int
-	// Required 是 thing_model_property.required 列的透传值：R-021 后**不参与**接入校验
-	// （全部声明字段都必填），保留字段是为了元数据/前端提示使用。
+	// Required 是 thing_model_property.required 列的透传值：参与接入校验，
+	// 只有 required=true 的字段缺失才会报警（value_missing）。
 	Required bool
 	Min      *float64
 	Max      *float64
@@ -45,7 +46,8 @@ type Registry struct {
 
 func NewRegistry(pool *pgxpool.Pool) *Registry { return &Registry{Pool: pool} }
 
-// LoadTerminal 读取终端上下文；不存在返回 ErrTerminalUnknown，停用也返回 ErrTerminalUnknown。
+// LoadTerminal 读取终端上下文；不存在返回 ErrTerminalUnknown；停用照常返回并带 Enabled=false，
+// 由调用方决定静默忽略。
 func (r *Registry) LoadTerminal(ctx context.Context, terminalID string) (Terminal, error) {
 	var t Terminal
 	err := r.Pool.QueryRow(ctx, `
@@ -60,9 +62,6 @@ func (r *Registry) LoadTerminal(ctx context.Context, terminalID string) (Termina
 	}
 	if err != nil {
 		return Terminal{}, err
-	}
-	if !t.Enabled {
-		return Terminal{}, ErrTerminalUnknown
 	}
 	return t, nil
 }
@@ -88,7 +87,8 @@ func (r *Registry) LoadProperties(ctx context.Context, typeID int64) ([]Property
 	return out, rows.Err()
 }
 
-// MissingRequired 返回未覆盖的属性 code（最多 MaxMissingCodes 个）。
+// MissingRequired 返回未覆盖的**必填**属性 code（最多 MaxMissingCodes 个）。
+// required=false 的声明字段允许不报，不再按“全部声明字段必填”处理。
 //
 // R-021：物模型声明的**全部** item_code 必须全覆盖，缺任一即 msg_incomplete；
 // thing_model_property.required 列不再参与校验（退化为前端提示），Property.Required
@@ -100,6 +100,9 @@ func MissingRequired(props []Property, items []RawItem) []string {
 	}
 	var missing []string
 	for _, p := range props {
+		if !p.Required {
+			continue
+		}
 		if _, ok := have[p.ItemCode]; !ok {
 			missing = append(missing, p.ItemCode)
 			if len(missing) == MaxMissingCodes {
