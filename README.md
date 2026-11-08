@@ -82,8 +82,9 @@ DELETE /api/mqtt/users/{id}                    删除用户（ACL 级联删除�
 Authorization: Bearer {token}
 ```
 
-- 新增网关：先在 Broker 建号 + 授权，成功后再写本地表；本地写入失败会补偿注销
-  - 平台生成 43 位随机密码，**只在创建响应里回一次**（前端弹窗提示立即保存），Broker 只存哈希
+- 新增网关：只有勾选「启用」时才在 Broker 建号 + 授权，成功后再写本地表；未启用只写本地
+- 启用/停用：列表操作栏的开关切换启用状态——`false→true` 建号并回一次性密码，`true→false` 注销账号
+  - 平台生成 43 位随机密码，**只在建号响应里回一次**（前端弹窗提示立即保存），Broker 只存哈希
 - 删除网关：先销号，成功后再删本地行；Broker 侧用户不存在视为已注销（幂等）
 - Broker 调用失败返回 `502 broker_register_failed / broker_unregister_failed`，本地不做半套变更
 - 未配置 `IOT_BROKER_ADMIN_URL` 时只写本地注册表并打告警（本地开发/离线环境）
