@@ -1,32 +1,41 @@
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { BrowserRouter } from 'react-router';
-import { ApiError } from './api/client';
-import { AppRoutes } from './router';
+import { Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { AppShell, firstPath } from './components/AppShell';
+import MetaGate from './components/MetaGate';
+import { useMetaState } from './meta';
+import type { ListKind } from './api/client';
+import { ListPage } from './pages/ListPage';
 
-/** 路由基址与 Go 侧 /ui/ 挂载点一致。 */
-export const ROUTER_BASENAME = '/ui';
+/** 路由参数绑到 ListPage 的 props（路由声明仍是 /e/:name、/r/:slot、/x/:slot）。 */
+function ListRoute({ kind, param }: { kind: ListKind; param: 'name' | 'slot' }) {
+  const params = useParams();
+  return <ListPage kind={kind} name={params[param] ?? ''} />;
+}
 
-/**
- * Query 默认值：每次查询带 AbortSignal（只应用最新响应），网络/5xx 失败重试一次，
- * 4xx（invalid_query 等确定性错误）不重试；窗口聚焦不自动重取，避免打断正在编辑的抽屉。
- */
-export const queryClient = new QueryClient({
-  defaultOptions: {
-    queries: {
-      staleTime: 30 * 1000,
-      retry: (failureCount, error) =>
-        failureCount < 1 && !(error instanceof ApiError && error.status < 500),
-      refetchOnWindowFocus: false,
-    },
-  },
-});
+export default function App() {
+  const { meta, loading, error, reload } = useMetaState();
 
-export function App() {
+  if (!meta) return <MetaGate loading={loading} error={error} onRetry={reload} />;
+
+  const home = firstPath(meta);
+
   return (
-    <QueryClientProvider client={queryClient}>
-      <BrowserRouter basename={ROUTER_BASENAME}>
-        <AppRoutes />
-      </BrowserRouter>
-    </QueryClientProvider>
+    <Routes>
+      <Route element={<AppShell />}>
+        <Route
+          index
+          element={
+            home ? (
+              <Navigate to={home} replace />
+            ) : (
+              <p className="text-sm text-muted">当前没有可访问的页面。</p>
+            )
+          }
+        />
+        <Route path="e/:name" element={<ListRoute kind="entity" param="name" />} />
+        <Route path="r/:slot" element={<ListRoute kind="readonly" param="slot" />} />
+        <Route path="x/:slot" element={<ListRoute kind="exception" param="slot" />} />
+        <Route path="*" element={<p className="text-sm text-muted">页面不存在。</p>} />
+      </Route>
+    </Routes>
   );
 }
