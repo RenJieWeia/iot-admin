@@ -31,10 +31,9 @@ var entityLabels = map[string]string{
 	"snapshot-settings":      "存储与保留",
 	"exception-events":       "异常事件",
 	"latest-values":          "最新值",
-	// 三个快照存储：导航里由前端按 snapshot- 前缀合并成一项「快照」，
-	// 页面内的「存储」切换用这里的标题（粗表要连档位一起说清，否则用户不知道能筛档）。
+	// 分钟快照只读页；时/日/月/年已由模板化「快照查询」取代。
 	"snapshot-minute": "快照 · 分钟",
-	}
+}
 
 // entityDescriptions 是各实体页面顶部的说明文案（没有条目的实体不显示说明）。
 var entityDescriptions = map[string]string{
