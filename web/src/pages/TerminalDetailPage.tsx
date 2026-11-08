@@ -3,7 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { RotateCw } from 'lucide-react';
 import { fetchList, fetchOne } from '../api/client';
 import type { EntityMeta, MetaPayload, RowData } from '../api/types';
-import { FieldValue } from '../components/FieldValue';
+import { FieldValue, StatusBadge } from '../components/FieldValue';
 import { RecordDrawer } from '../components/RecordDrawer';
 import { TerminalEnabledSwitch } from '../components/TerminalEnabledSwitch';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
@@ -153,8 +153,24 @@ export function TerminalDetailPage() {
                 }
               />
               <Info label="网关" value={<span className="font-mono text-xs">{String(terminal?.gateway_id ?? '—')}</span>} />
-              <Info label="状态" value={terminal?.enabled === true ? '启用' : '停用'} />
-              <Info label="在线状态" value={terminal?.online === true ? '在线' : '离线'} />
+              <Info
+                label="状态"
+                value={
+                  <StatusBadge
+                    label={terminal?.enabled === true ? '启用' : '停用'}
+                    tone={terminal?.enabled === true ? 'positive' : 'negative'}
+                  />
+                }
+              />
+              <Info
+                label="在线状态"
+                value={
+                  <StatusBadge
+                    label={terminal?.online === true ? '在线' : '离线'}
+                    tone={terminal?.online === true ? 'positive' : 'neutral'}
+                  />
+                }
+              />
               <Info
                 label="最近上报"
                 value={isBlank(terminal?.last_seen_at) ? '—' : formatDateTime(terminal?.last_seen_at)}

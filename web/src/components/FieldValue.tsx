@@ -11,7 +11,7 @@ const TONE_CLASS: Record<Tone, string> = {
   neutral: 'bg-neutral-soft text-neutral',
 };
 
-function StatusTag({ label, tone }: { label: string; tone?: Tone }) {
+export function StatusBadge({ label, tone }: { label: string; tone?: Tone }) {
   return (
     <span
       className={cn(
@@ -33,15 +33,16 @@ export function FieldValue({ field, value }: { field: FieldMeta; value: unknown 
     case 'enum': {
       const hit = optionLabel(field, value);
       if (!hit) return <span>{String(value)}</span>;
-      return <StatusTag label={hit.label} tone={hit.tone as Tone | undefined} />;
+      return <StatusBadge label={hit.label} tone={hit.tone as Tone | undefined} />;
     }
     case 'boolean': {
       const on = value === true || value === 'true';
-      // 有枚举选项时用选项文案（如 在线/离线、启用/停用），否则回落到 是/否。
-      const label = field.options.find((option) => option.value === String(on))?.label;
-      return (
-        <span className={on ? 'text-fg' : 'text-muted'}>{label ?? (on ? '是' : '否')}</span>
-      );
+      const hit = field.options.find((option) => option.value === String(on));
+      // 状态型布尔列（在线状态/启用）用 badge 展示；其它布尔列保持是/否文本。
+      if ((field.key === 'online' || field.key === 'enabled') && hit) {
+        return <StatusBadge label={hit.label} tone={hit.tone as Tone | undefined} />;
+      }
+      return <span className={on ? 'text-fg' : 'text-muted'}>{hit?.label ?? (on ? '是' : '否')}</span>;
     }
     case 'datetime':
       return <span className="tabular">{formatDateTime(value)}</span>;
