@@ -1,6 +1,0 @@
-# 前端依赖与构建缓存不入库；产物落在 ../internal/ui/dist 并随仓库提交（R-016）。
-node_modules/
-.vite/
-coverage/
-*.local
-*.tsbuildinfo
