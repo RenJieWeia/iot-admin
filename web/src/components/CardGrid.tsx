@@ -19,6 +19,10 @@ interface CardGridProps {
   renderActions?: (row: RowData) => ReactNode;
   /** 卡片级右键：由调用方弹对象操作菜单。 */
   onRowContextMenu?: (event: React.MouseEvent<HTMLElement>, row: RowData) => void;
+  /** 双击卡片：用于批量选择。 */
+  onRowDoubleClick?: (row: RowData) => void;
+  /** 选中卡片的键集合：描边高亮。 */
+  selectedKeys?: Set<string>;
 }
 
 /** 卡片视图：字段与表格共用 _meta 的 visible 列，点卡片等同点行。 */
@@ -33,6 +37,8 @@ export function CardGrid({
   onReset,
   renderActions,
   onRowContextMenu,
+  onRowDoubleClick,
+  selectedKeys,
 }: CardGridProps) {
   const grid =
     density === 'compact'
@@ -100,6 +106,7 @@ export function CardGrid({
             role="button"
             aria-label="查看详情"
             onClick={() => onRowClick(row)}
+            onDoubleClick={() => onRowDoubleClick?.(row)}
             onContextMenu={(event) => {
               if (!onRowContextMenu) return;
               event.preventDefault();
@@ -115,6 +122,8 @@ export function CardGrid({
             className={cn(
               'group relative flex cursor-pointer flex-col rounded-lg border border-line bg-surface p-3',
               'transition-colors hover:border-line-strong hover:bg-surface-2 focus-visible:bg-surface-2',
+              selectedKeys?.has(String(row.id ?? row.gateway_id ?? '')) &&
+                'border-primary bg-primary-soft/50 ring-1 ring-primary/40',
               loading && 'opacity-60',
             )}
           >

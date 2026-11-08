@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Check, Plus, RotateCw } from 'lucide-react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
-import { deleteRow, updateRow } from '../api/client';
+import { batchAction, deleteRow, updateRow } from '../api/client';
+import type { BatchResult, BatchScope } from '../api/client';
 import type { ListKind } from '../api/client';
 import type { MetaPayload, PageMeta, ReadonlyMeta, RowData } from '../api/types';
 import { cn } from '../lib/cn';
@@ -21,6 +22,7 @@ import { GatewayEnabledSwitch } from '../components/GatewayEnabledSwitch';
 import { TerminalEnabledSwitch } from '../components/TerminalEnabledSwitch';
 import { CardGrid } from '../components/CardGrid';
 import { ConfirmDialog } from '../components/ConfirmDialog';
+import { BatchResultDialog } from '../components/BatchResultDialog';
 import { RowMenu } from '../components/RowMenu';
 import type { RowMenuItem } from '../components/RowMenu';
 import { useToast } from '../components/Toast';
@@ -75,9 +77,17 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
   const location = useLocation();
   const toast = useToast();
   const relationLabel = useRelationLabels();
-  const [rowMenu, setRowMenu] = useState<{ x: number; y: number; row: RowData } | null>(null);
+  const [rowMenu, setRowMenu] = useState<{ x: number; y: number; row: RowData; batch: boolean } | null>(null);
   const [pendingDelete, setPendingDelete] = useState<RowData | null>(null);
   const [deleting, setDeleting] = useState(false);
+  // 批量选择：ids=显式勾选（可跨页），filter=当前筛选结果（服务端按条件执行）。
+  const [selection, setSelection] = useState<
+    { mode: 'ids'; ids: string[] } | { mode: 'filter'; q: string; filters: FilterCond[]; total: number } | null
+  >(null);
+  const [batchResult, setBatchResult] = useState<BatchResult | null>(null);
+  const [batchBusy, setBatchBusy] = useState(false);
+  const [pendingBatchDelete, setPendingBatchDelete] = useState(false);
+  const clickTimer = useRef<number | null>(null);
   const cardEnabled = supportsCard(kind, name);
   // 视图与密度都按实体记在浏览器里；切实体时重新读取自己的偏好。
   const [viewMode, setViewMode] = useState<ViewMode>(() => (cardEnabled ? readViewMode(name) : 'table'));
@@ -197,10 +207,112 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     });
   };
 
-  const buildRowMenu = (row: RowData): RowMenuItem[] => {
+  const rowKey = (row: RowData) => String(row.id ?? row.gateway_id ?? '');
+  const canToggle = ['terminals', 'gateways', 'quality-rules'].includes(name);
+  const selectionCount = selection?.mode === 'filter' ? selection.total : (selection?.ids.length ?? 0);
+  const selectedKeys = useMemo(() => {
+    if (!selection) return undefined;
+    if (selection.mode === 'ids') return new Set(selection.ids);
+    return new Set(list.rows.map(rowKey));
+  }, [selection, list.rows]);
+
+  const clearSelection = () => setSelection(null);
+  const toggleSelect = (row: RowData) => {
+    const key = rowKey(row);
+    setSelection((current) => {
+      if (!current || current.mode === 'filter') return { mode: 'ids', ids: [key] };
+      const ids = current.ids.includes(key)
+        ? current.ids.filter((id) => id !== key)
+        : [...current.ids, key];
+      return ids.length ? { mode: 'ids', ids } : null;
+    });
+  };
+  const allPageSelected = list.rows.length > 0 && list.rows.every((row) => selection?.mode === 'ids' && selection.ids.includes(rowKey(row)));
+  const selectAllPage = () => {
+    if (allPageSelected) {
+      clearSelection();
+      return;
+    }
+    setSelection({ mode: 'ids', ids: list.rows.map(rowKey) });
+  };
+  const selectAllFiltered = () => {
+    setSelection({ mode: 'filter', q: query.q, filters: query.filters, total: list.meta?.total ?? list.rows.length });
+  };
+
+  const runBatch = async (action: BatchResult['action']) => {
+    if (!selection) return;
+    const scope: BatchScope =
+      selection.mode === 'ids'
+        ? { mode: 'ids', ids: selection.ids }
+        : {
+            mode: 'filter',
+            q: selection.q,
+            filters: selection.filters.map((filter) => ({
+              field: filter.field,
+              op: filter.op ?? '',
+              values: filter.values,
+            })),
+          };
+    setBatchBusy(true);
+    try {
+      const result = await batchAction(name, action, scope);
+      setBatchResult(result);
+      setSelection(null);
+      setPendingBatchDelete(false);
+      list.reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '批量操作失败');
+    } finally {
+      setBatchBusy(false);
+    }
+  };
+
+  // 查询条件变化（关键词/筛选/排序/每页条数）即清空选择；翻页保留显式选择。
+  const querySignature = `${query.q}|${JSON.stringify(query.filters)}|${query.sort}|${query.order}|${query.pageSize}`;
+  const previousSignature = useRef(querySignature);
+  useEffect(() => {
+    if (previousSignature.current !== querySignature) {
+      previousSignature.current = querySignature;
+      setSelection(null);
+    }
+  }, [querySignature]);
+  useEffect(() => {
+    setSelection(null);
+  }, [name]);
+
+  const handleRowClick = useCallback(
+    (row: RowData) => {
+      if (clickTimer.current) window.clearTimeout(clickTimer.current);
+      clickTimer.current = window.setTimeout(() => {
+        clickTimer.current = null;
+        openRow(row);
+      }, 200);
+    },
+    [openRow],
+  );
+  const handleRowDoubleClick = (row: RowData) => {
+    if (clickTimer.current) {
+      window.clearTimeout(clickTimer.current);
+      clickTimer.current = null;
+    }
+    toggleSelect(row);
+  };
+
+  const buildRowMenu = (row: RowData, batch: boolean): RowMenuItem[] => {
     if (kind !== 'entity' || !page || name.startsWith('snapshot')) return [];
     const items: RowMenuItem[] = [];
-    const rowID = String(row.id ?? row.gateway_id ?? '');
+    const rowID = rowKey(row);
+
+    // 已选中的行：右键给批量菜单。
+    if (batch && selection?.mode === 'ids' && selection.ids.includes(rowID)) {
+      if (canToggle) {
+        items.push({ key: 'batch-enable', section: '批量操作', label: `启用所选 ${selection.ids.length} 项`, onSelect: () => void runBatch('enable') });
+        items.push({ key: 'batch-disable', section: '批量操作', label: `停用所选 ${selection.ids.length} 项`, onSelect: () => void runBatch('disable') });
+      }
+      items.push({ key: 'batch-delete', section: '批量操作', label: `删除所选 ${selection.ids.length} 项`, danger: true, onSelect: () => setPendingBatchDelete(true) });
+      items.push({ key: 'batch-clear', section: '批量操作', label: '清除选择', onSelect: clearSelection });
+      return items;
+    }
 
     // ① 启停
     if (['terminals', 'gateways', 'quality-rules'].includes(name) && rowID) {
@@ -364,6 +476,39 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
           ) : null}
         </div>
         <div className="flex items-center gap-2">
+          {selection ? (
+            <>
+              {canToggle ? (
+                <>
+                  <button
+                    type="button"
+                    disabled={batchBusy}
+                    onClick={() => void runBatch('enable')}
+                    className="inline-flex h-9 items-center rounded-md border border-line px-3 text-sm text-fg hover:bg-surface-2 disabled:opacity-50"
+                  >
+                    批量启用
+                  </button>
+                  <button
+                    type="button"
+                    disabled={batchBusy}
+                    onClick={() => void runBatch('disable')}
+                    className="inline-flex h-9 items-center rounded-md border border-line px-3 text-sm text-fg hover:bg-surface-2 disabled:opacity-50"
+                  >
+                    批量停用
+                  </button>
+                </>
+              ) : null}
+              <button
+                type="button"
+                disabled={batchBusy}
+                onClick={() => setPendingBatchDelete(true)}
+                className="inline-flex h-9 items-center rounded-md bg-negative px-3 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
+              >
+                批量删除
+              </button>
+            </>
+          ) : (
+            <>
           <button
             type="button"
             onClick={list.reload}
@@ -383,13 +528,52 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
               新建
             </button>
           ) : null}
+            </>
+          )}
         </div>
       </div>
 
       {/* 列表主体最小高度：筛选后行数变少/空态时，卡片与分页位置保持稳定不塌；
           视口较高时基本吃满顶栏以下的剩余空间。 */}
       <div className="mt-4 flex min-h-[max(420px,calc(100vh-15rem))] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-panel">
-        <FilterBar fields={page.fields} query={query} onChange={setQuery} />
+        <FilterBar
+          fields={page.fields}
+          query={query}
+          onChange={setQuery}
+          selectionBar={
+            selection ? (
+              <>
+                <span className="shrink-0 text-xs font-medium text-primary">已选 {selectionCount} 项</span>
+                <span className="shrink-0 text-xs text-muted">
+                  {selection.mode === 'filter' ? '范围：当前筛选结果' : '范围：已勾选行'}
+                </span>
+                <button
+                  type="button"
+                  onClick={selectAllPage}
+                  className="shrink-0 rounded px-1 text-xs text-primary hover:underline"
+                >
+                  {allPageSelected ? '取消本页' : '全选本页'}
+                </button>
+                {selection.mode === 'ids' && list.meta && list.meta.total > selection.ids.length ? (
+                  <button
+                    type="button"
+                    onClick={selectAllFiltered}
+                    className="shrink-0 rounded px-1 text-xs text-primary hover:underline"
+                  >
+                    选择全部 {list.meta.total} 项
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={clearSelection}
+                  className="ml-auto shrink-0 rounded px-1 text-xs text-muted hover:text-fg"
+                >
+                  清除
+                </button>
+              </>
+            ) : undefined
+          }
+        />
         {/* 样式选项只在表格/卡片区域右击出现；筛选栏与分页条保持浏览器默认菜单。 */}
         <ContextMenu.Root>
           <ContextMenu.Trigger asChild>
@@ -401,9 +585,16 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
             loading={list.loading}
             error={list.error}
             density={density}
-            onRowClick={openRow}
+            onRowClick={handleRowClick}
+            onRowDoubleClick={handleRowDoubleClick}
+            selectedKeys={selectedKeys}
             renderActions={rowActions}
-            onRowContextMenu={(event, row) => setRowMenu({ x: event.clientX, y: event.clientY, row })}
+            onRowContextMenu={(event, row) => {
+              const key = rowKey(row);
+              const inSelection = selection?.mode === 'ids' && selection.ids.includes(key);
+              if (!inSelection) setSelection({ mode: 'ids', ids: [key] });
+              setRowMenu({ x: event.clientX, y: event.clientY, row, batch: inSelection });
+            }}
             onRetry={list.reload}
             onReset={resetQuery}
           />
@@ -418,9 +609,16 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
             disableSort={cursorMode}
             density={density}
             onSortChange={handleSort}
-            onRowClick={openRow}
+            onRowClick={handleRowClick}
+            onRowDoubleClick={handleRowDoubleClick}
+            selectedKeys={selectedKeys}
             renderActions={rowActions}
-            onRowContextMenu={(event, row) => setRowMenu({ x: event.clientX, y: event.clientY, row })}
+            onRowContextMenu={(event, row) => {
+              const key = rowKey(row);
+              const inSelection = selection?.mode === 'ids' && selection.ids.includes(key);
+              if (!inSelection) setSelection({ mode: 'ids', ids: [key] });
+              setRowMenu({ x: event.clientX, y: event.clientY, row, batch: inSelection });
+            }}
             onRetry={list.reload}
             onReset={resetQuery}
           />
@@ -492,6 +690,26 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
       </div>
 
       <ConfirmDialog
+        open={pendingBatchDelete}
+        onOpenChange={(open) => {
+          if (!open) setPendingBatchDelete(false);
+        }}
+        title="批量删除"
+        description={
+          selection
+            ? selection.mode === 'filter'
+              ? `将删除当前筛选结果中的全部 ${selection.total} 项，操作不可恢复；有引用的项会被跳过并在结果中列出。`
+              : `将删除所选 ${selection.ids.length} 项，操作不可恢复；有引用的项会被跳过并在结果中列出。`
+            : ''
+        }
+        confirmLabel="删除"
+        loading={batchBusy}
+        onConfirm={() => void runBatch('delete')}
+      />
+
+      <BatchResultDialog result={batchResult} onOpenChange={(open) => { if (!open) setBatchResult(null); }} />
+
+      <ConfirmDialog
         open={pendingDelete !== null}
         onOpenChange={(open) => {
           if (!open) setPendingDelete(null);
@@ -507,7 +725,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
         <RowMenu
           x={rowMenu.x}
           y={rowMenu.y}
-          items={buildRowMenu(rowMenu.row)}
+          items={buildRowMenu(rowMenu.row, rowMenu.batch)}
           onClose={() => setRowMenu(null)}
         />
       ) : null}

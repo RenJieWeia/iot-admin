@@ -173,6 +173,31 @@ export async function updateRow(entity: string, id: string, body: RowData): Prom
   return (payload.data ?? {}) as RowData;
 }
 
+export type BatchScope =
+  | { mode: 'ids'; ids: string[] }
+  | { mode: 'filter'; q: string; filters: { field: string; op: string; values: string[] }[] };
+
+export interface BatchResult {
+  action: 'enable' | 'disable' | 'delete';
+  requested: number;
+  succeeded: number;
+  failed: { id: string; reason: string }[];
+  credentials?: { id: string; password: string }[];
+}
+
+/** 业务组批量操作：按显式 ID 或当前筛选条件执行，返回逐项结果。 */
+export async function batchAction(
+  entity: string,
+  action: BatchResult['action'],
+  scope: BatchScope,
+): Promise<BatchResult> {
+  const payload = await request<BatchResult>(`/${entity}/batch`, {
+    method: 'POST',
+    body: JSON.stringify({ action, scope }),
+  });
+  return (payload.data ?? { action, requested: 0, succeeded: 0, failed: [] }) as BatchResult;
+}
+
 export async function deleteRow(entity: string, id: string): Promise<void> {
   await request<null>(`/${entity}/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

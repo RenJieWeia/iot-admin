@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import type { ReactNode } from 'react';
 import * as Checkbox from '@radix-ui/react-checkbox';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Popover from '@radix-ui/react-popover';
@@ -372,10 +373,12 @@ interface FilterBarProps {
   fields: FieldMeta[];
   query: QueryState;
   onChange: (next: QueryState) => void;
+  /** 有批量选择时替换「已选条件」行：选择信息 + 范围操作。 */
+  selectionBar?: ReactNode;
 }
 
 /** 搜索（300ms 防抖）+ 元数据驱动的筛选控件 + 已选条件 chips。 */
-export function FilterBar({ fields, query, onChange }: FilterBarProps) {
+export function FilterBar({ fields, query, onChange, selectionBar }: FilterBarProps) {
   const relationLabel = useRelationLabels();
   const [search, setSearch] = useState(query.q);
   const [openField, setOpenField] = useState<string | null>(null);
@@ -509,6 +512,11 @@ export function FilterBar({ fields, query, onChange }: FilterBarProps) {
       </div>
 
       {/* 状态栏固定高度 + 单行横滚：增删筛选条件不改表格位置，chips 再多也不换行。 */}
+      {selectionBar ? (
+        <div className="flex h-10 items-center gap-2 overflow-x-auto border-t border-line bg-primary-soft/40 px-4 whitespace-nowrap">
+          {selectionBar}
+        </div>
+      ) : (
       <div className="flex h-10 items-center gap-2 overflow-x-auto border-t border-line px-4 whitespace-nowrap">
         <span className="shrink-0 text-xs text-muted">已选条件</span>
         {chips.length ? (
@@ -532,6 +540,7 @@ export function FilterBar({ fields, query, onChange }: FilterBarProps) {
           <span className="text-xs text-muted">未设置筛选条件</span>
         )}
       </div>
+      )}
     </div>
   );
 }

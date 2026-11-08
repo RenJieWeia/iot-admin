@@ -26,6 +26,10 @@ interface DataTableProps {
   density?: CardDensity;
   /** 行级右键：由调用方弹对象操作菜单。 */
   onRowContextMenu?: (event: React.MouseEvent<HTMLElement>, row: RowData) => void;
+  /** 双击行：用于批量选择。 */
+  onRowDoubleClick?: (row: RowData) => void;
+  /** 选中行的主键集合：行底色高亮。 */
+  selectedKeys?: Set<string>;
 }
 
 /** 列宽从 field.width 取：fixed/min 走像素，flex 吃剩余宽度；超宽横向滚动不压缩。 */
@@ -45,6 +49,8 @@ export function DataTable({
   renderActions,
   density = 'comfortable',
   onRowContextMenu,
+  onRowDoubleClick,
+  selectedKeys,
 }: DataTableProps) {
   const fixedWidth = fields.reduce(
     (sum, field) => sum + (field.widthStrategy === 'flex' ? 0 : (field.width ?? 120)),
@@ -174,6 +180,7 @@ export function DataTable({
                   tabIndex={0}
                   aria-label="查看详情"
                   onClick={() => onRowClick(row)}
+                  onDoubleClick={() => onRowDoubleClick?.(row)}
                   onContextMenu={(event) => {
                     if (!onRowContextMenu) return;
                     event.preventDefault();
@@ -189,6 +196,7 @@ export function DataTable({
                   className={cn(
                     'cursor-pointer border-b border-line transition-colors last:border-b-0',
                     'hover:bg-surface-2 focus-visible:bg-surface-2',
+                    selectedKeys?.has(String(row.id ?? row.gateway_id ?? '')) && 'bg-primary-soft/60',
                     loading && rows.length > 0 && 'opacity-60',
                   )}
                 >
