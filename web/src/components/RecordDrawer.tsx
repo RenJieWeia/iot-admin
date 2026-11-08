@@ -1,4 +1,3 @@
-import * as Checkbox from '@radix-ui/react-checkbox';
 import { Check, Loader2, Pencil, Trash2 } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
 import { ApiError, createRow, deleteRow, updateRow } from '../api/client';
@@ -17,6 +16,7 @@ import { useRelationLabels } from '../meta';
 import { ConfirmDialog } from './ConfirmDialog';
 import { Drawer } from './Drawer';
 import { RelationSelect } from './RelationSelect';
+import { Switch } from './Switch';
 import { useToast } from './Toast';
 
 export type RecordMode = 'view' | 'edit' | 'create';
@@ -283,19 +283,12 @@ export function RecordDrawer({
       case 'boolean':
         return (
           <div className="flex h-9 items-center">
-            <Checkbox.Root
+            <Switch
               id={id}
               checked={Boolean(value)}
-              onCheckedChange={(checked) => setField(field.key, checked === true)}
-              className={cn(
-                'flex h-4 w-4 items-center justify-center rounded border border-line-strong bg-surface',
-                'data-[state=checked]:border-primary data-[state=checked]:bg-primary',
-              )}
-            >
-              <Checkbox.Indicator>
-                <Check size={12} className="text-white" />
-              </Checkbox.Indicator>
-            </Checkbox.Root>
+              onCheckedChange={(checked) => setField(field.key, checked)}
+              label={value ? '是' : '否'}
+            />
           </div>
         );
       case 'number':
