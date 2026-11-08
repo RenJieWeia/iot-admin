@@ -191,7 +191,8 @@ export function AppShell() {
             )}
           </button>
         </header>
-        <main className="p-4 lg:p-6">
+        {/* 内容区至少占满视口（减去 56px 顶栏）：页面长短切换时不会出现背景塌陷/跳动。 */}
+        <main className="min-h-[calc(100vh-3.5rem)] p-4 lg:p-6">
           {/* 以 pathname 作为 key：切页时重挂载内容并播放入场动画；同页刷新数据不会重播。 */}
           <div key={pathname} className="page-enter">
             <Outlet />
