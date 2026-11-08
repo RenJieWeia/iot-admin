@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { cn } from '../lib/cn';
 
 export interface RowMenuItem {
@@ -46,7 +47,7 @@ export function RowMenu({ x, y, items, onClose }: RowMenuProps) {
   const left = Math.max(8, Math.min(x, window.innerWidth - width - 8));
   const top = Math.max(8, Math.min(y, window.innerHeight - height - 8));
 
-  return (
+  const menu = (
     <div
       ref={ref}
       role="menu"
@@ -77,4 +78,7 @@ export function RowMenu({ x, y, items, onClose }: RowMenuProps) {
       ))}
     </div>
   );
+
+  // 页面容器有入场动画（transform），fixed 会被当成相对该容器定位；挂到 body 才与光标对齐。
+  return createPortal(menu, document.body);
 }
