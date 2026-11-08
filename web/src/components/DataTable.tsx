@@ -24,6 +24,8 @@ interface DataTableProps {
   renderActions?: (row: RowData) => ReactNode;
   /** 行密度：紧凑减少上下内边距，一屏看更多行。 */
   density?: CardDensity;
+  /** 行级右键：由调用方弹对象操作菜单。 */
+  onRowContextMenu?: (event: React.MouseEvent<HTMLElement>, row: RowData) => void;
 }
 
 /** 列宽从 field.width 取：fixed/min 走像素，flex 吃剩余宽度；超宽横向滚动不压缩。 */
@@ -42,6 +44,7 @@ export function DataTable({
   onReset,
   renderActions,
   density = 'comfortable',
+  onRowContextMenu,
 }: DataTableProps) {
   const fixedWidth = fields.reduce(
     (sum, field) => sum + (field.widthStrategy === 'flex' ? 0 : (field.width ?? 120)),
@@ -171,6 +174,12 @@ export function DataTable({
                   tabIndex={0}
                   aria-label="查看详情"
                   onClick={() => onRowClick(row)}
+                  onContextMenu={(event) => {
+                    if (!onRowContextMenu) return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onRowContextMenu(event, row);
+                  }}
                   onKeyDown={(event) => {
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();

@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { Check, Plus, RotateCw } from 'lucide-react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
+import { updateRow } from '../api/client';
 import type { ListKind } from '../api/client';
 import type { MetaPayload, PageMeta, ReadonlyMeta, RowData } from '../api/types';
 import { cn } from '../lib/cn';
-import { initQuery } from '../lib/query';
-import type { QueryState } from '../lib/query';
-import { useMeta } from '../meta';
+import { isBlank } from '../lib/format';
+import { initQuery, setFilter } from '../lib/query';
+import type { FilterCond, QueryState } from '../lib/query';
+import { useMeta, useRelationLabels } from '../meta';
 import { useList } from '../hooks/useList';
 import { DataTable } from '../components/DataTable';
 import { FilterBar } from '../components/FilterBar';
@@ -18,6 +20,9 @@ import { RecordDrawer } from '../components/RecordDrawer';
 import { GatewayEnabledSwitch } from '../components/GatewayEnabledSwitch';
 import { TerminalEnabledSwitch } from '../components/TerminalEnabledSwitch';
 import { CardGrid } from '../components/CardGrid';
+import { RowMenu } from '../components/RowMenu';
+import type { RowMenuItem } from '../components/RowMenu';
+import { useToast } from '../components/Toast';
 import { readDensity, readViewMode, writeDensity, writeViewMode } from '../lib/viewPrefs';
 import type { CardDensity, ViewMode } from '../lib/viewPrefs';
 
@@ -66,6 +71,10 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
   );
   const [drawer, setDrawer] = useState<DrawerState>({ open: false, row: null, mode: 'view' });
   const navigate = useNavigate();
+  const location = useLocation();
+  const toast = useToast();
+  const relationLabel = useRelationLabels();
+  const [rowMenu, setRowMenu] = useState<{ x: number; y: number; row: RowData } | null>(null);
   const cardEnabled = supportsCard(kind, name);
   // 视图与密度都按实体记在浏览器里；切实体时重新读取自己的偏好。
   const [viewMode, setViewMode] = useState<ViewMode>(() => (cardEnabled ? readViewMode(name) : 'table'));
@@ -76,6 +85,12 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     setDensity(readDensity(name));
   }, [name, cardEnabled]);
 
+  // 跳转带来的筛选只在"切换实体/首次挂载"时消费一次：用 ref 抓当前值，避免清空 state 触发重算。
+  const incomingFilters = useRef<FilterCond[] | undefined>(undefined);
+  if (location.state) {
+    incomingFilters.current = (location.state as { filters?: FilterCond[] }).filters;
+  }
+
   const changeView = (mode: ViewMode) => {
     setViewMode(mode);
     writeViewMode(name, mode);
@@ -85,12 +100,17 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     writeDensity(name, next);
   };
 
-  // 切页 / 换实体：按页面默认排序重置查询，避免把上一页的排序字段带过去
+  // 切页 / 换实体：按页面默认排序重置查询，并把跳转带来的筛选合入（只消费一次）。
   useEffect(() => {
-    setQuery(
-      initQuery(page?.defaultSort ?? '', page?.defaultOrder ?? 'desc', defaultPageSize),
-    );
-  }, [kind, name, defaultPageSize, page?.defaultSort, page?.defaultOrder]);
+    let next = initQuery(page?.defaultSort ?? '', page?.defaultOrder ?? 'desc', defaultPageSize);
+    const fromState = incomingFilters.current;
+    if (kind === 'entity' && fromState?.length) {
+      for (const filter of fromState) next = setFilter(next, filter);
+      incomingFilters.current = undefined;
+      navigate(location.pathname, { replace: true, state: null });
+    }
+    setQuery(next);
+  }, [kind, name, defaultPageSize, page?.defaultSort, page?.defaultOrder, navigate, location.pathname]);
 
   const cursorMode = page?.pagination === 'cursor';
   const list = useList(kind, name, query, cursorMode);
@@ -155,6 +175,125 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     ? (page.fields.find((field) => field.key === query.sort)?.label ?? query.sort)
     : '默认';
 
+  const displayValue = (field: typeof page.fields[number], value: unknown): string => {
+    if (field.type === 'relation') return relationLabel(field.ref, value);
+    const hit = field.options.find((option) => option.value === String(value));
+    return hit?.label ?? String(value);
+  };
+
+  const appendFilter = (field: typeof page.fields[number], value: unknown) => {
+    setQuery((current) => {
+      const existing = current.filters.find((filter) => filter.field === field.key);
+      const values = [...new Set([...(existing?.values ?? []), String(value)])];
+      const others = current.filters.filter((filter) => filter.field !== field.key);
+      return {
+        ...current,
+        filters: [...others, { field: field.key, op: field.operators[0], values }],
+        page: 1,
+      };
+    });
+  };
+
+  const buildRowMenu = (row: RowData): RowMenuItem[] => {
+    if (kind !== 'entity' || !page || name.startsWith('snapshot')) return [];
+    const items: RowMenuItem[] = [];
+    const rowID = String(row.id ?? row.gateway_id ?? '');
+
+    // ① 启停
+    if (['terminals', 'gateways', 'quality-rules'].includes(name) && rowID) {
+      const enabled = row.enabled === true;
+      items.push({
+        key: 'toggle',
+        section: '操作',
+        label: enabled ? '停用' : '启用',
+        danger: enabled,
+        onSelect: () => {
+          void (async () => {
+            try {
+              await updateRow(name, rowID, { enabled: !enabled });
+              toast.success(enabled ? '已停用' : '已启用');
+              list.reload();
+            } catch (err) {
+              toast.error(err instanceof Error ? err.message : '操作失败');
+            }
+          })();
+        },
+      });
+    }
+
+    // ② 快速筛选（追加到当前筛选）
+    const filterKeys: Record<string, string[]> = {
+      terminals: ['type_id', 'gateway_id', 'online', 'enabled'],
+      gateways: ['gateway_id', 'enabled'],
+      'thing-models': ['domain_id'],
+      'data-domains': ['code', 'name'],
+      'quality-rules': ['terminal_id', 'item_code', 'rule_type'],
+    };
+    for (const key of filterKeys[name] ?? []) {
+      const field = page.fields.find((candidate) => candidate.key === key);
+      if (!field || isBlank(row[key])) continue;
+      items.push({
+        key: `filter-${key}`,
+        section: '按当前值筛选',
+        label: `${field.label}：${displayValue(field, row[key])}`,
+        onSelect: () => appendFilter(field, row[key]),
+      });
+    }
+
+    // ③ 跳转
+    const jump = (key: string, label: string, to: string) => items.push({ key, section: '跳转', label, onSelect: () => navigate(to) });
+    const jumpWithFilter = (key: string, label: string, path: string, filter: FilterCond) =>
+      items.push({
+        key,
+        section: '跳转',
+        label,
+        onSelect: () => navigate(path, { state: { filters: [filter] } }),
+      });
+
+    switch (name) {
+      case 'terminals': {
+        if (!isBlank(row.type_id)) jump('thing-model', '查看所属物模型', `/e/thing-models/${String(row.type_id)}`);
+        if (!isBlank(row.gateway_id)) {
+          jumpWithFilter('gateway', '查看网关列表（按此网关筛选）', '/e/gateways', {
+            field: 'gateway_id',
+            op: 'eq',
+            values: [String(row.gateway_id)],
+          });
+        }
+        break;
+      }
+      case 'gateways': {
+        jumpWithFilter('terminals', '查看下挂终端', '/e/terminals', {
+          field: 'gateway_id',
+          op: 'eq',
+          values: [String(row.gateway_id)],
+        });
+        break;
+      }
+      case 'thing-models': {
+        jumpWithFilter('terminals', '查看该物模型下终端', '/e/terminals', {
+          field: 'type_id',
+          op: 'in',
+          values: [String(row.id)],
+        });
+        break;
+      }
+      case 'data-domains': {
+        jumpWithFilter('thing-models', '查看该数据域下物模型', '/e/thing-models', {
+          field: 'domain_id',
+          op: 'in',
+          values: [String(row.id)],
+        });
+        break;
+      }
+      case 'quality-rules': {
+        if (!isBlank(row.terminal_id)) jump('terminal', '查看终端详情', `/e/terminals/${String(row.terminal_id)}`);
+        break;
+      }
+    }
+    return items;
+  };
+
   return (
     <div className="mx-auto max-w-[1400px] px-6 py-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -217,6 +356,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
             density={density}
             onRowClick={openRow}
             renderActions={rowActions}
+            onRowContextMenu={(event, row) => setRowMenu({ x: event.clientX, y: event.clientY, row })}
             onRetry={list.reload}
             onReset={resetQuery}
           />
@@ -233,6 +373,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
             onSortChange={handleSort}
             onRowClick={openRow}
             renderActions={rowActions}
+            onRowContextMenu={(event, row) => setRowMenu({ x: event.clientX, y: event.clientY, row })}
             onRetry={list.reload}
             onReset={resetQuery}
           />
@@ -302,6 +443,15 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
           />
         ) : null}
       </div>
+
+      {rowMenu ? (
+        <RowMenu
+          x={rowMenu.x}
+          y={rowMenu.y}
+          items={buildRowMenu(rowMenu.row)}
+          onClose={() => setRowMenu(null)}
+        />
+      ) : null}
 
       <RecordDrawer
         entity={{

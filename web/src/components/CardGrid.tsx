@@ -17,6 +17,8 @@ interface CardGridProps {
   onReset?: () => void;
   /** 卡片右上角的操作（如网关启用开关）。 */
   renderActions?: (row: RowData) => ReactNode;
+  /** 卡片级右键：由调用方弹对象操作菜单。 */
+  onRowContextMenu?: (event: React.MouseEvent<HTMLElement>, row: RowData) => void;
 }
 
 /** 卡片视图：字段与表格共用 _meta 的 visible 列，点卡片等同点行。 */
@@ -30,6 +32,7 @@ export function CardGrid({
   onRetry,
   onReset,
   renderActions,
+  onRowContextMenu,
 }: CardGridProps) {
   const grid =
     density === 'compact'
@@ -97,6 +100,12 @@ export function CardGrid({
             role="button"
             aria-label="查看详情"
             onClick={() => onRowClick(row)}
+            onContextMenu={(event) => {
+              if (!onRowContextMenu) return;
+              event.preventDefault();
+              event.stopPropagation();
+              onRowContextMenu(event, row);
+            }}
             onKeyDown={(event) => {
               if (event.key === 'Enter' || event.key === ' ') {
                 event.preventDefault();
