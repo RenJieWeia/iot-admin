@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/RenJieWeia/iot-admin/internal/admin"
+	"github.com/RenJieWeia/iot-admin/internal/broker"
 	"github.com/RenJieWeia/iot-admin/internal/exception"
 	"github.com/RenJieWeia/iot-admin/internal/gateway"
 	"github.com/RenJieWeia/iot-admin/internal/ingest"
@@ -79,6 +80,13 @@ func run(log *slog.Logger) error {
 	}
 
 	adminAPI := admin.New(pool)
+	// 网关注册/注销走 Broker 的开放接口（HTTP），平台不直接改 Broker 的库或配置。
+	if base := env("IOT_BROKER_ADMIN_URL", ""); base != "" {
+		adminAPI.Broker = broker.New(base, env("IOT_BROKER_TOKEN", ""))
+		log.Info("Broker 管理接口已启用", "url", base)
+	} else {
+		log.Warn("未配置 IOT_BROKER_ADMIN_URL：网关注册只写本地表，不同步 Broker")
+	}
 	// 管理面写入成功后失效进程内缓存：元数据、快照计划、网关注册表都清，下一条消息立即使用新定义。
 	adminAPI.Invalidate = func() {
 		proc.Meta.Flush()

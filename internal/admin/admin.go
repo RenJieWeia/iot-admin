@@ -16,6 +16,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/RenJieWeia/iot-admin/internal/broker"
 	"github.com/RenJieWeia/iot-admin/internal/clean"
 	"github.com/RenJieWeia/iot-admin/internal/snapshot"
 )
@@ -367,9 +368,17 @@ var Entities = []Entity{
 		Table: "snapshot_settings", Cols: []string{"retention_days"}},
 }
 
+// BrokerAdmin 是网关注册/注销所需的 Broker 管理接口（HTTP 客户端或测试替身）。
+type BrokerAdmin interface {
+	Register(ctx context.Context, gw broker.Gateway) error
+	Unregister(ctx context.Context, gatewayID string) error
+}
+
 // API 是管理接口集合。
 type API struct {
 	Pool *pgxpool.Pool
+	// Broker 非空时，网关的增删会同步到 Broker（注册/注销）；nil 表示未配置，只写本地注册表。
+	Broker BrokerAdmin
 	// Invalidate 在 create/update/delete 成功后调用，用于失效进程内元数据缓存。
 	// 列表与详情是只读操作，不失效。为 nil 时忽略（无缓存装配的调用方不受影响）。
 	Invalidate func()
@@ -496,6 +505,13 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "empty_body")
 		return
 	}
+	// 网关注册以 Broker 为准：先在 Broker 开通，失败就不写本地行（避免"本地有、Broker 没有"）。
+	if e.Name == "gateways" && a.Broker != nil {
+		if err := a.Broker.Register(r.Context(), gatewayFromBody(body)); err != nil {
+			writeBrokerError(w, "broker_register_failed", err)
+			return
+		}
+	}
 	placeholders := make([]string, len(cols))
 	for i, c := range cols {
 		placeholders[i] = e.placeholder(i+1, c)
@@ -503,6 +519,10 @@ func (a *API) create(w http.ResponseWriter, r *http.Request) {
 	row, err := a.queryOne(r, e, fmt.Sprintf("insert into %s (%s) values (%s) returning *",
 		e.Table, strings.Join(cols, ", "), strings.Join(placeholders, ", ")), vals...)
 	if err != nil {
+		// 本地写入失败时补偿注销，避免 Broker 留下没有本地记录的账号。
+		if e.Name == "gateways" && a.Broker != nil {
+			_ = a.Broker.Unregister(r.Context(), gatewayFromBody(body).ID)
+		}
 		writeEntityDBError(w, e, err)
 		return
 	}
@@ -585,6 +605,13 @@ func (a *API) delete(w http.ResponseWriter, r *http.Request) {
 	}
 	if rejectFixedRows(w, e) {
 		return
+	}
+	// 网关删除先回收 Broker 侧账号：回滚比"Broker 还留着能连的账号"安全。
+	if e.Name == "gateways" && a.Broker != nil {
+		if err := a.Broker.Unregister(r.Context(), r.PathValue("id")); err != nil {
+			writeBrokerError(w, "broker_unregister_failed", err)
+			return
+		}
 	}
 	tag, err := a.Pool.Exec(r.Context(), fmt.Sprintf("delete from %s where %s::text = $1", e.Table, e.pk()), r.PathValue("id"))
 	if err != nil {
@@ -737,4 +764,21 @@ func writeDBError(w http.ResponseWriter, err error) {
 		return
 	}
 	writeError(w, http.StatusInternalServerError, err.Error())
+}
+
+// gatewayFromBody 把创建网管的请求体映射成 Broker 注册参数。
+func gatewayFromBody(body map[string]any) broker.Gateway {
+	id, _ := body["gateway_id"].(string)
+	name, _ := body["name"].(string)
+	enabled := true // 库里 enabled 有默认值 true，没传就是启用
+	if raw, ok := body["enabled"].(bool); ok {
+		enabled = raw
+	}
+	return broker.Gateway{ID: id, Name: name, Enabled: enabled}
+}
+
+// writeBrokerError 把 Broker 侧失败落成 502：本平台不是网关配置的权威来源，
+// 不能假装成功，也不能把它说成数据错误（400）。
+func writeBrokerError(w http.ResponseWriter, code string, err error) {
+	writeError(w, http.StatusBadGateway, code+": "+err.Error())
 }
