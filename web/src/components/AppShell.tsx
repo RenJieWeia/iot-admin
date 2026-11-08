@@ -1,6 +1,22 @@
 import { useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Cpu, Menu, Moon, Sun } from 'lucide-react';
+import {
+  ArrowLeft,
+  Boxes,
+  CalendarClock,
+  Cpu,
+  Database,
+  FileSearch,
+  Gauge,
+  Menu,
+  Moon,
+  Router,
+  ShieldCheck,
+  Sun,
+  Timer,
+  TriangleAlert,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import type { MetaPayload } from '../api/types';
 import { cn } from '../lib/cn';
 import { useMeta } from '../meta';
@@ -11,6 +27,25 @@ type Theme = 'light' | 'dark';
 interface NavItem {
   to: string;
   label: string;
+  icon: LucideIcon;
+}
+
+/** 导航图标按实体/只读页的名字取；未知的名字回落到一个中性圆点，避免缺图标的空位。 */
+const NAV_ICONS: Record<string, LucideIcon> = {
+  'data-domains': Database,
+  'thing-models': Boxes,
+  terminals: Cpu,
+  gateways: Router,
+  'quality-rules': ShieldCheck,
+  'snapshot-slots': CalendarClock,
+  'snapshot-queries': FileSearch,
+  'snapshot-minute': Timer,
+  'latest-values': Gauge,
+  'exception-events': TriangleAlert,
+};
+
+function navIcon(name: string): LucideIcon {
+  return NAV_ICONS[name] ?? Cpu;
 }
 
 interface NavSection {
@@ -29,17 +64,17 @@ export function navSections(meta: MetaPayload): NavSection[] {
       title: '业务',
       items: entities
         .filter((e) => !isSnapshot(e.name))
-        .map((e) => ({ to: `/e/${e.name}`, label: e.title })),
+        .map((e) => ({ to: `/e/${e.name}`, label: e.title, icon: navIcon(e.name) })),
     },
     {
       title: '快照',
       items: [
         ...entities
           .filter((e) => isSnapshot(e.name))
-          .map((e) => ({ to: `/e/${e.name}`, label: e.title })),
+          .map((e) => ({ to: `/e/${e.name}`, label: e.title, icon: navIcon(e.name) })),
         ...pages
           .filter((p) => isSnapshot(p.slot))
-          .map((p) => ({ to: `/r/${p.slot}`, label: p.title })),
+          .map((p) => ({ to: `/r/${p.slot}`, label: p.title, icon: navIcon(p.slot) })),
       ],
     },
     {
@@ -47,8 +82,8 @@ export function navSections(meta: MetaPayload): NavSection[] {
       items: [
         ...pages
           .filter((p) => !isSnapshot(p.slot))
-          .map((p) => ({ to: `/r/${p.slot}`, label: p.title })),
-        ...meta.exceptions.map((p) => ({ to: `/x/${p.slot}`, label: p.title })),
+          .map((p) => ({ to: `/r/${p.slot}`, label: p.title, icon: navIcon(p.slot) })),
+        ...meta.exceptions.map((p) => ({ to: `/x/${p.slot}`, label: p.title, icon: navIcon(p.slot) })),
       ],
     },
   ];
@@ -124,32 +159,54 @@ export function AppShell() {
         )}
         aria-label="侧边导航"
       >
-        <div className="flex h-14 shrink-0 items-center gap-2 border-b border-line px-4">
-          <Cpu className="size-4 text-primary" aria-hidden />
-          <span className="text-sm font-semibold tracking-tight">IoT 控制台</span>
+        <div className="flex h-14 shrink-0 items-center gap-2.5 border-b border-line px-4">
+          <span className="flex size-7 items-center justify-center rounded-lg bg-primary-soft text-primary">
+            <Cpu className="size-4" aria-hidden />
+          </span>
+          <span className="flex flex-col leading-tight">
+            <span className="text-sm font-semibold tracking-tight">IoT 控制台</span>
+            <span className="text-[11px] text-muted">接入 · 快照 · 观测</span>
+          </span>
         </div>
-        <nav className="flex-1 overflow-y-auto px-2 py-2">
-          {sections.map((section) => (
-            <div key={section.title} className="pb-1">
-              <p className="px-3 pt-3 pb-1 text-xs font-medium text-muted">{section.title}</p>
-              <ul>
-                {section.items.map((item) => (
-                  <li key={item.to}>
-                    <NavLink
-                      to={item.to}
-                      className={({ isActive }) =>
-                        cn(
-                          'block truncate rounded-md px-3 py-1.5 text-sm transition-colors',
-                          isActive
-                            ? 'bg-primary-soft font-medium text-primary'
-                            : 'text-muted hover:bg-neutral-soft hover:text-fg',
-                        )
-                      }
-                    >
-                      {item.label}
-                    </NavLink>
-                  </li>
-                ))}
+        <nav className="flex-1 overflow-y-auto px-2 py-3" aria-label="主导航">
+          {sections.map((section, index) => (
+            <div
+              key={section.title}
+              className={cn(index > 0 && 'mt-3 border-t border-line pt-3')}
+            >
+              <p className="px-3 pb-1.5 text-[11px] font-medium tracking-[0.08em] text-muted">
+                {section.title}
+              </p>
+              <ul className="space-y-0.5">
+                {section.items.map((item) => {
+                  const Icon = item.icon;
+                  return (
+                    <li key={item.to}>
+                      <NavLink
+                        to={item.to}
+                        className={({ isActive }) =>
+                          cn(
+                            'group flex h-9 items-center gap-2.5 rounded-md px-2.5 text-sm transition-colors',
+                            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40',
+                            isActive
+                              ? 'bg-primary-soft font-medium text-primary'
+                              : 'text-muted hover:bg-neutral-soft hover:text-fg',
+                          )
+                        }
+                      >
+                        {({ isActive }) => (
+                          <>
+                            <Icon
+                              className={cn('size-4 shrink-0', isActive ? 'text-primary' : 'text-muted group-hover:text-fg')}
+                              aria-hidden
+                            />
+                            <span className="truncate">{item.label}</span>
+                          </>
+                        )}
+                      </NavLink>
+                    </li>
+                  );
+                })}
               </ul>
             </div>
           ))}
