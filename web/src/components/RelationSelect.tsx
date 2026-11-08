@@ -1,221 +1,157 @@
 import * as Popover from '@radix-ui/react-popover';
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
-import { useFieldOptions, useOptionSearch } from '../api/entities';
-import type { FieldMeta, OptionItem } from '../api/types';
-import { Button, TextField } from '@radix-ui/themes';
+import { Check, ChevronsUpDown, Loader2, Search } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { fetchOptions } from '../api/client';
+import type { OptionItem } from '../api/types';
+import { cn } from '../lib/cn';
 
-interface Props {
-  field: FieldMeta;
-  value: string;
+export interface RelationSelectProps {
+  /** 关联目标实体名（FieldMeta.relation / ref.entity）。 */
+  entity: string;
+  value: unknown;
   onChange: (value: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
   id?: string;
-  invalid?: boolean;
-  /** 允许「未设置」空选项（非必填关系）。 */
-  allowEmpty?: boolean;
 }
 
-/**
- * 关系字段远程搜索下拉（task-012 F4）：Radix Popover + 输入框 + listbox。
- *
- * - 输入 300ms 防抖后按 `q` 查 `/admin/v1/options/{entity}`；q 进 queryKey、fetch 带
- *   AbortSignal，旧响应不会覆盖新结果（只应用最新一次搜索）；
- * - 键盘 ↑↓ 移动、Enter 选中、Esc 关闭并把焦点还给触发按钮；
- * - role=combobox + listbox + option + aria-activedescendant。
- *
- * 已选值的显示文案来自全量 options（与表格列回填同源，≤1000 行）；超过上限时后端不下发该 id，
- * 此时只显示原始 value —— 与表格列「超限显示原始 id」是同一已知限制（本批不解）。
- */
+/** 关联字段选择器：搜索走服务端，输入防抖 200ms；已选值单独按 ids 回填展示名。 */
 export function RelationSelect({
-  field,
+  entity,
   value,
   onChange,
+  placeholder = '请选择',
+  disabled,
   id,
-  invalid = false,
-  allowEmpty = true,
-}: Props) {
-  const target = field.ref?.entity;
+}: RelationSelectProps) {
   const [open, setOpen] = useState(false);
-  const [keyword, setKeyword] = useState('');
-  const [debounced, setDebounced] = useState('');
-  const [activeIndex, setActiveIndex] = useState(0);
-
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [query, setQuery] = useState('');
+  const [options, setOptions] = useState<OptionItem[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [label, setLabel] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
-  const listboxId = useId();
 
-  const allOptions = useFieldOptions(target ? [target] : []);
-  const selectedLabel = useMemo(() => {
-    const list = (target ? allOptions.data?.[target] : undefined) ?? [];
-    return list.find((option) => option.value === value)?.label;
-  }, [allOptions.data, target, value]);
+  const raw = value === null || value === undefined ? '' : String(value);
 
+  // 已选值回填：options 里没有时（比如首次打开就带值）按 ids 精确取一次。
   useEffect(() => {
-    const timer = window.setTimeout(() => setDebounced(keyword.trim()), 300);
-    return () => window.clearTimeout(timer);
-  }, [keyword]);
+    if (!raw) {
+      setLabel('');
+      return;
+    }
+    const controller = new AbortController();
+    fetchOptions(entity, { ids: [raw] }, controller.signal)
+      .then((items) => {
+        if (!controller.signal.aborted) {
+          setLabel(items.find((item) => item.value === raw)?.label ?? raw);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) setLabel(raw);
+      });
+    return () => controller.abort();
+  }, [entity, raw]);
 
-  const search = useOptionSearch(target, debounced, open);
-  const options: OptionItem[] = search.data ?? [];
-
+  // 打开面板后按查询词拉选项；输入停止 200ms 才请求，旧请求直接 abort。
   useEffect(() => {
-    setActiveIndex(0);
-  }, [debounced, open]);
+    if (!open) return;
+    const controller = new AbortController();
+    const timer = window.setTimeout(
+      () => {
+        setLoading(true);
+        fetchOptions(entity, { q: query.trim() || undefined, limit: 20 }, controller.signal)
+          .then((items) => {
+            if (!controller.signal.aborted) setOptions(items);
+          })
+          .catch(() => {
+            if (!controller.signal.aborted) setOptions([]);
+          })
+          .finally(() => {
+            if (!controller.signal.aborted) setLoading(false);
+          });
+      },
+      query.trim() ? 200 : 0,
+    );
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [open, query, entity]);
 
-  const optionId = (optionValue: string) =>
-    `${listboxId}-opt-${optionValue.replace(/[^\w-]/g, '_')}`;
-
-  const closeAndRefocus = () => {
-    setOpen(false);
-    setKeyword('');
-    window.requestAnimationFrame(() => triggerRef.current?.focus());
-  };
-
-  const choose = (option: OptionItem | undefined) => {
-    if (!option) return;
-    onChange(option.value);
-    closeAndRefocus();
-  };
-
-  const clear = () => {
-    onChange('');
-    setKeyword('');
-    triggerRef.current?.focus();
-  };
-
-  const handleKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      setActiveIndex((index) => Math.min(index + 1, Math.max(options.length - 1, 0)));
-      return;
-    }
-    if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      setActiveIndex((index) => Math.max(index - 1, 0));
-      return;
-    }
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      choose(options[activeIndex]);
-      return;
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeAndRefocus();
-    }
-  };
-
-  const activeOption = options[activeIndex];
+  const selectedLabel = options.find((option) => option.value === raw)?.label ?? label;
 
   return (
-    <div className="flex items-center gap-2">
-      <Popover.Root
-        open={open}
-        onOpenChange={(next) => {
-          setOpen(next);
-          if (!next) setKeyword('');
-        }}
-      >
-        <Popover.Trigger asChild>
-          <button
-            ref={triggerRef}
-            id={id}
-            type="button"
-            role="combobox"
-            aria-expanded={open}
-            aria-controls={listboxId}
-            aria-invalid={invalid}
-            aria-label={field.label}
-            className="flex w-full items-center justify-between rounded-sm border border-border bg-surface px-2 text-left"
-          >
-            <span className={selectedLabel ?? value ? '' : 'text-muted'}>
-              {selectedLabel ?? (value || '未设置')}
-            </span>
-            <span aria-hidden="true">▾</span>
-          </button>
-        </Popover.Trigger>
-        <Popover.Portal>
-          <Popover.Content
-            align="start"
-            sideOffset={4}
-            className="z-50 w-80 rounded-sm border border-border bg-surface p-2"
-            onOpenAutoFocus={(event) => {
-              event.preventDefault();
-              inputRef.current?.focus();
-            }}
-          >
-            <TextField.Root
-              ref={inputRef}
-              size="3"
-              type="text"
-              className="mb-2"
-              placeholder="输入关键词搜索"
-              value={keyword}
-              onChange={(event) => setKeyword(event.target.value)}
-              onKeyDown={handleKeyDown}
-              role="combobox"
-              aria-label={`搜索${field.label}选项`}
-              aria-expanded={open}
-              aria-controls={listboxId}
-              aria-autocomplete="list"
-              aria-activedescendant={activeOption ? optionId(activeOption.value) : undefined}
-            />
-            <ul
-              id={listboxId}
-              role="listbox"
-              aria-label={`${field.label}选项`}
-              className="m-0 max-h-60 list-none overflow-auto p-0"
-            >
-              {search.isFetching && options.length === 0 && (
-                <li className="px-2 py-1 text-sm text-muted" role="presentation">
-                  正在加载…
-                </li>
-              )}
-              {!search.isFetching && options.length === 0 && (
-                <li className="px-2 py-1 text-sm text-muted" role="presentation">
-                  没有匹配的选项，换个关键词
-                </li>
-              )}
-              {options.map((option, index) => (
-                <li
-                  key={option.value}
-                  id={optionId(option.value)}
-                  role="option"
-                  aria-selected={option.value === value}
-                  className={
-                    index === activeIndex
-                      ? 'cursor-pointer rounded-sm bg-neutral-bg px-2 py-1 text-sm'
-                      : 'cursor-pointer rounded-sm px-2 py-1 text-sm'
-                  }
-                  onMouseEnter={() => setActiveIndex(index)}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    choose(option);
-                  }}
-                >
-                  {option.label}
-                </li>
-              ))}
-            </ul>
-          </Popover.Content>
-        </Popover.Portal>
-      </Popover.Root>
-      {allowEmpty && value !== '' && (
-        <Button
+    <Popover.Root
+      open={open}
+      onOpenChange={(next) => {
+        setOpen(next);
+        if (!next) setQuery('');
+      }}
+    >
+      <Popover.Trigger asChild>
+        <button
+          id={id}
           type="button"
-          onClick={clear}
-          aria-label={`清除${field.label}`}
-          variant="surface"
-          size="3"
-          className="shrink-0"
+          role="combobox"
+          aria-expanded={open}
+          disabled={disabled}
+          className={cn(
+            'flex h-9 w-full items-center justify-between gap-2 rounded-md border border-line bg-surface px-3 text-left text-sm',
+            'focus:border-primary disabled:opacity-50',
+          )}
         >
-          清除
-        </Button>
-      )}
-      {search.isError && (
-        <p className="m-0 text-sm text-muted" role="status">
-          选项加载失败，可换个关键词或稍后重试。
-        </p>
-      )}
-    </div>
+          <span className={cn('truncate', !selectedLabel && 'text-muted')}>
+            {selectedLabel || placeholder}
+          </span>
+          <ChevronsUpDown size={14} className="shrink-0 text-muted" />
+        </button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          sideOffset={4}
+          align="start"
+          className="z-[60] w-[var(--radix-popover-trigger-width)] min-w-[220px] rounded-md border border-line bg-surface p-2 shadow-panel outline-none"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            inputRef.current?.focus();
+          }}
+        >
+          <div className="mb-2 flex items-center gap-2 rounded border border-line px-2">
+            <Search size={14} className="shrink-0 text-muted" />
+            <input
+              ref={inputRef}
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索…"
+              className="h-8 w-full bg-transparent text-sm text-fg outline-none placeholder:text-muted"
+            />
+            {loading && <Loader2 size={14} className="shrink-0 animate-spin text-muted" />}
+          </div>
+          <div role="listbox" className="max-h-60 overflow-y-auto">
+            {options.length === 0 && !loading ? (
+              <p className="px-2 py-3 text-center text-xs text-muted">无匹配</p>
+            ) : (
+              options.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  role="option"
+                  aria-selected={option.value === raw}
+                  onClick={() => {
+                    onChange(option.value);
+                    setOpen(false);
+                    setQuery('');
+                  }}
+                  className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm text-fg hover:bg-surface-2"
+                >
+                  <span className="truncate">{option.label}</span>
+                  {option.value === raw && <Check size={14} className="shrink-0 text-primary" />}
+                </button>
+              ))
+            )}
+          </div>
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
   );
 }
