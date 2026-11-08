@@ -40,7 +40,7 @@ export function TerminalDetailPage() {
       const [type, props, values] = await Promise.all([
         typeID === undefined || typeID === null
           ? Promise.resolve<RowData | null>(null)
-          : fetchOne('device-types', String(typeID)),
+          : fetchOne('thing-models', String(typeID)),
         typeID === undefined || typeID === null
           ? Promise.resolve({ rows: [] as RowData[] })
           : fetchList(
@@ -136,17 +136,17 @@ export function TerminalDetailPage() {
         </div>
       ) : (
         <>
-          <Section className="mt-4" title="基础信息" hint="终端是终端类型的实例">
+          <Section className="mt-4" title="基础信息" hint="终端是物模型的实例">
             <dl className="grid grid-cols-1 gap-x-6 gap-y-2 px-4 py-3 text-sm sm:grid-cols-2">
               <Info label="终端 ID" value={<span className="font-mono text-xs">{id}</span>} />
               <Info label="名称" value={terminal ? String(terminal.name ?? '—') : '—'} />
               <Info
-                label="终端类型"
+                label="物模型"
                 value={
                   isBlank(typeID) ? (
                     '—'
                   ) : (
-                    <Link className="text-primary hover:underline" to={`/e/device-types/${String(typeID)}`}>
+                    <Link className="text-primary hover:underline" to={`/e/thing-models/${String(typeID)}`}>
                       {typeLabel}
                     </Link>
                   )
@@ -180,14 +180,14 @@ export function TerminalDetailPage() {
 
           <Section
             className="mt-4"
-            title="类型字段（物模型属性）"
-            hint="该终端能上报的数据项由所属类型决定"
+            title="物模型字段"
+            hint="该终端能上报的数据项由所属物模型决定"
             action={
               <Link
-                to={isBlank(typeID) ? '/e/device-types' : `/e/device-types/${String(typeID)}`}
+                to={isBlank(typeID) ? '/e/thing-models' : `/e/thing-models/${String(typeID)}`}
                 className="inline-flex h-8 items-center rounded-md border border-line px-2.5 text-xs text-fg hover:bg-surface-2"
               >
-                查看类型详情
+                查看物模型
               </Link>
             }
           >

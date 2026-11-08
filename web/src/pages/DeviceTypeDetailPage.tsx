@@ -15,12 +15,12 @@ interface DrawerState {
   row: RowData | null;
 }
 
-/** 终端类型详情：把「类型绑定的字段（物模型属性）」与「该类型的终端实例」放在一页。 */
+/** 物模型详情：把「绑定的字段（物模型属性）」与「使用该物模型的终端实例」放在一页。 */
 export function DeviceTypeDetailPage() {
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const meta = useMeta();
-  const typeEntity = meta.entities.find((entity) => entity.name === 'device-types');
+  const typeEntity = meta.entities.find((entity) => entity.name === 'thing-models');
   const propertyEntity = (meta.subresources ?? []).find(
     (entity) => entity.name === 'thing-model-properties',
   );
@@ -29,6 +29,8 @@ export function DeviceTypeDetailPage() {
   const [typeRow, setTypeRow] = useState<RowData | null>(null);
   const [properties, setProperties] = useState<RowData[]>([]);
   const [terminals, setTerminals] = useState<RowData[]>([]);
+  const [propertyTotal, setPropertyTotal] = useState(0);
+  const [terminalTotal, setTerminalTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [drawer, setDrawer] = useState<DrawerState>({ open: false, mode: 'view', row: null });
@@ -41,7 +43,7 @@ export function DeviceTypeDetailPage() {
     setError(null);
     try {
       const [row, props, terms] = await Promise.all([
-        fetchOne('device-types', id),
+        fetchOne('thing-models', id),
         fetchList(
           'entity',
           'thing-model-properties',
@@ -52,8 +54,10 @@ export function DeviceTypeDetailPage() {
       setTypeRow(row);
       setProperties(props.rows);
       setTerminals(terms.rows);
+      setPropertyTotal(props.meta.total);
+      setTerminalTotal(terms.meta.total);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '终端类型详情加载失败');
+      setError(err instanceof Error ? err.message : '物模型详情加载失败');
     } finally {
       setLoading(false);
     }
@@ -76,7 +80,7 @@ export function DeviceTypeDetailPage() {
   if (!typeEntity || !propertyEntity || !terminalEntity) {
     return (
       <div className="mx-auto max-w-[1400px] px-6 py-5">
-        <EmptyState title="元数据缺失" hint="device-types / thing-model-properties / terminals 未在 _meta 中下发。" />
+        <EmptyState title="元数据缺失" hint="thing-models / thing-model-properties / terminals 未在 _meta 中下发。" />
       </div>
     );
   }
@@ -87,11 +91,11 @@ export function DeviceTypeDetailPage() {
     <div className="mx-auto max-w-[1400px] px-6 py-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs text-muted">管理后台 / 终端类型 / 详情</p>
+          <p className="text-xs text-muted">管理后台 / 物模型 / 详情</p>
           <h1 className="mt-1 truncate text-xl font-semibold text-fg">{typeName}</h1>
           <p className="mt-1 truncate text-xs text-muted">
-            编码 {typeRow ? String(typeRow.code ?? '—') : '—'} · 绑定字段 {properties.length} 个 · 终端实例{' '}
-            {terminals.length} 台
+            编码 {typeRow ? String(typeRow.code ?? '—') : '—'} · 绑定字段 {propertyTotal} 个 · 终端实例{' '}
+            {terminalTotal} 台
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -101,7 +105,7 @@ export function DeviceTypeDetailPage() {
             disabled={!typeRow}
             className="inline-flex h-9 items-center rounded-md border border-line px-3 text-sm text-fg hover:bg-surface-2 disabled:opacity-50"
           >
-            编辑类型
+            编辑物模型
           </button>
           <button
             type="button"
@@ -124,7 +128,7 @@ export function DeviceTypeDetailPage() {
           <Section
             className="mt-4"
             title="绑定字段（物模型属性）"
-            hint="类型决定终端的字段集合；终端上报的 item_code 必须在这里声明"
+            hint="物模型决定终端的字段集合；终端上报的 item_code 必须在这里声明"
             action={
               <button
                 type="button"
@@ -140,7 +144,7 @@ export function DeviceTypeDetailPage() {
               fields={propertyFields}
               rows={properties}
               loading={loading}
-              empty="这个类型还没有绑定任何字段"
+              empty="这个物模型还没有绑定任何字段"
               onRowClick={(row) => setDrawer({ open: true, mode: 'view', row })}
               entityName="thing-model-properties"
             />
@@ -149,7 +153,7 @@ export function DeviceTypeDetailPage() {
           <Section
             className="mt-4"
             title="终端实例"
-            hint="终端是类型的实例：同类型终端共享上面这套字段"
+            hint="终端是物模型的实例：同一物模型下终端共享上面这套字段"
             action={
               <Link
                 to="/e/terminals"
@@ -163,7 +167,7 @@ export function DeviceTypeDetailPage() {
               fields={terminalFields}
               rows={terminals}
               loading={loading}
-              empty="这个类型下还没有终端"
+              empty="这个物模型下还没有终端"
               onRowClick={(row) => {
                 if (row.id === undefined || row.id === null) return;
                 navigate(`/e/terminals/${String(row.id)}`);

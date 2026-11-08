@@ -36,7 +36,7 @@ export interface RecordDrawerProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved?: () => void;
-  /** 创建时的预填值（如从终端类型详情页新增字段时带上 type_id）。 */
+  /** 创建时的预填值（如从物模型详情页新增字段时带上 type_id）。 */
   defaults?: RowData;
 }
 

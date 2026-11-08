@@ -83,7 +83,7 @@ export function AppShell() {
   const [theme, setTheme] = useState<Theme>(readTheme);
 
   const sections = useMemo(() => navSections(meta), [meta]);
-  // 详情页（如 /e/device-types/1）的父级导航项：顶栏据此渲染"返回"。
+  // 详情页（如 /e/thing-models/1）的父级导航项：顶栏据此渲染"返回"。
   const parent = useMemo(
     () => sections.flatMap((s) => s.items).find((item) => pathname.startsWith(item.to + '/')),
     [sections, pathname],

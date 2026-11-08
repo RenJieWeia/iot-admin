@@ -118,9 +118,9 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
 
   const openRow = useCallback(
     (row: RowData) => {
-      // 终端类型的"绑定关系"在详情页（字段 + 终端实例），行点击直接进详情。
-      if (kind === 'entity' && name === 'device-types' && row.id !== undefined) {
-        navigate(`/e/device-types/${String(row.id)}`);
+      // 物模型的"绑定关系"在详情页（字段 + 终端实例），行点击直接进详情。
+      if (kind === 'entity' && name === 'thing-models' && row.id !== undefined) {
+        navigate(`/e/thing-models/${String(row.id)}`);
         return;
       }
       if (kind === 'entity' && name === 'terminals' && row.id !== undefined) {

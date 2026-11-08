@@ -14,7 +14,7 @@ interface PropertyRow extends RowData {
   unit?: string | null;
 }
 
-/** 模板编辑：选择终端类型与字段（档位/时间不存模板，查询时再选）。 */
+/** 模板编辑：选择物模型与字段（档位/时间不存模板，查询时再选）。 */
 export function SnapshotQueryEditPage() {
   const { id } = useParams();
   const isNew = !id;
@@ -36,7 +36,7 @@ export function SnapshotQueryEditPage() {
     setError(null);
     try {
       const [types, props, template] = await Promise.all([
-        fetchOptions('device-types', { limit: 1000 }),
+        fetchOptions('thing-models', { limit: 1000 }),
         fetchList('entity', 'thing-model-properties', new URLSearchParams({ pageSize: '1000' })),
         isNew ? Promise.resolve(null) : fetchOne('snapshot-queries', id!),
       ]);
@@ -101,7 +101,7 @@ export function SnapshotQueryEditPage() {
       return;
     }
     if (selectedTypes.length === 0) {
-      toast.error('至少选择一个终端类型');
+      toast.error('至少选择一个物模型');
       return;
     }
     if (selectedCodes.length === 0) {
@@ -175,8 +175,8 @@ export function SnapshotQueryEditPage() {
 
       <section className="mt-4 rounded-xl border border-line bg-surface shadow-panel">
         <header className="border-b border-line px-4 py-3">
-          <h2 className="text-sm font-medium text-fg">终端类型</h2>
-          <p className="mt-0.5 text-xs text-muted">同类型终端共享字段；查询时自动展开该类型下所有终端</p>
+          <h2 className="text-sm font-medium text-fg">物模型</h2>
+          <p className="mt-0.5 text-xs text-muted">同一物模型下终端共享字段；查询时自动展开该物模型下所有终端</p>
         </header>
         {loading ? (
           <div className="space-y-2 p-4">
@@ -185,7 +185,7 @@ export function SnapshotQueryEditPage() {
             ))}
           </div>
         ) : typeOptions.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted">还没有终端类型，请先在「终端类型」里创建。</p>
+          <p className="px-4 py-6 text-sm text-muted">还没有物模型，请先在「物模型」里创建。</p>
         ) : (
           <div className="grid gap-2 p-4 sm:grid-cols-2">
             {typeOptions.map((option) => {
@@ -225,7 +225,7 @@ export function SnapshotQueryEditPage() {
             ))}
           </div>
         ) : selectedTypes.length === 0 ? (
-          <p className="px-4 py-6 text-sm text-muted">先选择终端类型，再从该类型的字段里挑选。</p>
+          <p className="px-4 py-6 text-sm text-muted">先选择物模型，再从它的字段里挑选。</p>
         ) : (
           <div className="divide-y divide-line">
             {selectedTypes.map((typeID) => {
@@ -234,7 +234,7 @@ export function SnapshotQueryEditPage() {
                 <div key={typeID} className="px-4 py-3">
                   <p className="text-xs font-medium text-muted">{typeName(typeID)}</p>
                   {props.length === 0 ? (
-                    <p className="mt-1 text-xs text-muted">该类型还没有绑定字段（可在终端类型详情里新增）。</p>
+                    <p className="mt-1 text-xs text-muted">该物模型还没有绑定字段（可在物模型详情里新增）。</p>
                   ) : (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {props.map((prop) => {
@@ -286,7 +286,7 @@ export function SnapshotQueryEditPage() {
 
       {selectedTypes.length === 0 && !loading ? (
         <div className="mt-6">
-          <EmptyState title="还没有可预览的内容" hint="选择终端类型与字段后保存，就能在查询页看到透视表。" />
+          <EmptyState title="还没有可预览的内容" hint="选择物模型与字段后保存，就能在查询页看到透视表。" />
         </div>
       ) : null}
     </div>

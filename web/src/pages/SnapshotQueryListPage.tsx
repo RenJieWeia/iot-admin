@@ -168,7 +168,7 @@ export function SnapshotQueryListPage() {
                 <LayoutGrid className="size-4 shrink-0 text-muted" aria-hidden />
               </div>
               <p className="mt-3 text-xs text-muted">
-                {template.device_type_ids.length} 个终端类型 · {template.item_codes.length} 个字段
+                {template.device_type_ids.length} 个物模型 · {template.item_codes.length} 个字段
               </p>
               <p className="mt-0.5 text-xs text-muted">更新于 {formatDateTime(template.updated_at)}</p>
               <div className="mt-4 flex flex-wrap items-center gap-2">

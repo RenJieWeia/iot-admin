@@ -11,6 +11,13 @@ import { SnapshotQueryListPage } from './pages/SnapshotQueryListPage';
 import { SnapshotQueryEditPage } from './pages/SnapshotQueryEditPage';
 import { SnapshotQueryResultPage } from './pages/SnapshotQueryResultPage';
 
+/** 旧路径兼容：/e/device-types[/:id] → /e/thing-models[/:id]。 */
+function LegacyDeviceTypes({ detail = false }: { detail?: boolean }) {
+  const params = useParams();
+  const target = detail && params.id ? `/e/thing-models/${params.id}` : '/e/thing-models';
+  return <Navigate to={target} replace />;
+}
+
 /** 路由参数绑到 ListPage 的 props（路由声明仍是 /e/:name、/r/:slot、/x/:slot）。 */
 function ListRoute({ kind, param }: { kind: ListKind; param: 'name' | 'slot' }) {
   const params = useParams();
@@ -44,8 +51,10 @@ export default function App() {
         <Route path="e/snapshot-queries/new" element={<SnapshotQueryEditPage />} />
         <Route path="e/snapshot-queries/:id/edit" element={<SnapshotQueryEditPage />} />
         <Route path="e/snapshot-queries/:id/query" element={<SnapshotQueryResultPage />} />
-        {/* 终端类型详情：字段绑定 + 终端实例 */}
-        <Route path="e/device-types/:id" element={<DeviceTypeDetailPage />} />
+        {/* 物模型详情：字段绑定 + 终端实例；旧 device-types 路径做重定向 */}
+        <Route path="e/device-types" element={<LegacyDeviceTypes />} />
+        <Route path="e/device-types/:id" element={<LegacyDeviceTypes detail />} />
+        <Route path="e/thing-models/:id" element={<DeviceTypeDetailPage />} />
         {/* 终端详情：基础信息 + 类型字段 + 最新值 */}
         <Route path="e/terminals/:id" element={<TerminalDetailPage />} />
         <Route path="e/:name" element={<ListRoute kind="entity" param="name" />} />
