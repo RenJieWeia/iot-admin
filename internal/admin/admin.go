@@ -344,7 +344,12 @@ func writeValidateError(w http.ResponseWriter, err error) {
 // Entities 是本 API 对外暴露的全部实体，与"非目标"清单保持一致（无消费方/权限/命令/报表）。
 var Entities = []Entity{
 	{Name: "data-domains", Table: "data_domain", Cols: []string{"code", "name"}},
-	{Name: "device-types", Table: "device_type", Cols: []string{"code", "name", "domain_id"}},
+	// 终端类型：列表带两个派生计数，让"类型绑定字段 / 类型下有几台终端"一眼可见。
+	{Name: "device-types", Table: "device_type", Cols: []string{"code", "name", "domain_id"},
+		ExtraSelect: []string{
+			"(select count(*) from thing_model_property p where p.type_id = device_type.id) as properties_count",
+			"(select count(*) from terminal t where t.type_id = device_type.id) as terminals_count",
+		}},
 	{Name: "thing-model-properties", Hidden: true, Table: "thing_model_property", Cols: []string{
 		"type_id", "item_code", "name", "value_type", "unit", "precision", "required", "min_value", "max_value"}},
 	{Name: "terminals", Table: "terminal", Cols: []string{"id", "type_id", "gateway_id", "name", "enabled"}},

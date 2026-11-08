@@ -266,6 +266,11 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "flex"},
 			{Key: "domain_id", Label: "数据域", Type: "relation", Visible: true, Sortable: true, Filterable: true, Required: true,
 				FilterType: "relation", Operators: []string{"in"}, OptionsSource: "remote", WidthStrategy: "min"},
+			// 派生计数：类型绑定了多少字段、下挂多少终端实例（列表 SQL 计算，不可排序/筛选/编辑）。
+			{Key: "properties_count", Label: "字段数", Type: "number", Visible: true, Sortable: false, Filterable: false,
+				FilterType: "none", WidthStrategy: "fixed", Derived: true},
+			{Key: "terminals_count", Label: "终端数", Type: "number", Visible: true, Sortable: false, Filterable: false,
+				FilterType: "none", WidthStrategy: "fixed", Derived: true},
 		},
 		relations: map[string]string{"domain_id": "data-domains"},
 	},
