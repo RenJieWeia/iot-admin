@@ -258,8 +258,10 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
         </div>
       </div>
 
-      <div className="mt-4 overflow-hidden rounded-xl border border-line bg-surface shadow-panel">
+      {/* 列表主体最小高度：筛选后行数变少/空态时，卡片与分页位置保持稳定不塌。 */}
+      <div className="mt-4 flex min-h-[max(360px,calc(100vh-22rem))] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-panel">
         <FilterBar fields={page.fields} query={query} onChange={setQuery} />
+        <div className="flex-1">
         {cardEnabled && viewMode === 'card' ? (
           <CardGrid
             fields={visibleFields}
@@ -288,6 +290,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
             onReset={resetQuery}
           />
         )}
+        </div>
         {cursorMode ? (
           <CursorPager
             hasMore={list.cursor?.hasMore ?? false}
