@@ -85,8 +85,7 @@ func run(log *slog.Logger) error {
 	// 快照分区维护：开机先跑一次，之后每日一次；失败只告警，不阻塞上报。
 	go maintainSnapshots(ctx, pool, now, log)
 
-	// 管理后台 UI：React SPA 产物走 embed，单二进制交付（R-015/R-016），不再渲染 HTML。
-	mux := newMux(proc, admin.WithAuth(nil, adminAPI.Handler()), ui.Handler())
+	mux := newMux(proc, admin.WithAuth(nil, adminAPI.Handler()))
 
 	addr := env("IOT_LISTEN", "127.0.0.1:8080")
 	srv := &http.Server{
@@ -132,9 +131,7 @@ func maintainSnapshots(ctx context.Context, pool *pgxpool.Pool, now func() time.
 }
 
 // withSecurityHeaders 给所有响应加安全头：管理面同源部署，CSP 不允许任何外源脚本/样式/连接。
-// 样式必须放开 'unsafe-inline'：Radix 的 Dialog/Popper primitive 会注入内联 style 做定位、
-// 滚动锁与焦点守卫，拦掉会退化成不确定行为（REVIEW-004 F2）。脚本仍收紧到 'self'，
-// 我们的产物没有任何内联脚本，XSS 面没有被这条放开。
+// style-src 放开 'unsafe-inline' 是因为 Radix 组件会注入内联 style；脚本仍只允许 'self'。
 func withSecurityHeaders(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		h := w.Header()
@@ -147,17 +144,14 @@ func withSecurityHeaders(next http.Handler) http.Handler {
 	})
 }
 
-// newMux 汇总全部对外路由；抽出来便于用例断言路径与重定向。
-func newMux(proc *ingest.Processor, adminHandler, uiHandler http.Handler) http.Handler {
+// newMux 汇总全部对外路由；抽出来便于用例断言路径。
+// 单二进制交付：前端产物由 embed 从 /ui/ 提供，根路径统一跳过去。
+func newMux(proc *ingest.Processor, adminHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("POST /ingest/v1/messages", &ingest.HTTPHandler{P: proc})
 	mux.Handle("/admin/v1/", adminHandler)
-	// SPA 处理器只看 /ui 之后的路径，前缀在这里剥掉，处理器本身与挂载点解耦。
-	mux.Handle("/ui/", http.StripPrefix("/ui", uiHandler))
-	// 根路径直接进管理后台；接入与管理 API 仍走各自的明确路径。
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		http.Redirect(w, r, "/ui/", http.StatusFound)
-	})
+	mux.Handle("GET /{$}", http.RedirectHandler("/ui/", http.StatusFound))
+	mux.Handle("/ui/", http.StripPrefix("/ui/", ui.Handler()))
 	return mux
 }
 

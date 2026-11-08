@@ -3,63 +3,90 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
-	"regexp"
 	"strings"
 	"testing"
-
-	"github.com/RenJieWeia/iot-admin/internal/ui"
 )
 
-// 验收 task-004 §8：GET / 302 → /ui/；/ui/ 及深链返回 SPA 入口；产物资源可取；CSP 生效。
+// 单二进制交付：/ 跳前端，/ui/ 由 embed 提供 SPA，API 仍只挂在各自前缀下。
 func TestRoutes(t *testing.T) {
-	h := withSecurityHeaders(newMux(nil, http.NotFoundHandler(), ui.Handler()))
+	adminHit := false
+	admin := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		adminHit = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+	h := withSecurityHeaders(newMux(nil, admin))
 
+	// 根路径 302 到 /ui/。
 	rec := httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
-	if rec.Code != http.StatusFound || rec.Header().Get("Location") != "/ui/" {
-		t.Fatalf("GET / → %d %q，期望 302 /ui/", rec.Code, rec.Header().Get("Location"))
+	if rec.Code != http.StatusFound {
+		t.Fatalf("GET / → %d，期望 302", rec.Code)
+	}
+	if got := rec.Header().Get("Location"); got != "/ui/" {
+		t.Fatalf("GET / Location = %q，期望 /ui/", got)
 	}
 
-	// /ui/ 现在是 SPA 入口（R-017 删掉了 SSR 的 302 跳转），前端路由自己选第一个实体。
+	// 前端入口 200，且必须能被浏览器挂载；入口每次回源，不吃长缓存。
 	rec = httptest.NewRecorder()
 	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui/", nil))
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /ui/ → %d，期望 200", rec.Code)
 	}
-	if ct := rec.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
-		t.Fatalf("GET /ui/ Content-Type = %q，期望 html", ct)
+	if body := rec.Body.String(); !strings.Contains(body, `id="root"`) {
+		t.Fatalf("GET /ui/ 响应体 = %q，期望包含 id=\"root\"", body)
 	}
-	index := rec.Body.String()
-	if !strings.Contains(index, `id="root"`) {
-		t.Fatalf("GET /ui/ 未返回 SPA 入口: %q", index)
-	}
-
-	// 深链刷新走 index.html fallback，而不是 404。
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui/exceptions/events", nil))
-	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), `id="root"`) {
-		t.Fatalf("GET /ui/exceptions/events → %d，期望 index.html fallback", rec.Code)
+	if got := rec.Header().Get("Cache-Control"); !strings.Contains(got, "no-cache") {
+		t.Fatalf("GET /ui/ Cache-Control = %q，期望 no-cache", got)
 	}
 
-	// 产物里的哈希资源必须真的能取到（否则 embed 路径写错）。
-	asset := regexp.MustCompile(`assets/[A-Za-z0-9._-]+\.js`).FindString(index)
-	if asset == "" {
-		t.Fatalf("入口 HTML 未引用构建资源: %q", index)
-	}
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui/"+asset, nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /ui/%s → %d，期望 200", asset, rec.Code)
-	}
-	if cc := rec.Header().Get("Cache-Control"); !strings.Contains(cc, "immutable") {
-		t.Fatalf("哈希资源 Cache-Control = %q，期望 immutable", cc)
+	// 深链回退到 index.html（前端路由自己解析）。
+	for _, target := range []string{"/ui/e/terminals", "/ui/r/snapshot-second", "/ui/x/exception-events"} {
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		if rec.Code != http.StatusOK {
+			t.Fatalf("GET %s → %d，期望 200", target, rec.Code)
+		}
+		if !strings.Contains(rec.Body.String(), `id="root"`) {
+			t.Fatalf("GET %s 未回退到 index.html", target)
+		}
 	}
 
-	// 管理面同源：默认丢外源，脚本只允许 'self'，样式放开 'unsafe-inline' 供 Radix 注入。
+	// favicon 与哈希资源缺失按 404 处理，不能回退成 HTML。
+	for _, target := range []string{"/ui/favicon.ico", "/ui/assets/missing.js"} {
+		rec = httptest.NewRecorder()
+		h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, target, nil))
+		if rec.Code != http.StatusNotFound {
+			t.Fatalf("GET %s → %d，期望 404", target, rec.Code)
+		}
+		if strings.Contains(rec.Body.String(), `id="root"`) {
+			t.Fatalf("GET %s 不应回退到 index.html", target)
+		}
+	}
+
+	// 管理 API 挂在 /admin/v1/ 前缀下。
 	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui/", nil))
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/meta", nil))
+	if rec.Code != http.StatusNoContent || !adminHit {
+		t.Fatalf("GET /admin/v1/meta → %d，未进入管理处理器", rec.Code)
+	}
+
+	// 接入端点只接受 POST，且路径准确。
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ingest/v1/messages", nil))
+	if rec.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("GET /ingest/v1/messages → %d，期望 405", rec.Code)
+	}
+
+	// 安全头对 API 与页面同样生效；Radix 注入内联 style，故 style-src 放开 unsafe-inline。
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/v1/meta", nil))
 	csp := rec.Header().Get("Content-Security-Policy")
-	for _, want := range []string{"default-src 'self'", "script-src 'self'", "style-src 'self' 'unsafe-inline'"} {
+	for _, want := range []string{
+		"default-src 'self'",
+		"script-src 'self'",
+		"style-src 'self' 'unsafe-inline'",
+		"frame-ancestors 'none'",
+	} {
 		if !strings.Contains(csp, want) {
 			t.Fatalf("CSP = %q，期望包含 %q", csp, want)
 		}
@@ -67,11 +94,10 @@ func TestRoutes(t *testing.T) {
 	if strings.Contains(csp, "script-src 'self' 'unsafe-inline'") {
 		t.Fatalf("CSP = %q，脚本不允许放开 unsafe-inline", csp)
 	}
-
-	// favicon 随产物一起提供，避免浏览器反复 404。
-	rec = httptest.NewRecorder()
-	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/ui/favicon.svg", nil))
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /ui/favicon.svg → %d，期望 200", rec.Code)
+	if got := rec.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q，期望 nosniff", got)
+	}
+	if got := rec.Header().Get("Referrer-Policy"); got != "same-origin" {
+		t.Fatalf("Referrer-Policy = %q，期望 same-origin", got)
 	}
 }
