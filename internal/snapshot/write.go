@@ -9,31 +9,25 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// Write 把快照行写入三张表（粗表承接时/日/月/年，分表与秒表各一档）。
+// Write 把快照行写入两张表（粗表承接时/日/月/年，分表一档；秒表已随 0017 下线）。
 //
 // 事务边界由调用方控制（pipeline 在 T1 提交 latest_value 之后再开 T2）。
 // 覆盖语义：只有 excluded.value_time 更大才覆盖并 revision+1 —— 同值重发与更早的回拨都不动行，
 // 与 latest_value 的 value_time 守卫同一口径。
 func Write(ctx context.Context, tx pgx.Tx, rows []Row) error {
 	rows = collapseRows(rows)
-	var coarse, minute, second []Row
+	var coarse, minute []Row
 	for _, r := range rows {
-		switch r.Granularity {
-		case Hour, Day, Month, Year:
-			coarse = append(coarse, r)
-		case Minute:
+		if r.Granularity == Minute {
 			minute = append(minute, r)
-		case Second:
-			second = append(second, r)
+			continue
 		}
+		coarse = append(coarse, r)
 	}
 	if err := writeCoarse(ctx, tx, coarse); err != nil {
 		return err
 	}
-	if err := writeSimple(ctx, tx, "snapshot_minute", minute); err != nil {
-		return err
-	}
-	return writeSimple(ctx, tx, "snapshot_second", second)
+	return writeSimple(ctx, tx, "snapshot_minute", minute)
 }
 
 // rowKey 是快照行的自然键（粗表含 granularity，分/秒表同形）。

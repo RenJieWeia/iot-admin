@@ -15,8 +15,8 @@ type Loader interface {
 	Load(ctx context.Context) (Config, Bindings, error)
 }
 
-// PGLoader 从 snapshot_slot_config（六行固定）与 snapshot_binding（两级绑定）全量读取。
-// 两张表都很小（六行 + 绑定条数），整体缓存是划算的。
+// PGLoader 从 snapshot_slot_config（snapshot + minute 两行）与 snapshot_binding 全量读取。
+// 两张表都很小，整体缓存是划算的。
 type PGLoader struct {
 	Pool *pgxpool.Pool
 }
@@ -24,25 +24,32 @@ type PGLoader struct {
 // NewPGLoader 构造基于 PG 的加载器。
 func NewPGLoader(pool *pgxpool.Pool) *PGLoader { return &PGLoader{Pool: pool} }
 
-// Load 读一次全量配置：全局六档 + 两级绑定。
+// Load 读一次全量配置：快照总开关 + 分钟档 + 两级绑定。
 func (l *PGLoader) Load(ctx context.Context) (Config, Bindings, error) {
 	cfg := Config{}
 	rows, err := l.Pool.Query(ctx, `select granularity, enabled, coalesce(step, 0) from snapshot_slot_config`)
 	if err != nil {
-		return nil, Bindings{}, err
+		return Config{}, Bindings{}, err
 	}
 	for rows.Next() {
 		var g string
 		var slot Slot
 		if err := rows.Scan(&g, &slot.Enabled, &slot.Step); err != nil {
 			rows.Close()
-			return nil, Bindings{}, err
+			return Config{}, Bindings{}, err
 		}
-		cfg[Granularity(g)] = slot
+		switch g {
+		case SlotSnapshotName:
+			cfg.Snapshot = slot
+		case string(Minute):
+			cfg.Minute = slot
+		default:
+			// 迁移后只应有两行；未知档位（例如回滚残留）忽略，避免把整条写入链路打挂。
+		}
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {
-		return nil, Bindings{}, err
+		return Config{}, Bindings{}, err
 	}
 
 	// 一条绑定 = 一个目标 + 一个 item_codes 数组：加载时把数组展开进 set，
@@ -53,7 +60,7 @@ func (l *PGLoader) Load(ctx context.Context) (Config, Bindings, error) {
 	}
 	rows, err = l.Pool.Query(ctx, `select device_type_id, terminal_id, item_codes from snapshot_binding`)
 	if err != nil {
-		return nil, Bindings{}, err
+		return Config{}, Bindings{}, err
 	}
 	defer rows.Close()
 	for rows.Next() {
@@ -61,12 +68,12 @@ func (l *PGLoader) Load(ctx context.Context) (Config, Bindings, error) {
 		var terminalID *string
 		var raw []byte
 		if err := rows.Scan(&typeID, &terminalID, &raw); err != nil {
-			return nil, Bindings{}, err
+			return Config{}, Bindings{}, err
 		}
 		var codes []string
 		if err := json.Unmarshal(raw, &codes); err != nil {
 			// 数据库 CHECK 保证是数组；解不出来说明数据被外部改坏了 → 按平台故障上报。
-			return nil, Bindings{}, fmt.Errorf("解析 snapshot_binding.item_codes: %w", err)
+			return Config{}, Bindings{}, fmt.Errorf("解析 snapshot_binding.item_codes: %w", err)
 		}
 		for _, code := range codes {
 			if code == "" {
@@ -124,18 +131,14 @@ func NewStore(l Loader, ttl time.Duration, now func() time.Time) *Store {
 	}
 }
 
-// Config 返回全局六档配置（缓存快照的副本，调用方可以安全持有）。
+// Config 返回快照配置（结构体副本，调用方可以安全持有）。
 func (s *Store) Config(ctx context.Context) (Config, error) {
 	if err := s.ensure(ctx); err != nil {
-		return nil, err
+		return Config{}, err
 	}
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	out := make(Config, len(s.cfg))
-	for g, slot := range s.cfg {
-		out[g] = slot
-	}
-	return out, nil
+	return s.cfg, nil
 }
 
 // Lookup 判定某序列是否被纳入快照：类型级 OR 实例级（并集）。

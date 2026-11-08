@@ -28,9 +28,6 @@ func TestSegmentStart(t *testing.T) {
 		step int
 		want time.Time
 	}{
-		{"秒 step=10 向下取整", local(2026, 11, 5, 10, 0, 37), snapshot.Second, 10, local(2026, 11, 5, 10, 0, 30)},
-		{"秒 step=10 边界不前进", local(2026, 11, 5, 10, 0, 30), snapshot.Second, 10, local(2026, 11, 5, 10, 0, 30)},
-		{"秒 step=30 跨分", local(2026, 11, 5, 10, 0, 59), snapshot.Second, 30, local(2026, 11, 5, 10, 0, 30)},
 		{"分 step=15", local(2026, 11, 5, 10, 37, 12), snapshot.Minute, 15, local(2026, 11, 5, 10, 30, 0)},
 		{"分 step=2 偶数分", local(2026, 11, 5, 10, 37, 0), snapshot.Minute, 2, local(2026, 11, 5, 10, 36, 0)},
 		{"分 step=30 跨小时", local(2026, 11, 5, 10, 59, 0), snapshot.Minute, 30, local(2026, 11, 5, 10, 30, 0)},
@@ -59,7 +56,6 @@ func TestSegmentStart(t *testing.T) {
 // 段结束 = 段起点 + step×单位（月/年按日历加法）。
 func TestSegmentEnd(t *testing.T) {
 	mustEqual(t, "小时 step=2", snapshot.SegmentEnd(local(2026, 11, 5, 12, 0, 0), snapshot.Hour, 2), local(2026, 11, 5, 14, 0, 0))
-	mustEqual(t, "秒 step=30", snapshot.SegmentEnd(local(2026, 11, 5, 12, 0, 30), snapshot.Second, 30), local(2026, 11, 5, 12, 1, 0))
 	mustEqual(t, "月 step=3 跨年", snapshot.SegmentEnd(local(2026, 11, 1, 0, 0, 0), snapshot.Month, 3), local(2027, 2, 1, 0, 0, 0))
 	mustEqual(t, "年 step=1", snapshot.SegmentEnd(local(2026, 1, 1, 0, 0, 0), snapshot.Year, 1), local(2027, 1, 1, 0, 0, 0))
 }
@@ -81,9 +77,8 @@ func TestValidate(t *testing.T) {
 		g    snapshot.Granularity
 		step int
 	}{
-		{snapshot.Second, 1}, {snapshot.Second, 30},
-		{snapshot.Minute, 20}, {snapshot.Hour, 1}, {snapshot.Day, 1},
-		{snapshot.Month, 1}, {snapshot.Year, 1},
+		{snapshot.Granularity(snapshot.SlotSnapshotName), 1},
+		{snapshot.Minute, 1}, {snapshot.Minute, 30},
 	}
 	for _, c := range ok {
 		if err := snapshot.Validate(c.step, c.g); err != nil {
@@ -94,9 +89,9 @@ func TestValidate(t *testing.T) {
 		g    snapshot.Granularity
 		step int
 	}{
-		{snapshot.Second, 7}, {snapshot.Minute, 60}, {snapshot.Hour, 5},
-		{snapshot.Hour, 2}, {snapshot.Day, 2}, {snapshot.Month, 5}, {snapshot.Month, 12},
-		{snapshot.Year, 2},
+		{snapshot.Granularity(snapshot.SlotSnapshotName), 2},
+		{snapshot.Minute, 7}, {snapshot.Minute, 60},
+		{snapshot.Granularity("hour"), 2},
 		{snapshot.Granularity("week"), 1},
 	}
 	for _, c := range bad {
@@ -109,29 +104,33 @@ func TestValidate(t *testing.T) {
 // 每档独立判迟到：同一条数据进粗档、进不了秒/分档；未绑定则零写入（即使六档全开）。
 func TestRowsLatePerGranularity(t *testing.T) {
 	cfg := snapshot.Config{
-		snapshot.Second: {Enabled: true, Step: 1},
-		snapshot.Minute: {Enabled: true, Step: 1},
-		snapshot.Hour:   {Enabled: true, Step: 1},
+		Snapshot: snapshot.Slot{Enabled: true, Step: 1},
+		Minute:   snapshot.Slot{Enabled: true, Step: 1},
 	}
 	at := local(2026, 11, 5, 10, 0, 30)
 	value := snapshot.Value{TerminalID: "T1", ItemCode: "temp", Time: at}
 
-	// 20 分钟后：秒段(10:00:30+15m=10:15:31)、分段(10:01+15m=10:16)均过期，小时段(11:15)仍可写。
+	// 20 分钟后：分钟段(10:01+15m=10:16)过期，四档粗档仍可写（小时段 11:15 截止）。
 	rows, dropped := snapshot.Rows(cfg, true, at.Add(20*time.Minute), value)
-	if len(rows) != 1 || rows[0].Granularity != snapshot.Hour {
-		t.Fatalf("迟到分档应只剩小时档，实际 %+v", rows)
+	if len(rows) != 4 {
+		t.Fatalf("迟到后应只剩四档粗档，实际 %+v", rows)
 	}
-	if len(dropped) != 2 || dropped[0].Granularity != snapshot.Second || dropped[1].Granularity != snapshot.Minute {
-		t.Fatalf("应返回秒/分两档的丢弃明细，实际 %+v", dropped)
+	for _, row := range rows {
+		if row.Granularity == snapshot.Minute {
+			t.Fatalf("分钟档已过期，不应写入: %+v", row)
+		}
+	}
+	if len(dropped) != 1 || dropped[0].Granularity != snapshot.Minute {
+		t.Fatalf("应返回分钟档的丢弃明细，实际 %+v", dropped)
 	}
 	if dropped[0].Lateness <= 0 {
 		t.Fatalf("Lateness 应为正（超过截止多久），实际 %s", dropped[0].Lateness)
 	}
 
-	// 10 秒后：三档都可写。
+	// 10 秒后：五档都可写（四粗 + 分钟）。
 	rows, dropped = snapshot.Rows(cfg, true, at.Add(10*time.Second), value)
-	if len(rows) != 3 || len(dropped) != 0 {
-		t.Fatalf("宽限内应写三档且无丢弃，实际 %d 行 / %d 丢弃", len(rows), len(dropped))
+	if len(rows) != 5 || len(dropped) != 0 {
+		t.Fatalf("宽限内应写五档且无丢弃，实际 %d 行 / %d 丢弃", len(rows), len(dropped))
 	}
 
 	// 未绑定：零行零丢弃（验收 7：六档全开但没绑定 = 不产生快照）。
@@ -140,13 +139,13 @@ func TestRowsLatePerGranularity(t *testing.T) {
 		t.Fatalf("未绑定的序列应零写入，实际 %+v / %+v", rows, dropped)
 	}
 
-	// 六档全开但都未启用的档位不发散：只按 enabled 出档。
-	partial := snapshot.Config{snapshot.Hour: {Enabled: false, Step: 1}}
+	// 总开关关闭时不出粗档（分钟未启用也不出）。
+	partial := snapshot.Config{Snapshot: snapshot.Slot{Enabled: false, Step: 1}}
 	if rows, _ := snapshot.Rows(partial, true, at, value); len(rows) != 0 {
 		t.Fatalf("未启用的档不应出��，实际 %+v", rows)
 	}
-	if got := cfg.Enabled(); len(got) != 3 {
-		t.Fatalf("Enabled() = %v，期望 3 档", got)
+	if got := cfg.Enabled(); len(got) != 5 {
+		t.Fatalf("Enabled() = %v，期望 5 档", got)
 	}
 }
 

@@ -14,10 +14,9 @@ import (
 // 分区续建的前瞻窗口（与迁移 0010 的初始窗口衔接；重复创建是幂等的）。
 const (
 	partitionLeadMonths = 3
-	partitionLeadDays   = 8
 )
 
-// EnsurePartitions 给三张快照表续建未来分区：粗表/分表按月、秒表按日。
+// EnsurePartitions 给两张快照表续建未来分区：粗表/分表按月（秒表已随 0017 下线）。
 // 开机跑一次 + 每日 ticker；失败由调用方只记日志告警（缺分区时插入失败 = 平台故障，可重传）。
 func EnsurePartitions(ctx context.Context, pool *pgxpool.Pool, now time.Time) error {
 	monthStart := SegmentStart(now, Month, 1)
@@ -28,14 +27,6 @@ func EnsurePartitions(ctx context.Context, pool *pgxpool.Pool, now time.Time) er
 			if err := createPartition(ctx, pool, parent, parent+"_"+start.Format("200601"), start, end); err != nil {
 				return err
 			}
-		}
-	}
-	dayStart := SegmentStart(now, Day, 1)
-	for i := 0; i <= partitionLeadDays; i++ {
-		start := dayStart.AddDate(0, 0, i)
-		end := start.AddDate(0, 0, 1)
-		if err := createPartition(ctx, pool, "snapshot_second", "snapshot_second_"+start.Format("20060102"), start, end); err != nil {
-			return err
 		}
 	}
 	return nil

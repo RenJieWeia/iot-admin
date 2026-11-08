@@ -1,9 +1,10 @@
-// Package snapshot 提供六档自然时间快照的白名单、段起点对齐与写入。
+// Package snapshot 提供快照档位的白名单、段起点对齐与写入。
 //
-// 口径（与 migrations/0010 一致）：
-//   - 段起点一律按 Asia/Shanghai 本地自然时间对齐；秒/分/时按 step 对齐到本地时间轴，
-//     日 = 本地 0 点，月 = 1 日 0 点（step 按自然季度/半年/年分组），年 = 1 月 1 日；
-//   - 每档独立判迟到：段结束（段起点 + step×单位）+ 15 分钟宽限；
+// 口径（与 migrations/0017 一致）：
+//   - 时/日/月/年合并为「快照」一个概念，由一个总开关控制，四档同时写；
+//   - 分钟档独立开关，步长保留倍数（1…30 分钟）；
+//   - 秒档已下线：不再写入，snapshot_second 已删除；
+//   - 段起点一律按 Asia/Shanghai 本地自然时间对齐；每档独立判迟到：段结束 + 15 分钟宽限；
 //   - 覆盖写只认「采集时间更新」：excluded.value_time > 目标行 value_time 才覆盖并 revision+1。
 package snapshot
 
@@ -14,11 +15,11 @@ import (
 	"github.com/RenJieWeia/iot-admin/internal/staging"
 )
 
-// Granularity 是六档粒度；值直接落库（snapshot_coarse.granularity 的 CHECK 闭集）。
+// Granularity 是快照粒度；值直接落库（snapshot_coarse.granularity 的 CHECK 闭集）。
+// 「快照」本身不是粒度：它统管时/日/月/年四档（Config.Snapshot）。
 type Granularity string
 
 const (
-	Second Granularity = "second"
 	Minute Granularity = "minute"
 	Hour   Granularity = "hour"
 	Day    Granularity = "day"
@@ -26,23 +27,23 @@ const (
 	Year   Granularity = "year"
 )
 
-// AllGranularities 是固定顺序（写入与测试都按它遍历，避免 map 随机序）。
-var AllGranularities = []Granularity{Second, Minute, Hour, Day, Month, Year}
+// CoarseGranularities 是「快照」开关统管的四档（固定顺序）。
+var CoarseGranularities = []Granularity{Hour, Day, Month, Year}
+
+// AllGranularities 是写入顺序：先四档粗档，再分钟档。
+var AllGranularities = append(append([]Granularity{}, CoarseGranularities...), Minute)
 
 // GracePeriod 是每档的迟到宽限：段结束 + 15 分钟内仍可写。
 const GracePeriod = 15 * time.Minute
 
-// 步长白名单：必须与 migrations/0015 的 CHECK 约束逐项一致（DB 是最后一道，服务层先返回 400）。
+// 步长白名单：必须与 migrations/0017 的 CHECK 约束逐项一致（DB 是最后一道，服务层先返回 400）。
 //
-// 粗档（小时/日/月/年）只按自然边界出快照：步长固定 1 个自然单位，
-// 不再支持"每 2 小时/每 3 个月"这类倍数聚合；秒/分档仍保留倍数步长。
+// 「快照」（时/日/月/年）步长固定 1 个自然单位；分钟档保留倍数步长。
+const SlotSnapshotName = "snapshot"
+
 var stepWhitelist = map[Granularity][]int{
-	Second: {1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30},
-	Minute: {1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30},
-	Hour:   {1},
-	Day:    {1},
-	Month:  {1},
-	Year:   {1},
+	SlotSnapshotName: {1},
+	Minute:           {1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30},
 }
 
 // Validate 校验某档的步长是否在白名单内。管理 API 写入前调用（DB CHECK 兜底）。
@@ -66,23 +67,31 @@ type Slot struct {
 	Step    int
 }
 
-// Config 是全局六档配置（snapshot_slot_config 的六行固定表）。
-// 与旧模型的关键差别：enabled/step 是**全局**的，不再按序列逐行配置；
+// Config 是快照配置：一个总开关统管时/日/月/年，分钟档独立。
 // 「哪些序列要快照」由 Bindings 决定，两者正交。
-type Config map[Granularity]Slot
+type Config struct {
+	Snapshot Slot
+	Minute   Slot
+}
 
-// Slot 取某档配置；缺行视为未启用。
-func (c Config) Slot(g Granularity) Slot { return c[g] }
-
-// Enabled 返回按 AllGranularities 顺序排列的已启用档位（稳定顺序，便于遍历与断言）。
+// Enabled 返回按 AllGranularities 顺序排列的生效档位（稳定顺序，便于遍历与断言）。
 func (c Config) Enabled() []Granularity {
 	var out []Granularity
-	for _, g := range AllGranularities {
-		if s := c[g]; s.Enabled && s.Step > 0 {
-			out = append(out, g)
-		}
+	if c.Snapshot.Enabled {
+		out = append(out, CoarseGranularities...)
+	}
+	if c.Minute.Enabled && c.Minute.Step > 0 {
+		out = append(out, Minute)
 	}
 	return out
+}
+
+// Step 返回某档写入时使用的步长：粗档固定 1，分钟档用配置值。
+func (c Config) Step(g Granularity) int {
+	if g == Minute {
+		return c.Minute.Step
+	}
+	return 1
 }
 
 // Bindings 是两级绑定集合（snapshot_binding 的两种作用域）：
@@ -144,10 +153,6 @@ func SegmentStart(t time.Time, g Granularity, step int) time.Time {
 	}
 	lt := t.In(staging.Zone)
 	switch g {
-	case Second:
-		secOfDay := lt.Hour()*3600 + lt.Minute()*60 + lt.Second()
-		base := secOfDay - secOfDay%step
-		return time.Date(lt.Year(), lt.Month(), lt.Day(), base/3600, base%3600/60, base%60, 0, staging.Zone)
 	case Minute:
 		minOfDay := lt.Hour()*60 + lt.Minute()
 		base := minOfDay - minOfDay%step
@@ -174,8 +179,6 @@ func SegmentEnd(start time.Time, g Granularity, step int) time.Time {
 		step = 1
 	}
 	switch g {
-	case Second:
-		return start.Add(time.Duration(step) * time.Second)
 	case Minute:
 		return start.Add(time.Duration(step) * time.Minute)
 	case Hour:
@@ -217,18 +220,18 @@ func Rows(cfg Config, bound bool, now time.Time, v Value) ([]Row, []Dropped) {
 	}
 	var out []Row
 	var dropped []Dropped
-	for _, g := range AllGranularities {
-		slot := cfg[g]
-		if !slot.Enabled || slot.Step < 1 {
+	for _, g := range cfg.Enabled() {
+		step := cfg.Step(g)
+		if step < 1 {
 			continue
 		}
-		start := SegmentStart(v.Time, g, slot.Step)
-		if !Writable(now, start, g, slot.Step) {
+		start := SegmentStart(v.Time, g, step)
+		if !Writable(now, start, g, step) {
 			dropped = append(dropped, Dropped{
 				Granularity:  g,
 				SegmentStart: start,
 				ValueTime:    v.Time,
-				Lateness:     now.Sub(SegmentEnd(start, g, slot.Step).Add(GracePeriod)),
+				Lateness:     now.Sub(SegmentEnd(start, g, step).Add(GracePeriod)),
 			})
 			continue
 		}
