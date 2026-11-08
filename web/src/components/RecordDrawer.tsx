@@ -1,339 +1,503 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Button, Select, TextField } from '@radix-ui/themes';
-import { z } from 'zod';
-import type { EntityMeta, FieldMeta, RowData } from '../api/types';
-import { formFields } from '../lib/fieldMeta';
-import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '../lib/radixSelect';
-import { toFormValue, toSubmitValue } from '../lib/format';
 import * as Checkbox from '@radix-ui/react-checkbox';
+import { Check, Loader2, Pencil, Trash2 } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
+import { ApiError, createRow, deleteRow, updateRow } from '../api/client';
+import type { FieldMeta, RowData, Tone } from '../api/types';
+import { cn } from '../lib/cn';
+import {
+  coerceForSubmit,
+  emptyValue,
+  formatDateTime,
+  formatNumber,
+  isBlank,
+  optionLabel,
+  rowTitle,
+} from '../lib/format';
+import { useRelationLabels } from '../meta';
+import { ConfirmDialog } from './ConfirmDialog';
 import { Drawer } from './Drawer';
 import { RelationSelect } from './RelationSelect';
+import { useToast } from './Toast';
 
-interface Props {
-  entity: EntityMeta;
-  /**
-   * 1107022：抽屉改为**常驻挂载 + open 开关**（原来是 `{cond && <RecordDrawer/>}` 条件挂载）。
-   * 条件挂载会让父组件在关闭瞬间把整个组件卸掉，Radix Presence 根本没机会播退场动画。
-   * 挂载后内容只在 open=true 时通过 Portal 渲染，关闭期间不发任何请求（组件内无数据 hook）。
-   */
-  open: boolean;
-  /** 实体页 true；异常只读页不会渲染这个抽屉。 */
-  writable: boolean;
-  mode: 'new' | 'edit';
+export type RecordMode = 'view' | 'edit' | 'create';
+
+/** 与 _meta 的实体/只读页元数据同形，只取抽屉用得到的字段。 */
+export interface RecordEntity {
+  name: string;
+  title: string;
+  fields: FieldMeta[];
+  readOnly?: boolean;
+}
+
+export interface RecordDrawerProps {
+  entity: RecordEntity;
   row: RowData | null;
-  saving: boolean;
-  deleting: boolean;
-  error: string | null;
-  onClose: () => void;
-  onSave: (body: RowData) => void;
-  /** 删除入口只发意图，二次确认由页面统一渲染（确认按钮带对象名）。 */
-  onDelete: () => void;
-  /**
-   * 锁定字段：渲染成只读输入框（灰显、不可编辑），提交时仍带上它的值。
-   * 供「终端类型详情页 → 新建属性」把 type_id 钉死；不传时行为与之前完全一致。
-   */
-  lockedFields?: string[];
+  mode: RecordMode;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onSaved?: () => void;
 }
 
-function initialValues(fields: FieldMeta[], row: RowData | null): Record<string, string> {
-  const values: Record<string, string> = {};
-  for (const field of fields) {
-    const raw = row ? row[field.key] : undefined;
-    values[field.key] =
-      raw === undefined ? (field.type === 'boolean' ? 'true' : '') : toFormValue(raw);
-  }
-  return values;
+const inputClass =
+  'h-9 w-full rounded-md border border-line bg-surface px-3 text-sm text-fg outline-none placeholder:text-muted focus:border-primary disabled:opacity-50';
+const invalidClass = 'border-negative focus:border-negative';
+const primaryButton =
+  'inline-flex h-9 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-50';
+const secondaryButton =
+  'inline-flex h-9 items-center gap-1.5 rounded-md border border-line px-3 text-sm text-fg hover:bg-surface-2 disabled:opacity-50';
+const dangerButton =
+  'inline-flex h-9 items-center gap-1.5 rounded-md border border-line px-3 text-sm text-negative hover:bg-negative-soft disabled:opacity-50';
+
+const toneClass: Record<Tone, string> = {
+  neutral: 'bg-neutral-soft text-muted',
+  positive: 'bg-positive-soft text-positive',
+  negative: 'bg-negative-soft text-negative',
+  warning: 'bg-warning-soft text-warning',
+};
+
+function toneOf(tone?: string): Tone {
+  return tone === 'positive' || tone === 'negative' || tone === 'warning' ? tone : 'neutral';
 }
 
-/**
- * 校验只为提示，服务端仍以 admin.columns() 白名单与列类型为准。
- * 必填完全由 `field.required` 驱动（后端下发），前端不按字段类型猜。
- */
-function buildSchema(fields: FieldMeta[]) {
-  const shape: Record<string, z.ZodTypeAny> = {};
-  for (const field of fields) {
-    const base = z.string().trim();
-    if (field.type === 'number') {
-      const numeric = base.refine(
-        (v) => v === '' || !Number.isNaN(Number(v)),
-        `${field.label}必须是数字`,
-      );
-      shape[field.key] = field.required
-        ? base.min(1, `${field.label}必填`).refine(
-            (v) => !Number.isNaN(Number(v)),
-            `${field.label}必须是数字`,
-          )
-        : numeric;
-    } else {
-      shape[field.key] = field.required ? base.min(1, `${field.label}必填`) : base;
+/** 主键：优先 id，否则取字段表首列（snapshot-settings 用 table_name、六档用 granularity）。 */
+function primaryKeyOf(fields: FieldMeta[]): string {
+  return fields.some((field) => field.key === 'id') ? 'id' : (fields[0]?.key ?? 'id');
+}
+
+function jsonText(value: unknown): string {
+  if (isBlank(value)) return '—';
+  if (typeof value === 'string') {
+    try {
+      return JSON.stringify(JSON.parse(value), null, 2);
+    } catch {
+      return value;
     }
   }
-  return z.object(shape);
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
 }
 
-/** 对象标识：有名称用「名称（id）」，确认按钮与提示都带它。 */
-export function objectLabel(entity: EntityMeta, row: RowData | null): string {
-  if (!row) return entity.title;
-  const name = row.name ?? row.code ?? row.id ?? '';
-  const id = row.id ?? '';
-  if (name && id && String(name) !== String(id)) return `${String(name)}（${String(id)}）`;
-  return String(name || id || entity.title);
+function errorText(err: unknown): string {
+  if (err instanceof ApiError) return err.detail;
+  return err instanceof Error ? err.message : '请求失败';
 }
 
-/**
- * 增删改抽屉：字段、控件类型与中文标签全部来自 /_meta；
- * 底部固定「取消/保存」，编辑态额外提供删除入口（二次确认按钮含对象名）。
- */
-export function RecordDrawer({
-  open,
-  entity,
-  writable,
-  mode,
-  row,
-  saving,
-  deleting,
-  error,
-  onClose,
-  onSave,
-  onDelete,
-  lockedFields,
-}: Props) {
-  const fields = useMemo(() => formFields(entity), [entity]);
-  const [values, setValues] = useState(() => initialValues(fields, row));
-  const [errors, setErrors] = useState<Record<string, string>>({});
-
-  /**
-   * 常驻挂载带来的必然后果：useState 只在首次挂载时取初值，第二次打开会带着上一次的草稿。
-   * 这里按「打开时的表单标识（mode + row.id）」在真正打开的那一刻重新播种；
-   * 关闭期间不重置（退场动画还在显示内容），关闭时只清掉标记，下次打开（哪怕同一个 row）会再播种。
-   */
-  const formKey = `${mode}:${String(row?.id ?? '')}`;
-  const seededRef = useRef<string | null>(null);
-  useEffect(() => {
-    if (!open) {
-      seededRef.current = null;
-      return;
-    }
-    if (seededRef.current === formKey) return;
-    seededRef.current = formKey;
-    setValues(initialValues(fields, row));
-    setErrors({});
-  }, [open, formKey, fields, row]);
-
-  const title = mode === 'new' ? `新建${entity.title}` : `编辑${entity.title}`;
-
-  const submit = () => {
-    const parsed = buildSchema(fields).safeParse(values);
-    if (!parsed.success) {
-      const next: Record<string, string> = {};
-      for (const issue of parsed.error.issues) {
-        const key = String(issue.path[0] ?? '');
-        if (key && !next[key]) next[key] = issue.message;
-      }
-      setErrors(next);
-      return;
-    }
-    setErrors({});
-    const body: RowData = {};
-    for (const field of fields) {
-      body[field.key] = toSubmitValue(field, values[field.key] ?? '');
-    }
-    onSave(body);
-  };
-
-  const setValue = (key: string, value: string) => {
-    setValues((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const isLocked = (field: FieldMeta) => lockedFields?.includes(field.key) ?? false;
-
-  const renderControl = (field: FieldMeta) => {
-    const id = `field-${field.key}`;
-    if (isLocked(field)) {
-      // 锁定值来自调用方传入的 row（新建属性时 type_id 由详情页固定注入）。
-      return (
-        <TextField.Root
-          id={id}
-          size="3"
-          value={values[field.key] ?? ''}
-          readOnly
-          disabled
-          aria-readonly="true"
-        />
-      );
-    }
-    if (field.ref) {
-      return (
-        <RelationSelect
-          field={field}
-          id={id}
-          value={values[field.key] ?? ''}
-          onChange={(value) => setValue(field.key, value)}
-          invalid={Boolean(errors[field.key])}
-        />
-      );
-    }
+/** 表单初值一律转成输入控件能直接消费的形态。 */
+function buildInitial(
+  fields: FieldMeta[],
+  row: RowData | null,
+  creating: boolean,
+): Record<string, unknown> {
+  const form: Record<string, unknown> = {};
+  for (const field of fields) {
+    if (!field.editable) continue;
+    const raw = creating || !row ? undefined : row[field.key];
     if (field.type === 'boolean') {
-      return (
-        <div className="flex h-8 items-center gap-2">
-          <Checkbox.Root
-            id={id}
-            checked={values[field.key] === '' ? 'indeterminate' : values[field.key] === 'true'}
-            onCheckedChange={(checked) => setValue(field.key, checked === true ? 'true' : 'false')}
-            aria-invalid={Boolean(errors[field.key])}
-            aria-describedby={errors[field.key] ? `${id}-error` : undefined}
-            className="relative h-5 w-9 rounded-full border border-border-strong bg-surface-2 transition-colors data-[state=checked]:border-primary data-[state=checked]:bg-primary"
-          >
-            <Checkbox.Indicator asChild>
-              <span className="pointer-events-none absolute right-0.5 top-0.5 block h-4 w-4 rounded-full bg-surface shadow-card" />
-            </Checkbox.Indicator>
-          </Checkbox.Root>
-          <label htmlFor={id} className="text-sm text-muted">
-            {values[field.key] === '' ? '未设置' : values[field.key] === 'true' ? '是' : '否'}
-          </label>
-        </div>
-      );
+      form[field.key] = raw === undefined ? emptyValue(field) : Boolean(raw);
+    } else if (field.type === 'json') {
+      form[field.key] = isBlank(raw) ? '' : jsonText(raw);
+    } else {
+      form[field.key] = isBlank(raw) ? '' : String(raw);
     }
-    if (field.type === 'enum') {
-      // 空选项「未设置」用哨兵承载（Radix 的 Select.Item 不接受 value=""），见 lib/radixSelect.ts。
-      return (
-        <Select.Root
-          size="3"
-          value={toSelectValue(values[field.key])}
-          onValueChange={(value) => setValue(field.key, fromSelectValue(value))}
-        >
-          <Select.Trigger
-            id={id}
-            placeholder="未设置"
-            aria-label={field.label}
-            aria-invalid={Boolean(errors[field.key])}
-            aria-describedby={errors[field.key] ? `${id}-error` : undefined}
-          />
-          <Select.Content position="popper" sideOffset={4}>
-            <Select.Item value={EMPTY_SELECT_VALUE}>未设置</Select.Item>
-            {(field.options ?? []).map((option) => (
-              <Select.Item key={option.value} value={option.value}>
-                {option.label}
-              </Select.Item>
-            ))}
-          </Select.Content>
-        </Select.Root>
-      );
-    }
-    if (field.type === 'json') {
-      return (
-        // Radix Themes 没有 TextArea 组件：保留原生 textarea，用等价工具类维持与 TextField 一致的外观
-        // （同一套 surface 底 + 1px 边框 + 6px 圆角），P5 若引入 Radix 的 TextArea 再替换。
-        <textarea
-          id={id}
-          className="min-h-24 w-full rounded-sm border border-border bg-surface px-2 py-1 text-base text-text"
-          rows={4}
-          value={values[field.key] ?? ''}
-          onChange={(event) => setValue(field.key, event.target.value)}
-        />
-      );
-    }
-    return (
-      <TextField.Root
-        id={id}
-        size="3"
-        type={field.type === 'number' ? 'number' : 'text'}
-        value={values[field.key] ?? ''}
-        onChange={(event) => setValue(field.key, event.target.value)}
-        aria-invalid={Boolean(errors[field.key])}
-        aria-describedby={errors[field.key] ? `${id}-error` : undefined}
-      />
-    );
+  }
+  return form;
+}
+
+export function RecordDrawer({
+  entity,
+  row,
+  mode: modeProp,
+  open,
+  onOpenChange,
+  onSaved,
+}: RecordDrawerProps) {
+  const toast = useToast();
+  const relationLabel = useRelationLabels();
+  const [mode, setMode] = useState<RecordMode>(modeProp);
+  const [form, setForm] = useState<Record<string, unknown>>({});
+  const [initial, setInitial] = useState<Record<string, unknown>>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [formError, setFormError] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const editableFields = useMemo(() => entity.fields.filter((field) => field.editable), [entity.fields]);
+  const visibleFields = useMemo(() => entity.fields.filter((field) => field.visible), [entity.fields]);
+  const pk = primaryKeyOf(entity.fields);
+
+  useEffect(() => {
+    if (!open) return;
+    setMode(modeProp);
+    const next = buildInitial(entity.fields, row, modeProp === 'create');
+    setForm(next);
+    setInitial(next);
+    setErrors({});
+    setFormError('');
+    setSaving(false);
+    setDeleting(false);
+    setConfirmOpen(false);
+  }, [open, modeProp, row, entity.fields]);
+
+  const setField = (key: string, value: unknown) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   };
 
-  return (
-    <Drawer
-      open={open}
-      title={title}
-      onClose={onClose}
-      description={
-        mode === 'new'
-          ? `填写${entity.title}字段后保存`
-          : `修改${objectLabel(entity, row)}的字段后保存`
+  const validate = (): boolean => {
+    const next: Record<string, string> = {};
+    for (const field of editableFields) {
+      const value = form[field.key];
+      if (field.required && isBlank(value)) {
+        next[field.key] = `请填写${field.label}`;
+        continue;
       }
-      footer={
-        <>
-          {mode === 'edit' && writable && (
-            <Button
-              type="button"
-              onClick={onDelete}
-              disabled={saving || deleting}
-              variant="soft"
-              size="3"
-              color="red"
-              className="touch-hit mr-auto"
-            >
-              删除
-            </Button>
-          )}
-          <Button
-            type="button"
-            onClick={onClose}
-            disabled={saving}
-            variant="surface"
-            size="3"
-            className="touch-hit"
-          >
-            取消
-          </Button>
-          {/* 文案固定「保存」，忙碌态只由 disabled + aria-busy 表达，宽度不跳动（§5.1）。 */}
-          <Button
-            type="button"
-            onClick={submit}
-            disabled={saving}
-            aria-busy={saving}
-            variant="solid"
-            size="3"
-            className="touch-hit"
-          >
-            保存
-          </Button>
-        </>
+      if (field.type === 'json' && !isBlank(value)) {
+        try {
+          JSON.parse(String(value));
+        } catch {
+          next[field.key] = `${field.label} 不是合法 JSON`;
+        }
+        continue;
       }
-    >
-      <p className="m-0 text-sm text-muted">
-        <span className="text-danger" aria-hidden="true">
-          *
-        </span>{' '}
-        为必填项
-      </p>
-      {error && (
-        <p className="m-0 rounded-sm border border-negative-text bg-negative-bg px-3 py-2 text-negative-text" role="alert">
-          保存失败：{error}
-        </p>
-      )}
-      {fields.map((field) => {
-        const id = `field-${field.key}`;
+      if (field.type === 'number' && !isBlank(value) && Number.isNaN(Number(value))) {
+        next[field.key] = `${field.label} 必须是数字`;
+      }
+    }
+    setErrors(next);
+    return Object.keys(next).length === 0;
+  };
+
+  const submit = async () => {
+    setFormError('');
+    if (!validate()) return;
+    // 编辑只提交改过的列：避免把未渲染/未触碰的依赖列一起送回去触发二次校验。
+    const targets = mode === 'create'
+      ? editableFields
+      : editableFields.filter((field) => form[field.key] !== initial[field.key]);
+    if (mode === 'edit' && targets.length === 0) {
+      toast.info('没有需要保存的修改');
+      return;
+    }
+    const body: RowData = {};
+    try {
+      for (const field of targets) body[field.key] = coerceForSubmit(field, form[field.key]);
+    } catch (err) {
+      setFormError(errorText(err));
+      return;
+    }
+    const id = row?.[pk];
+    if (mode === 'edit' && isBlank(id)) {
+      setFormError('缺少主键，无法保存');
+      return;
+    }
+    setSaving(true);
+    try {
+      if (mode === 'create') await createRow(entity.name, body);
+      else await updateRow(entity.name, String(id), body);
+      toast.success(mode === 'create' ? `已新建${entity.title}` : `已保存${entity.title}`);
+      onSaved?.();
+      onOpenChange(false);
+    } catch (err) {
+      setFormError(errorText(err));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async () => {
+    const id = row?.[pk];
+    if (isBlank(id)) {
+      setConfirmOpen(false);
+      setFormError('缺少主键，无法删除');
+      return;
+    }
+    setDeleting(true);
+    setFormError('');
+    try {
+      await deleteRow(entity.name, String(id));
+      toast.success(`已删除${entity.title}`);
+      onSaved?.();
+      setConfirmOpen(false);
+      onOpenChange(false);
+    } catch (err) {
+      setConfirmOpen(false);
+      setFormError(errorText(err));
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  const renderValue = (field: FieldMeta, value: unknown) => {
+    if (isBlank(value)) return <span className="text-muted">—</span>;
+    switch (field.type) {
+      case 'relation':
+        return <span>{relationLabel(field.ref, value)}</span>;
+      case 'boolean':
+        return <span>{optionLabel(field, value)?.label ?? (value ? '是' : '否')}</span>;
+      case 'enum': {
+        const hit = optionLabel(field, value);
+        if (!hit) return <span>{String(value)}</span>;
         return (
-          <div key={field.key} className={errors[field.key] ? 'field field-error' : 'field'}>
-            <label htmlFor={id} className="flex items-center gap-1">
-              <span>{field.label}</span>
-              {field.required && (
-                <span className="text-danger" aria-hidden="true">
-                  *
-                </span>
+          <span
+            className={cn(
+              'inline-flex items-center rounded-full px-2 py-0.5 text-xs',
+              toneClass[toneOf(hit.tone)],
+            )}
+          >
+            {hit.label}
+          </span>
+        );
+      }
+      case 'datetime':
+        return <span className="tabular">{formatDateTime(value)}</span>;
+      case 'number':
+        return <span className="tabular">{formatNumber(value)}</span>;
+      case 'json':
+        return (
+          <pre className="max-h-60 overflow-auto whitespace-pre-wrap break-words rounded-md bg-surface-2 p-2 font-mono text-xs">
+            {jsonText(value)}
+          </pre>
+        );
+      case 'id':
+        return <span className="break-all font-mono text-xs">{String(value)}</span>;
+      default:
+        return <span className="whitespace-pre-wrap break-words">{String(value)}</span>;
+    }
+  };
+
+  const renderInput = (field: FieldMeta) => {
+    const id = `rec-${field.key}`;
+    const value = form[field.key];
+    const invalid = Boolean(errors[field.key]);
+    const inputCx = cn(inputClass, invalid && invalidClass);
+    switch (field.type) {
+      case 'boolean':
+        return (
+          <div className="flex h-9 items-center">
+            <Checkbox.Root
+              id={id}
+              checked={Boolean(value)}
+              onCheckedChange={(checked) => setField(field.key, checked === true)}
+              className={cn(
+                'flex h-4 w-4 items-center justify-center rounded border border-line-strong bg-surface',
+                'data-[state=checked]:border-primary data-[state=checked]:bg-primary',
               )}
-            </label>
-            {renderControl(field)}
-            {isLocked(field) && (
-              <p className="m-0 text-sm text-muted">由终端类型固定，不可编辑</p>
-            )}
-            {errors[field.key] && (
-              <p
-                id={`${id}-error`}
-                className="m-0 rounded-sm border border-negative-text bg-negative-bg px-3 py-2 text-negative-text"
-              >
-                {errors[field.key]}
-              </p>
-            )}
+            >
+              <Checkbox.Indicator>
+                <Check size={12} className="text-white" />
+              </Checkbox.Indicator>
+            </Checkbox.Root>
           </div>
         );
-      })}
-    </Drawer>
+      case 'number':
+        return (
+          <input
+            id={id}
+            type="number"
+            step="any"
+            value={String(value ?? '')}
+            onChange={(event) => setField(field.key, event.target.value)}
+            className={cn(inputCx, 'tabular')}
+          />
+        );
+      case 'json':
+        return (
+          <textarea
+            id={id}
+            rows={6}
+            value={String(value ?? '')}
+            placeholder='{"key": "value"}'
+            onChange={(event) => setField(field.key, event.target.value)}
+            className={cn(
+              'w-full rounded-md border border-line bg-surface px-3 py-2 font-mono text-xs text-fg outline-none placeholder:text-muted focus:border-primary',
+              invalid && invalidClass,
+            )}
+          />
+        );
+      case 'relation': {
+        const target = field.relation ?? field.ref?.entity;
+        if (!target) {
+          return (
+            <input
+              id={id}
+              type="text"
+              value={String(value ?? '')}
+              onChange={(event) => setField(field.key, event.target.value)}
+              className={inputCx}
+            />
+          );
+        }
+        return (
+          <RelationSelect
+            id={id}
+            entity={target}
+            value={value}
+            onChange={(next) => setField(field.key, next)}
+          />
+        );
+      }
+      case 'datetime':
+        return (
+          <input
+            id={id}
+            type="text"
+            value={String(value ?? '')}
+            placeholder="ISO8601，如 2026-01-01T00:00:00Z"
+            onChange={(event) => setField(field.key, event.target.value)}
+            className={cn(inputCx, 'tabular')}
+          />
+        );
+      case 'enum':
+        return (
+          <select
+            id={id}
+            value={String(value ?? '')}
+            onChange={(event) => setField(field.key, event.target.value)}
+            className={inputCx}
+          >
+            <option value="">请选择</option>
+            {field.options.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        );
+      default:
+        return (
+          <input
+            id={id}
+            type="text"
+            value={String(value ?? '')}
+            onChange={(event) => setField(field.key, event.target.value)}
+            className={inputCx}
+          />
+        );
+    }
+  };
+
+  const title =
+    mode === 'create'
+      ? `新建${entity.title}`
+      : mode === 'edit'
+        ? `编辑${entity.title}`
+        : row
+          ? rowTitle(entity.title, row)
+          : entity.title;
+
+  const footer =
+    mode === 'view' ? (
+      entity.readOnly ? undefined : (
+        <div className="flex w-full items-center justify-between gap-2">
+          <div>
+            {row && (
+              <button type="button" className={dangerButton} onClick={() => setConfirmOpen(true)}>
+                <Trash2 size={14} />
+                删除
+              </button>
+            )}
+          </div>
+          {row && (
+            <button type="button" className={primaryButton} onClick={() => setMode('edit')}>
+              <Pencil size={14} />
+              编辑
+            </button>
+          )}
+        </div>
+      )
+    ) : (
+      <>
+        <button
+          type="button"
+          className={secondaryButton}
+          onClick={() => {
+            if (mode === 'edit') {
+              setForm(initial);
+              setErrors({});
+              setFormError('');
+              setMode('view');
+              return;
+            }
+            onOpenChange(false);
+          }}
+        >
+          取消
+        </button>
+        <button type="button" className={primaryButton} disabled={saving} onClick={submit}>
+          {saving ? <Loader2 size={14} className="animate-spin" /> : <Check size={14} />}
+          保存
+        </button>
+      </>
+    );
+
+  return (
+    <>
+      <Drawer open={open} onOpenChange={onOpenChange} title={title} footer={footer}>
+        {mode === 'view' ? (
+          <div className="space-y-4">
+            {formError && (
+              <p className="rounded-md bg-negative-soft px-3 py-2 text-sm text-negative">{formError}</p>
+            )}
+            {row ? (
+              <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                {visibleFields.map((field) => (
+                  <div
+                    key={field.key}
+                    className={cn('min-w-0', field.type === 'json' && 'sm:col-span-2')}
+                  >
+                    <dt className="mb-1 text-xs text-muted">{field.label}</dt>
+                    <dd className="min-w-0 text-sm text-fg">{renderValue(field, row[field.key])}</dd>
+                  </div>
+                ))}
+              </dl>
+            ) : (
+              <p className="py-8 text-center text-sm text-muted">暂无数据</p>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {formError && (
+              <p className="rounded-md bg-negative-soft px-3 py-2 text-sm text-negative">{formError}</p>
+            )}
+            {editableFields.length === 0 && (
+              <p className="py-8 text-center text-sm text-muted">该记录没有可编辑字段</p>
+            )}
+            {editableFields.map((field) => (
+              <div
+                key={field.key}
+                className="grid gap-1.5 sm:grid-cols-[140px_1fr] sm:items-start sm:gap-3"
+              >
+                <label htmlFor={`rec-${field.key}`} className="text-sm font-medium text-fg sm:pt-2">
+                  {field.label}
+                  {field.required && <span className="ml-0.5 text-negative">*</span>}
+                </label>
+                <div className="space-y-1">
+                  {renderInput(field)}
+                  {errors[field.key] && <p className="text-xs text-negative">{errors[field.key]}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Drawer>
+      <ConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title={`删除${entity.title}`}
+        description="删除后无法恢复，确定删除这条记录吗？"
+        confirmLabel="删除"
+        loading={deleting}
+        onConfirm={remove}
+      />
+    </>
   );
 }
