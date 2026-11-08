@@ -303,8 +303,8 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     const items: RowMenuItem[] = [];
     const rowID = rowKey(row);
 
-    // 已选中的行：右键给批量菜单。
-    if (batch && selection?.mode === 'ids' && selection.ids.includes(rowID)) {
+    // 选中多行时右键给批量菜单；只选中一行时仍给单行菜单。
+    if (batch && selection?.mode === 'ids' && selection.ids.length > 1 && selection.ids.includes(rowID)) {
       if (canToggle) {
         items.push({ key: 'batch-enable', section: '批量操作', label: `启用所选 ${selection.ids.length} 项`, onSelect: () => void runBatch('enable') });
         items.push({ key: 'batch-disable', section: '批量操作', label: `停用所选 ${selection.ids.length} 项`, onSelect: () => void runBatch('disable') });
@@ -453,6 +453,15 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     }
   })();
 
+  // 点空白处取消选中；行/卡片、操作控件上的点击不算空白。
+  const handleBlankClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (!selection) return;
+    const target = event.target as HTMLElement;
+    if (target.closest('tr') || target.closest('[role="button"][aria-label="查看详情"]')) return;
+    if (target.closest('button, input, select, a, [role="menuitem"]')) return;
+    clearSelection();
+  };
+
   return (
     <div className="mx-auto max-w-[1400px] px-6 py-5">
       <div className="flex flex-wrap items-end justify-between gap-3">
@@ -577,7 +586,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
         {/* 样式选项只在表格/卡片区域右击出现；筛选栏与分页条保持浏览器默认菜单。 */}
         <ContextMenu.Root>
           <ContextMenu.Trigger asChild>
-            <div className="flex-1">
+            <div className="flex-1" onClick={handleBlankClick}>
         {cardEnabled && viewMode === 'card' ? (
           <CardGrid
             fields={visibleFields}
@@ -593,7 +602,12 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
               const key = rowKey(row);
               const inSelection = selection?.mode === 'ids' && selection.ids.includes(key);
               if (!inSelection) setSelection({ mode: 'ids', ids: [key] });
-              setRowMenu({ x: event.clientX, y: event.clientY, row, batch: inSelection });
+              setRowMenu({
+                x: event.clientX,
+                y: event.clientY,
+                row,
+                batch: inSelection && selection.mode === 'ids' && selection.ids.length > 1,
+              });
             }}
             onRetry={list.reload}
             onReset={resetQuery}
@@ -617,7 +631,12 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
               const key = rowKey(row);
               const inSelection = selection?.mode === 'ids' && selection.ids.includes(key);
               if (!inSelection) setSelection({ mode: 'ids', ids: [key] });
-              setRowMenu({ x: event.clientX, y: event.clientY, row, batch: inSelection });
+              setRowMenu({
+                x: event.clientX,
+                y: event.clientY,
+                row,
+                batch: inSelection && selection.mode === 'ids' && selection.ids.length > 1,
+              });
             }}
             onRetry={list.reload}
             onReset={resetQuery}
