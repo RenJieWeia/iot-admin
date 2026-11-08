@@ -198,6 +198,28 @@ export async function batchAction(
   return (payload.data ?? { action, requested: 0, succeeded: 0, failed: [] }) as BatchResult;
 }
 
+export interface GatewayCredential {
+  gateway_id: string;
+  mqtt_topic: string;
+  mqtt_username: string;
+  mqtt_password?: string;
+  password_saved: boolean;
+}
+
+/** 读取网关 MQTT 凭据（密码需服务端密钥解密）。 */
+export async function fetchGatewayCredential(id: string): Promise<GatewayCredential> {
+  const payload = await request<GatewayCredential>(`/gateways/${encodeURIComponent(id)}/credential`);
+  return payload.data as GatewayCredential;
+}
+
+/** 重置网关 MQTT 密码：Broker 侧重建账号，旧密码立即失效。 */
+export async function resetGatewayCredential(id: string): Promise<GatewayCredential> {
+  const payload = await request<GatewayCredential>(`/gateways/${encodeURIComponent(id)}/credential/reset`, {
+    method: 'POST',
+  });
+  return payload.data as GatewayCredential;
+}
+
 export async function deleteRow(entity: string, id: string): Promise<void> {
   await request<null>(`/${entity}/${encodeURIComponent(id)}`, { method: 'DELETE' });
 }

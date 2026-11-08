@@ -2,8 +2,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { Check, Plus, RotateCw } from 'lucide-react';
 import * as ContextMenu from '@radix-ui/react-context-menu';
-import { batchAction, deleteRow, updateRow } from '../api/client';
-import type { BatchResult, BatchScope } from '../api/client';
+import { batchAction, deleteRow, fetchGatewayCredential, resetGatewayCredential, updateRow } from '../api/client';
+import type { BatchResult, BatchScope, GatewayCredential } from '../api/client';
 import type { ListKind } from '../api/client';
 import type { MetaPayload, PageMeta, ReadonlyMeta, RowData } from '../api/types';
 import { cn } from '../lib/cn';
@@ -23,6 +23,7 @@ import { TerminalEnabledSwitch } from '../components/TerminalEnabledSwitch';
 import { CardGrid } from '../components/CardGrid';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { BatchResultDialog } from '../components/BatchResultDialog';
+import { CredentialDialog } from '../components/CredentialDialog';
 import { RowMenu } from '../components/RowMenu';
 import type { RowMenuEntry, RowMenuItem } from '../components/RowMenu';
 import { useToast } from '../components/Toast';
@@ -88,6 +89,11 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
   const [batchBusy, setBatchBusy] = useState(false);
   const [pendingBatchDelete, setPendingBatchDelete] = useState(false);
   const clickTimer = useRef<number | null>(null);
+  const [credentialOpen, setCredentialOpen] = useState(false);
+  const [credentialLoading, setCredentialLoading] = useState(false);
+  const [credentialError, setCredentialError] = useState<string | null>(null);
+  const [credential, setCredential] = useState<GatewayCredential | null>(null);
+  const [pendingReset, setPendingReset] = useState<RowData | null>(null);
   const cardEnabled = supportsCard(kind, name);
   // 视图与密度都按实体记在浏览器里；切实体时重新读取自己的偏好。
   const [viewMode, setViewMode] = useState<ViewMode>(() => (cardEnabled ? readViewMode(name) : 'table'));
@@ -414,6 +420,19 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
           op: 'eq',
           values: [String(row.gateway_id)],
         });
+        items.push({
+          key: 'credential',
+          section: '凭据',
+          label: '查看 MQTT 凭据',
+          onSelect: () => void openCredential(String(row.gateway_id ?? '')),
+        });
+        items.push({
+          key: 'credential-reset',
+          section: '凭据',
+          label: '重置 MQTT 密码',
+          danger: true,
+          onSelect: () => setPendingReset(row),
+        });
         break;
       }
       case 'thing-models': {
@@ -454,6 +473,39 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
       });
     }
     return items;
+  };
+
+  const openCredential = async (gatewayID: string) => {
+    setCredentialOpen(true);
+    setCredentialLoading(true);
+    setCredentialError(null);
+    setCredential(null);
+    try {
+      setCredential(await fetchGatewayCredential(gatewayID));
+    } catch (err) {
+      setCredentialError(err instanceof Error ? err.message : '读取凭据失败');
+    } finally {
+      setCredentialLoading(false);
+    }
+  };
+
+  const confirmReset = async () => {
+    if (!pendingReset) return;
+    const id = String(pendingReset.gateway_id ?? '');
+    setCredentialLoading(true);
+    try {
+      const next = await resetGatewayCredential(id);
+      setCredential(next);
+      setCredentialError(null);
+      setCredentialOpen(true);
+      setPendingReset(null);
+      toast.success('MQTT 密码已重置，旧密码立即失效');
+      list.reload();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '重置失败');
+    } finally {
+      setCredentialLoading(false);
+    }
   };
 
   const confirmDelete = async () => {
@@ -762,6 +814,39 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
       />
 
       <BatchResultDialog result={batchResult} onOpenChange={(open) => { if (!open) setBatchResult(null); }} />
+
+      <CredentialDialog
+        open={credentialOpen}
+        onOpenChange={(open) => {
+          setCredentialOpen(open);
+          if (!open) {
+            setCredential(null);
+            setCredentialError(null);
+          }
+        }}
+        loading={credentialLoading}
+        error={credentialError}
+        credential={credential}
+        onReset={() => {
+          const id = credential?.gateway_id ?? '';
+          if (id) setPendingReset({ gateway_id: id });
+        }}
+      />
+
+      <ConfirmDialog
+        open={pendingReset !== null}
+        onOpenChange={(open) => {
+          if (!open) setPendingReset(null);
+        }}
+        title="重置 MQTT 密码"
+        description={
+          pendingReset
+            ? `将为网关「${String(pendingReset.gateway_id ?? '')}」重新生成密码，旧密码立即失效，网关需更新配置后才能继续上报。`
+            : ''
+        }
+        confirmLabel="重置"
+        onConfirm={() => void confirmReset()}
+      />
 
       <ConfirmDialog
         open={pendingDelete !== null}
