@@ -37,6 +37,11 @@ var entityLabels = map[string]string{
 	"snapshot-second": "快照 · 秒",
 }
 
+// entityDescriptions 是各实体页面顶部的说明文案（没有条目的实体不显示说明）。
+var entityDescriptions = map[string]string{
+	"gateways": "注册后才能接入：新增会同步在 Broker 开通收发账号，删除时同步回收；停用的网关在接入面直接拒绝。",
+}
+
 // EntityLabel 返回实体或只读页的中文名；未知名字原样返回，不吞掉新实体。
 func EntityLabel(name string) string {
 	if label, ok := entityLabels[name]; ok {
@@ -92,13 +97,15 @@ type MetaField struct {
 
 // MetaEntity 是一个可 CRUD 实体的元数据；title 是中文名（task-004 §4 契约键名）。
 type MetaEntity struct {
-	Name         string      `json:"name"`
-	Title        string      `json:"title"`
-	Route        string      `json:"route"`
-	ReadOnly     bool        `json:"readOnly"`
-	DefaultSort  string      `json:"defaultSort"`
-	DefaultOrder string      `json:"defaultOrder"`
-	Fields       []MetaField `json:"fields"`
+	Name         string `json:"name"`
+	Title        string `json:"title"`
+	Route        string `json:"route"`
+	ReadOnly     bool   `json:"readOnly"`
+	DefaultSort  string `json:"defaultSort"`
+	DefaultOrder string `json:"defaultOrder"`
+	// Description 是页面标题下的说明（讲清该实体的系统作用与副作用），可缺省。
+	Description string      `json:"description,omitempty"`
+	Fields      []MetaField `json:"fields"`
 }
 
 // MetaReadonly 是一张只读页（异常两页 + 通用只读源）的元数据；slot 是 URL 段。
@@ -172,6 +179,7 @@ func metaEntityOf(e Entity) MetaEntity {
 		ReadOnly:     false,
 		DefaultSort:  defaultSortOf(e.Name),
 		DefaultOrder: "desc",
+		Description:  entityDescriptions[e.Name],
 		Fields:       metaFields(e.Name),
 	}
 }

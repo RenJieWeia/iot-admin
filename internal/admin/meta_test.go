@@ -266,6 +266,10 @@ func TestMetaFieldShape(t *testing.T) {
 			sort.Strings(wantKeys)
 			got := make([]string, 0, len(raw))
 			for k := range raw {
+				// description 是可选说明字段：只在该实体配置了说明时才下发。
+				if k == "description" {
+					continue
+				}
 				got = append(got, k)
 			}
 			sort.Strings(got)

@@ -111,6 +111,9 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
         <div className="min-w-0">
           <p className="text-xs text-muted">管理后台 / {KIND_LABEL[kind]}</p>
           <h1 className="mt-1 truncate text-xl font-semibold text-fg">{page.title}</h1>
+          {page.description ? (
+            <p className="mt-1 max-w-3xl text-xs text-muted">{page.description}</p>
+          ) : null}
           <p className="mt-1 text-xs text-muted">
             {visibleFields.length} 列 ·{' '}
             {cursorMode

@@ -62,6 +62,8 @@ export interface FieldMeta {
 export interface PageMeta {
   name: string;
   title: string;
+  /** 页面说明（讲清实体作用与副作用），可缺省。 */
+  description?: string;
   route: string;
   readOnly: boolean;
   defaultSort: string;
