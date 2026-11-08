@@ -65,8 +65,8 @@ func TestMetaSections(t *testing.T) {
 			navigable = append(navigable, e)
 		}
 	}
-	if len(entities) != len(navigable) || len(entities) != 5 {
-		t.Fatalf("entities = %d 段，期望 5（可导航实体；可 CRUD 仍是 %d）", len(entities), len(Entities))
+	if len(entities) != len(navigable) || len(entities) != 6 {
+		t.Fatalf("entities = %d 段，期望 6（可导航实体；可 CRUD 仍是 %d）", len(entities), len(Entities))
 	}
 	for i, e := range entities {
 		if e.Name != navigable[i].Name {
@@ -282,8 +282,8 @@ func TestMetaFieldShape(t *testing.T) {
 			sections = append(sections, item)
 		}
 	}
-	if len(sections) != 13 {
-		t.Fatalf("元数据段数 = %d，期望 5 导航实体 + 3 子资源 + 1 异常页 + 4 只读源（最新值 + 三张快照）", len(sections))
+	if len(sections) != 14 {
+		t.Fatalf("元数据段数 = %d，期望 6 导航实体 + 3 子资源 + 1 异常页 + 4 只读源（最新值 + 三张快照）", len(sections))
 	}
 }
 
@@ -511,6 +511,7 @@ func TestRequiredMatchesDDL(t *testing.T) {
 		"0010_snapshot_six_granularities.sql",
 		"0013_snapshot_slots_and_bindings.sql",
 		"0014_snapshot_binding_multi_items.sql",
+		"0016_gateway.sql",
 	} {
 		for tbl, cols := range ddlColumns(t, string(mustReadMigrations(t, name))) {
 			table[tbl] = cols

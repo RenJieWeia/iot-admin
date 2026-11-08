@@ -23,6 +23,7 @@ var entityLabels = map[string]string{
 	"device-types":           "终端类型",
 	"thing-model-properties": "终端属性",
 	"terminals":              "终端",
+	"gateways":               "边缘网关",
 	"quality-rules":          "质量规则",
 	"snapshot-slots":         "快照计划",
 	"snapshot-bindings":      "快照绑定",

@@ -381,6 +381,22 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "none", WidthStrategy: "min"},
 		},
 	},
+	// 边缘网关：接入鉴权的注册表。gateway_id 是主键也是接入标识，name 是页面展示名。
+	"gateways": {
+		fields: []FieldMeta{
+			{Key: "gateway_id", Label: "网关 ID", Type: "id", Visible: true, Sortable: true, Filterable: true,
+				Required: true, FilterType: "text", Operators: []string{"eq", "prefix"}, WidthStrategy: "fixed"},
+			{Key: "name", Label: "名称", Type: "text", Visible: true, Sortable: true, Filterable: true,
+				Required: true, FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "min"},
+			{Key: "enabled", Label: "启用", Type: "boolean", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "boolean", Operators: []string{"eq"}, OptionsSource: "static",
+				Options: enabledOptions, WidthStrategy: "fixed"},
+			{Key: "remark", Label: "备注", Type: "text", Visible: true, Sortable: false, Filterable: false,
+				FilterType: "none", WidthStrategy: "flex"},
+			{Key: "created_at", Label: "注册时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
+		},
+	},
 	// 绑定：一条 = 一个作用域目标 + 一个数据项数组；item_codes 与 quality_rule.params 同为 jsonb。
 	// fields_count 是列表派生列（jsonb_array_length，SQL 计算），不可排序/筛选/编辑。
 	"snapshot-bindings": {

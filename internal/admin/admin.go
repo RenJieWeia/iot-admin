@@ -347,6 +347,9 @@ var Entities = []Entity{
 	{Name: "thing-model-properties", Hidden: true, Table: "thing_model_property", Cols: []string{
 		"type_id", "item_code", "name", "value_type", "unit", "precision", "required", "min_value", "max_value"}},
 	{Name: "terminals", Table: "terminal", Cols: []string{"id", "type_id", "gateway_id", "name", "enabled"}},
+	// 边缘网关注册表：接入面按 gateway_id 鉴权（未注册/停用直接 403），主键不是 id。
+	{Name: "gateways", Table: "gateway", PKey: "gateway_id",
+		Cols: []string{"gateway_id", "name", "enabled", "remark"}},
 	{Name: "quality-rules", Table: "quality_rule", Cols: []string{
 		"terminal_id", "item_code", "rule_type", "params", "enabled"}, JSONB: []string{"params"}},
 	// 全局六档配置：六行固定（granularity 主键），只允许改 enabled / step。

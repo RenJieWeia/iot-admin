@@ -83,8 +83,8 @@ func TestReadonlyPagesShape(t *testing.T) {
 		t.Fatal("未知 slot 不应解析成功")
 	}
 	// 只读源不得混进管理实体（可 CRUD 8 / 可导航 5，见 nongoal_test）。
-	if len(Entities) != 8 {
-		t.Fatalf("admin.Entities = %d，期望 8", len(Entities))
+	if len(Entities) != 9 {
+		t.Fatalf("admin.Entities = %d，期望 9", len(Entities))
 	}
 	for _, e := range Entities {
 		if e.Name == "latest-values" {
@@ -153,7 +153,7 @@ func TestMetaReadonlySection(t *testing.T) {
 		}
 	}
 	if qualityField == nil || len(qualityField.Options) != 8 {
-		t.Fatalf("quality 字段选项 = %+v，期望 8 种组合", qualityField)
+		t.Fatalf("quality 字段选项 = %+v，期望 9 种组合", qualityField)
 	}
 }
 
