@@ -107,14 +107,22 @@ func TestParseEnvelopeInvalidJSON(t *testing.T) {
 	wantEnvelopeErr(t, err, validate.ReasonInvalidJSON)
 }
 
-// 5) 缺 gatewayId（含纯空白）→ gateway_id_missing。
-func TestParseEnvelopeGatewayMissing(t *testing.T) {
-	for _, payload := range []string{
-		`{"terminals":[{"terminalId":"T1","items":[]}]}`,
-		`{"gatewayId":"   ","terminals":[{"terminalId":"T1","items":[]}]}`,
-	} {
-		_, err := validate.ParseEnvelope([]byte(payload))
-		wantEnvelopeErr(t, err, validate.ReasonGatewayMissing)
+// 5) payload 里的 gatewayId 只是历史自报字段：缺失或空白都不再报错，
+//    身份由传输层（MQTT topic / HTTP 头）决定。
+func TestParseEnvelopeIgnoresGatewayID(t *testing.T) {
+	env, err := validate.ParseEnvelope([]byte(`{"terminals":[{"terminalId":"T1","items":[]}]}`))
+	if err != nil {
+		t.Fatalf("缺 gatewayId 不应报错: %v", err)
+	}
+	if env.GatewayID != "" {
+		t.Fatalf("缺省 gatewayId 应为空，实际 %q", env.GatewayID)
+	}
+	env, err = validate.ParseEnvelope([]byte(`{"gatewayId":"GW2","terminals":[{"terminalId":"T1","items":[]}]}`))
+	if err != nil {
+		t.Fatalf("带 gatewayId 不应报错: %v", err)
+	}
+	if env.GatewayID != "GW2" {
+		t.Fatalf("字段仍应解析（但不参与判定），实际 %q", env.GatewayID)
 	}
 }
 

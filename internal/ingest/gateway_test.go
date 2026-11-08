@@ -80,3 +80,13 @@ func TestHTTPGatewayRejectedIsForbidden(t *testing.T) {
 		t.Fatalf("响应体应包含 gateway_unknown: %s", rec.Body.String())
 	}
 }
+
+// 传输层没带身份（HTTP 缺头）→ 400 gateway_id_missing。
+func TestMissingIngressIdentity(t *testing.T) {
+	proc := newGatewayProcessor(stubLoader{found: true, enabled: true})
+	_, err := proc.Handle(context.Background(), "", []byte(oneTerminalEnvelope))
+	var envelopeErr *validate.EnvelopeError
+	if !errors.As(err, &envelopeErr) || envelopeErr.Reason != validate.ReasonGatewayMissing {
+		t.Fatalf("缺接入身份应返回 gateway_id_missing，实际 %v", err)
+	}
+}

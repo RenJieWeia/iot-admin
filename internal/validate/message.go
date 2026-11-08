@@ -17,6 +17,8 @@ const (
 	ReasonInvalidJSON        = "invalid_json"
 	ReasonTerminalsInvalid   = "terminals_invalid"
 	ReasonUnsupportedVersion = "unsupported_version"
+	// ReasonGatewayMissing 只表示"传输层没带身份"（HTTP 缺 X-Gateway-Id；
+	// MQTT topic 必然带）。payload 里的 gatewayId 已不再参与校验。
 	ReasonGatewayMissing     = "gateway_id_missing"
 	// ReasonGatewayUnknown / ReasonGatewayDisabled 是接入鉴权的整包级拒收：
 	// 未注册的网关不能在接入面发布消息（HTTP 403，MQTT 只记日志丢弃）。
@@ -89,6 +91,8 @@ func (e *TerminalError) Error() string {
 type Envelope struct {
 	Ver       int
 	MessageID string
+	// GatewayID 是历史自报字段：MQTT 身份只认 topic，payload 里的值解析后忽略，
+	// 不参与校验、日志判定与落库（仅为兼容存量报文的 JSON 形状保留）。
 	GatewayID string
 	// MsgType 是可选的上游报文类型（R-031）：1 实时、2 补传；0 表示未声明。
 	// **只用于异常 detail/日志的来源标记，不参与任何路径判定**。
@@ -126,8 +130,9 @@ type envelopeWire struct {
 	Terminals json.RawMessage `json:"terminals"`
 }
 
-// ParseEnvelope 只做整包级校验（R1/R13）：JSON 可解析、ver 受支持、gatewayId 非空、
-// terminals 为数组且非空。任何一条不满足都返回 *EnvelopeError，调用方按 400 处理。
+// ParseEnvelope 只做整包级校验（R1/R13）：JSON 可解析、ver 受支持、terminals 为数组且非空。
+// gatewayId 只是历史自报字段，解析后保留形状但不参与校验（身份来自接入层）。
+// 任何一条不满足都返回 *EnvelopeError，调用方按 400 处理。
 func ParseEnvelope(payload []byte) (*Envelope, error) {
 	var w envelopeWire
 	if err := json.Unmarshal(payload, &w); err != nil {
@@ -139,9 +144,6 @@ func ParseEnvelope(payload []byte) (*Envelope, error) {
 	}
 	if ver != 1 {
 		return nil, &EnvelopeError{Reason: ReasonUnsupportedVersion, Detail: fmt.Sprintf("ver=%d", ver)}
-	}
-	if strings.TrimSpace(w.GatewayID) == "" {
-		return nil, &EnvelopeError{Reason: ReasonGatewayMissing}
 	}
 	if len(w.Terminals) == 0 || string(w.Terminals) == "null" {
 		return nil, &EnvelopeError{Reason: ReasonTerminalsInvalid, Detail: "terminals 缺失"}

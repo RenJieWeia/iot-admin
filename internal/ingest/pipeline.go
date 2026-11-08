@@ -105,9 +105,14 @@ func (p *Processor) HandleSource(ctx context.Context, source, ingressGateway str
 	if err != nil {
 		return BatchResult{}, err
 	}
+	// 身份只认传输层：MQTT = iot/ingest/{gateway_id} 的 topic 段，HTTP = X-Gateway-Id。
+	// payload 里的 gatewayId 不再参与任何判定。
 	ingress := strings.TrimSpace(ingressGateway)
 	if ingress == "" {
-		ingress = env.GatewayID
+		return BatchResult{}, &validate.EnvelopeError{
+			Reason: validate.ReasonGatewayMissing,
+			Detail: "缺少接入身份（MQTT topic / X-Gateway-Id）",
+		}
 	}
 	// 接入鉴权：注册过的网关才允许发消息；平台发布实时消息用的是平台自身连接，不经此判定。
 	if p.Gateways != nil {
@@ -132,18 +137,6 @@ func (p *Processor) HandleSource(ctx context.Context, source, ingressGateway str
 		"terminals", len(env.Terminals))
 
 	out := BatchResult{Results: make([]Result, 0, len(env.Terminals))}
-	// 接入网关与报文 gatewayId 的一致性只与信封有关：整批一次判定，逐终端给同样 reason。
-	if ingress != env.GatewayID {
-		terr := &validate.TerminalError{
-			Reason: validate.ReasonProtocolError,
-			Detail: fmt.Sprintf("网关标识不一致: 接入=%q 报文=%q", ingress, env.GatewayID),
-		}
-		for _, tw := range env.Terminals {
-			out.Results = append(out.Results, p.rejectTerminal(ctx, tw.TerminalID, ingress, now, terr, ""))
-		}
-		return out, nil
-	}
-
 	for _, tw := range env.Terminals {
 		out.Results = append(out.Results, p.handleTerminal(ctx, source, env, ingress, tw, now))
 	}
@@ -160,7 +153,7 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 	if terr != nil {
 		return p.rejectTerminal(ctx, tw.TerminalID, ingress, now, terr, "")
 	}
-	// 2.3 网关三方一致（R9）中"注册表 gateway_id"这一侧；信封侧一致性已在 Handle 判定。
+	// 2.3 身份只认传输层（MQTT topic / HTTP 头），payload.gatewayId 已忽略。
 	term, err := p.Meta.LoadTerminal(ctx, tp.TerminalID)
 	if err != nil {
 		if errors.Is(err, validate.ErrTerminalUnknown) {
@@ -171,12 +164,6 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 		}
 		p.Log.Error("读取终端失败", "terminal", tp.TerminalID, "err", err)
 		return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}
-	}
-	if term.GatewayID != ingress {
-		return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
-			Reason: validate.ReasonProtocolError,
-			Detail: fmt.Sprintf("网关标识不一致: 接入=%q 注册=%q", ingress, term.GatewayID),
-		}, "")
 	}
 	if item, bad := validate.FindFuture(tp.Items, now); bad {
 		return p.rejectTerminal(ctx, tp.TerminalID, ingress, now, &validate.TerminalError{
