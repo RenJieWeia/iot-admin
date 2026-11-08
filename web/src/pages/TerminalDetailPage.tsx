@@ -8,7 +8,7 @@ import { RecordDrawer } from '../components/RecordDrawer';
 import { TerminalEnabledSwitch } from '../components/TerminalEnabledSwitch';
 import { EmptyState, ErrorState, Skeleton } from '../components/States';
 import { cn } from '../lib/cn';
-import { isBlank } from '../lib/format';
+import { formatDateTime, isBlank } from '../lib/format';
 import { useMeta } from '../meta';
 
 /** 终端详情：它是什么（基础信息）、能上报什么（类型字段）、当前值（最新值）。 */
@@ -154,6 +154,11 @@ export function TerminalDetailPage() {
               />
               <Info label="网关" value={<span className="font-mono text-xs">{String(terminal?.gateway_id ?? '—')}</span>} />
               <Info label="状态" value={terminal?.enabled === true ? '启用' : '停用'} />
+              <Info label="在线状态" value={terminal?.online === true ? '在线' : '离线'} />
+              <Info
+                label="最近上报"
+                value={isBlank(terminal?.last_seen_at) ? '—' : formatDateTime(terminal?.last_seen_at)}
+              />
             </dl>
           </Section>
 

@@ -37,7 +37,11 @@ export function FieldValue({ field, value }: { field: FieldMeta; value: unknown 
     }
     case 'boolean': {
       const on = value === true || value === 'true';
-      return <span className={on ? 'text-fg' : 'text-muted'}>{on ? '是' : '否'}</span>;
+      // 有枚举选项时用选项文案（如 在线/离线、启用/停用），否则回落到 是/否。
+      const label = field.options.find((option) => option.value === String(on))?.label;
+      return (
+        <span className={on ? 'text-fg' : 'text-muted'}>{label ?? (on ? '是' : '否')}</span>
+      );
     }
     case 'datetime':
       return <span className="tabular">{formatDateTime(value)}</span>;
