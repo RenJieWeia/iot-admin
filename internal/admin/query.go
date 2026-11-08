@@ -304,6 +304,16 @@ func tieBreakers(e Entity, sort string) []string {
 	return nil
 }
 
+// hasWritableColumn 只认写白名单：可编辑列的判断不能把只读列算进去。
+func hasWritableColumn(e Entity, col string) bool {
+	for _, c := range e.Cols {
+		if c == col {
+			return true
+		}
+	}
+	return false
+}
+
 func hasColumn(e Entity, col string) bool {
 	for _, c := range e.Cols {
 		if c == col {

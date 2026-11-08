@@ -166,7 +166,7 @@ func runtimeCommonFields() []FieldMeta {
 			FilterType: "text", Operators: []string{"contains"}, AdvancedOnly: true, WidthStrategy: "min"},
 		{Key: "unit", Label: "单位", Type: "text", Visible: true, Sortable: true, Filterable: true,
 			FilterType: "text", Operators: []string{"contains"}, AdvancedOnly: true, WidthStrategy: "fixed"},
-		{Key: "value_time", Label: "采集时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+		{Key: "value_time", Label: "最近上报", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
 			FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
 		// quality 是位掩码：不新增 SQL 操作符，"仅看有问题"用 filter.quality.gte=1 表达。
 		{Key: "quality", Label: "质量", Type: "number", Visible: true, Sortable: true, Filterable: true,
@@ -317,8 +317,8 @@ var fieldSets = map[string]fieldSet{
 			{Key: "online", Label: "在线状态", Type: "boolean", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "boolean", Operators: []string{"eq"}, OptionsSource: "static",
 				Options: onlineOptions, WidthStrategy: "fixed"},
-			{Key: "last_seen_at", Label: "最近上报", Type: "datetime", Visible: false, Sortable: true, Filterable: false,
-				FilterType: "none", WidthStrategy: "min"},
+			{Key: "last_seen_at", Label: "最近上报", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
 		},
 		relations: map[string]string{"type_id": "thing-models"},
 	},
@@ -402,6 +402,8 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "none", WidthStrategy: "flex"},
 			{Key: "created_at", Label: "注册时间", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
+			{Key: "last_seen_at", Label: "最近上报", Type: "datetime", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "dateRange", Operators: []string{"gte", "lte"}, WidthStrategy: "min"},
 		},
 	},
 	// 快照查询模板：name/description 直接可编辑；类型与字段数组由专用编辑页维护。
@@ -462,7 +464,7 @@ func FieldMetas(entity string) ([]FieldMeta, bool) {
 	// 异常只读页不在 Entities 里，没有写路径，保持 false。
 	if e, ok := lookup(entity); ok {
 		for i := range out {
-			out[i].Editable = hasColumn(e, out[i].Key)
+			out[i].Editable = hasWritableColumn(e, out[i].Key)
 		}
 	}
 	return out, true

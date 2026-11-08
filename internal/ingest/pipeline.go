@@ -142,6 +142,7 @@ func (p *Processor) HandleSource(ctx context.Context, source, ingressGateway str
 		present = append(present, tw.TerminalID)
 		out.Results = append(out.Results, p.handleTerminal(ctx, source, env, ingress, tw, now))
 	}
+	p.markGatewaySeen(ctx, ingress, now)
 	// 该网关的批次里没带上的终端 → 置离线（整机离线暂不处理）。
 	p.markMissingOffline(ctx, ingress, present)
 	return out, nil
@@ -155,6 +156,17 @@ func (p *Processor) markOnline(ctx context.Context, terminalID string, now time.
 	if _, err := p.DB.Exec(ctx,
 		`update terminal set online = true, last_seen_at = $2 where id = $1`, terminalID, now); err != nil {
 		p.Log.Warn("更新终端在线状态失败", "terminal", terminalID, "err", err)
+	}
+}
+
+// markGatewaySeen 记录网关最近一次上报批次的时间。
+func (p *Processor) markGatewaySeen(ctx context.Context, gatewayID string, now time.Time) {
+	if p.DB == nil || gatewayID == "" {
+		return
+	}
+	if _, err := p.DB.Exec(ctx,
+		`update gateway set last_seen_at = $2 where gateway_id = $1`, gatewayID, now); err != nil {
+		p.Log.Warn("更新网关最近上报失败", "gateway", gatewayID, "err", err)
 	}
 }
 

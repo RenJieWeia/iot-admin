@@ -359,8 +359,8 @@ var Entities = []Entity{
 		ReadCols: []string{"online", "last_seen_at"}},
 	// 边缘网关注册表：接入面按 gateway_id 鉴权（未注册/停用直接 403），主键不是 id。
 	{Name: "gateways", Table: "gateway", PKey: "gateway_id",
-		Cols: []string{"gateway_id", "name", "enabled", "remark"},
-		ReadCols: []string{"created_at"}},
+		Cols:     []string{"gateway_id", "name", "enabled", "remark"},
+		ReadCols: []string{"created_at", "last_seen_at"}},
 	{Name: "quality-rules", Table: "quality_rule", Cols: []string{
 		"terminal_id", "item_code", "rule_type", "params", "enabled"}, JSONB: []string{"params"}},
 	// 全局六档配置：六行固定（granularity 主键），只允许改 enabled / step。

@@ -524,7 +524,8 @@ func TestRequiredMatchesDDL(t *testing.T) {
 	// 0019/0020 用 alter table add column 给 terminal 加列：按同样的语义合并进 table。
 	alterRe := regexp.MustCompile(`(?is)alter table (\w+) add column if not exists (\w+) ([^;]+);`)
 	alterSQL := string(mustReadMigrations(t, "0019_terminal_online.sql")) +
-		string(mustReadMigrations(t, "0020_terminal_soft_delete.sql"))
+		string(mustReadMigrations(t, "0020_terminal_soft_delete.sql")) +
+		string(mustReadMigrations(t, "0021_gateway_last_seen.sql"))
 	for _, m := range alterRe.FindAllStringSubmatch(alterSQL, -1) {
 		tableName, col, rest := m[1], m[2], strings.ToLower(m[3])
 		hasDefault := strings.Contains(rest, "default")
