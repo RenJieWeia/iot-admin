@@ -1,4 +1,5 @@
 import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type { FieldMeta, RowData } from '../api/types';
 import { cn } from '../lib/cn';
 import { FieldValue } from './FieldValue';
@@ -18,6 +19,8 @@ interface DataTableProps {
   onRowClick: (row: RowData) => void;
   onRetry?: () => void;
   onReset?: () => void;
+  /** 行内操作（如网关启停开关）；提供时在最后一列渲染固定操作栏。 */
+  renderActions?: (row: RowData) => ReactNode;
 }
 
 /** 列宽从 field.width 取：fixed/min 走像素，flex 吃剩余宽度；超宽横向滚动不压缩。 */
@@ -34,6 +37,7 @@ export function DataTable({
   onRowClick,
   onRetry,
   onReset,
+  renderActions,
 }: DataTableProps) {
   const fixedWidth = fields.reduce(
     (sum, field) => sum + (field.widthStrategy === 'flex' ? 0 : (field.width ?? 120)),
@@ -103,6 +107,14 @@ export function DataTable({
                 </th>
               );
             })}
+            {renderActions ? (
+              <th
+                scope="col"
+                className="sticky right-0 z-10 border-b border-l border-line bg-surface-2 px-3 py-2.5 text-right font-medium"
+              >
+                操作
+              </th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -178,6 +190,14 @@ export function DataTable({
                       </td>
                     );
                   })}
+                  {renderActions ? (
+                    <td
+                      className="sticky right-0 z-10 border-l border-line bg-surface px-3 py-2.5 align-middle"
+                      onClick={(event) => event.stopPropagation()}
+                    >
+                      <div className="flex justify-end">{renderActions(row)}</div>
+                    </td>
+                  ) : null}
                 </tr>
               ))
             : null}

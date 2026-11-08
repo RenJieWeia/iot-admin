@@ -13,6 +13,7 @@ import { Pagination } from '../components/Pagination';
 import { CursorPager } from '../components/CursorPager';
 import { EmptyState } from '../components/States';
 import { RecordDrawer } from '../components/RecordDrawer';
+import { GatewayEnabledSwitch } from '../components/GatewayEnabledSwitch';
 
 const KIND_LABEL: Record<ListKind, string> = {
   entity: '实体',
@@ -101,6 +102,11 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
   }
 
   const canCreate = kind === 'entity' && !page.readOnly;
+  // 网关的启用状态是行内开关（操作栏），因为切换会同步 Broker 注册/注销。
+  const rowActions =
+    kind === 'entity' && page.name === 'gateways'
+      ? (row: RowData) => <GatewayEnabledSwitch row={row} onSaved={list.reload} />
+      : undefined;
   const sortLabel = query.sort
     ? (page.fields.find((field) => field.key === query.sort)?.label ?? query.sort)
     : '默认';
@@ -157,6 +163,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
           disableSort={cursorMode}
           onSortChange={handleSort}
           onRowClick={openRow}
+          renderActions={rowActions}
           onRetry={list.reload}
           onReset={resetQuery}
         />
