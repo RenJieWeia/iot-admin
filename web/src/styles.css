@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+/* 主题令牌：light/dark 两套，组件只消费语义色（canvas/surface/fg/line/tone-*）。 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+:root {
+  --canvas: #f4f6f8;
+  --surface: #ffffff;
+  --surface-2: #f8fafc;
+  --line: #e3e8ef;
+  --line-strong: #cdd5df;
+  --fg: #101828;
+  --muted: #667085;
+  --primary: #2563eb;
+  --primary-hover: #1d4ed8;
+  --primary-soft: #eef4ff;
+  --positive: #067647;
+  --positive-soft: #ecfdf3;
+  --negative: #b42318;
+  --negative-soft: #fef3f2;
+  --warning: #b54708;
+  --warning-soft: #fffaeb;
+  --neutral: #475467;
+  --neutral-soft: #f2f4f7;
+  --shadow: 0 1px 2px rgb(16 24 40 / 0.04), 0 8px 24px -12px rgb(16 24 40 / 0.12);
+}
+
+.dark {
+  --canvas: #0b0f15;
+  --surface: #121821;
+  --surface-2: #0f151d;
+  --line: #222c38;
+  --line-strong: #2f3a48;
+  --fg: #e6edf3;
+  --muted: #8b98a9;
+  --primary: #4f8ef7;
+  --primary-hover: #6ba1ff;
+  --primary-soft: #16233a;
+  --positive: #3ddc97;
+  --positive-soft: #0f2a20;
+  --negative: #ff7b72;
+  --negative-soft: #2b1517;
+  --warning: #f2b539;
+  --warning-soft: #2a2010;
+  --neutral: #a6b1c2;
+  --neutral-soft: #1a222d;
+  --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 12px 32px -16px rgb(0 0 0 / 0.6);
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-primary: var(--primary);
+  --color-primary-hover: var(--primary-hover);
+  --color-primary-soft: var(--primary-soft);
+  --color-positive: var(--positive);
+  --color-positive-soft: var(--positive-soft);
+  --color-negative: var(--negative);
+  --color-negative-soft: var(--negative-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-neutral: var(--neutral);
+  --color-neutral-soft: var(--neutral-soft);
+  --shadow-panel: var(--shadow);
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+  html.dark {
+    color-scheme: dark;
+  }
+  body {
+    @apply bg-canvas text-fg antialiased;
+    font-family:
+      "Inter", "Noto Sans SC", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-feature-settings: "cv02", "cv03", "cv04", "tnum";
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--line-strong) transparent;
+  }
+  :focus-visible {
+    outline: 2px solid var(--primary);
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}

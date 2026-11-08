@@ -5,20 +5,15 @@
     "module": "ESNext",
     "moduleResolution": "bundler",
     "jsx": "react-jsx",
-    "types": ["vitest/globals", "@testing-library/jest-dom"],
-
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
-    "noUncheckedIndexedAccess": true,
-    "verbatimModuleSyntax": true,
-
     "skipLibCheck": true,
     "isolatedModules": true,
-    "resolveJsonModule": true,
-    "allowImportingTsExtensions": true,
-    "noEmit": true
+    "verbatimModuleSyntax": true,
+    "noEmit": true,
+    "types": ["vite/client"]
   },
   "include": ["src", "vite.config.ts"]
 }
