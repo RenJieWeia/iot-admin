@@ -8,7 +8,7 @@ import type { ListKind } from '../api/client';
 import type { MetaPayload, PageMeta, ReadonlyMeta, RowData } from '../api/types';
 import { cn } from '../lib/cn';
 import { isBlank } from '../lib/format';
-import { initQuery, setFilter } from '../lib/query';
+import { filterSearch, queryFromSearch, searchFromQuery } from '../lib/queryUrl';
 import type { FilterCond, QueryState } from '../lib/query';
 import { useMeta, useRelationLabels } from '../meta';
 import { useList } from '../hooks/useList';
@@ -70,7 +70,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     : [defaultPageSize];
 
   const [query, setQuery] = useState<QueryState>(() =>
-    initQuery(page?.defaultSort ?? '', page?.defaultOrder ?? 'desc', defaultPageSize),
+    queryFromSearch(window.location.search, page, defaultPageSize, page?.pagination === 'cursor'),
   );
   const [drawer, setDrawer] = useState<DrawerState>({ open: false, row: null, mode: 'view' });
   const navigate = useNavigate();
@@ -98,12 +98,6 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     setDensity(readDensity(name));
   }, [name, cardEnabled]);
 
-  // 跳转带来的筛选只在"切换实体/首次挂载"时消费一次：用 ref 抓当前值，避免清空 state 触发重算。
-  const incomingFilters = useRef<FilterCond[] | undefined>(undefined);
-  if (location.state) {
-    incomingFilters.current = (location.state as { filters?: FilterCond[] }).filters;
-  }
-
   const changeView = (mode: ViewMode) => {
     setViewMode(mode);
     writeViewMode(name, mode);
@@ -113,19 +107,28 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     writeDensity(name, next);
   };
 
-  // 切页 / 换实体：按页面默认排序重置查询，并把跳转带来的筛选合入（只消费一次）。
-  useEffect(() => {
-    let next = initQuery(page?.defaultSort ?? '', page?.defaultOrder ?? 'desc', defaultPageSize);
-    const fromState = incomingFilters.current;
-    if (kind === 'entity' && fromState?.length) {
-      for (const filter of fromState) next = setFilter(next, filter);
-      incomingFilters.current = undefined;
-      navigate(location.pathname, { replace: true, state: null });
-    }
-    setQuery(next);
-  }, [kind, name, defaultPageSize, page?.defaultSort, page?.defaultOrder, navigate, location.pathname]);
-
+  // 地址栏是筛选/排序/分页的事实源：URL 变化 → 解析进查询；查询变化 → 写回 URL（replace）。
   const cursorMode = page?.pagination === 'cursor';
+  useEffect(() => {
+    const parsed = queryFromSearch(location.search, page, defaultPageSize, cursorMode);
+    setQuery((current) => (searchFromQuery(current, cursorMode) === searchFromQuery(parsed, cursorMode) ? current : parsed));
+  }, [location.search, page, defaultPageSize, cursorMode]);
+
+  // 记录最近一次由本页写入的 URL：外部导航（快速跳转/前进后退）带来的 search 不覆盖成旧查询。
+  const lastSyncedSearch = useRef(location.search);
+  useEffect(() => {
+    if (location.search !== lastSyncedSearch.current) {
+      lastSyncedSearch.current = location.search;
+      return;
+    }
+    const next = searchFromQuery(query, cursorMode);
+    const current = location.search.replace(/^\?/, '');
+    if (next !== current) {
+      lastSyncedSearch.current = next ? `?${next}` : '';
+      navigate(`${location.pathname}${next ? `?${next}` : ''}`, { replace: true, state: null });
+    }
+  }, [query, cursorMode, location.pathname, location.search, navigate]);
+
   const list = useList(kind, name, query, cursorMode);
 
   const visibleFields = useMemo(
@@ -378,7 +381,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
       jumpChildren.push({
         key,
         label,
-        onSelect: () => navigate(path, { state: { filters: [filter] } }),
+        onSelect: () => navigate(`${path}?${filterSearch([filter])}`),
       });
 
     switch (name) {
