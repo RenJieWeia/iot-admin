@@ -78,6 +78,12 @@ var enabledOptions = []Option{
 	{Value: "false", Label: "停用", Tone: "negative"},
 }
 
+// onlineOptions 是终端在线状态（默认离线；收到报文置在线）。
+var onlineOptions = []Option{
+	{Value: "true", Label: "在线", Tone: "positive"},
+	{Value: "false", Label: "离线", Tone: "neutral"},
+}
+
 var valueTypeOptions = []Option{
 	{Value: "number", Label: "数值", Tone: "neutral"},
 	{Value: "string", Label: "文本", Tone: "neutral"},
@@ -308,6 +314,11 @@ var fieldSets = map[string]fieldSet{
 			{Key: "enabled", Label: "状态", Type: "boolean", Visible: false, Sortable: true, Filterable: true,
 				FilterType: "boolean", Operators: []string{"eq"}, OptionsSource: "static",
 				Options: enabledOptions, WidthStrategy: "fixed"},
+			{Key: "online", Label: "在线状态", Type: "boolean", Visible: true, Sortable: true, Filterable: true,
+				FilterType: "boolean", Operators: []string{"eq"}, OptionsSource: "static",
+				Options: onlineOptions, WidthStrategy: "fixed"},
+			{Key: "last_seen_at", Label: "最近上报", Type: "datetime", Visible: false, Sortable: true, Filterable: false,
+				FilterType: "none", WidthStrategy: "min"},
 		},
 		relations: map[string]string{"type_id": "device-types"},
 	},

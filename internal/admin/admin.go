@@ -622,6 +622,12 @@ func (a *API) update(w http.ResponseWriter, r *http.Request) {
 	if e.Name == "snapshot-slots" {
 		sets = append(sets, "updated_at = now()")
 	}
+	// 停用终端即视为离线，不必等下一批报文。
+	if e.Name == "terminals" {
+		if enabled, ok := body["enabled"].(bool); ok && !enabled {
+			sets = append(sets, "online = false")
+		}
+	}
 	vals = append(vals, r.PathValue("id"))
 	row, err := a.queryOne(r, e, updateSQL(e, sets, len(cols)+1), vals...)
 	if errors.Is(err, pgx.ErrNoRows) {

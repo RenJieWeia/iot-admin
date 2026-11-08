@@ -521,6 +521,19 @@ func TestRequiredMatchesDDL(t *testing.T) {
 		}
 	}
 
+	// 0019 用 alter table add column 给 terminal 加列：按同样的语义合并进 table。
+	alterDDL := string(mustReadMigrations(t, "0019_terminal_online.sql"))
+	alterRe := regexp.MustCompile(`(?is)alter table (\w+) add column if not exists (\w+) ([^;]+);`)
+	for _, m := range alterRe.FindAllStringSubmatch(alterDDL, -1) {
+		tableName, col, rest := m[1], m[2], strings.ToLower(m[3])
+		hasDefault := strings.Contains(rest, "default")
+		notNull := (strings.Contains(rest, "not null") || strings.Contains(rest, "primary key")) && !hasDefault
+		if table[tableName] == nil {
+			table[tableName] = map[string]ddlColumn{}
+		}
+		table[tableName][col] = ddlColumn{notNull: notNull, hasDefault: hasDefault}
+	}
+
 	payload := BuildMeta()
 	// 按实体名对齐：导航实体在 entities、不可导航的在 subresources，两段合起来覆盖全部实体。
 	all := make(map[string]MetaEntity, len(payload.Entities)+len(payload.Subresources))
