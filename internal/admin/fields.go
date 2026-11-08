@@ -304,7 +304,8 @@ var fieldSets = map[string]fieldSet{
 				FilterType: "text", Operators: []string{"contains", "eq"}, WidthStrategy: "min"},
 			{Key: "name", Label: "名称", Type: "text", Visible: true, Sortable: true, Filterable: true,
 				FilterType: "text", Operators: []string{"contains"}, WidthStrategy: "flex"},
-			{Key: "enabled", Label: "状态", Type: "boolean", Visible: true, Sortable: true, Filterable: true,
+			// 启停由列表操作栏/详情页的开关承载，不再占普通列。
+			{Key: "enabled", Label: "状态", Type: "boolean", Visible: false, Sortable: true, Filterable: true,
 				FilterType: "boolean", Operators: []string{"eq"}, OptionsSource: "static",
 				Options: enabledOptions, WidthStrategy: "fixed"},
 		},
