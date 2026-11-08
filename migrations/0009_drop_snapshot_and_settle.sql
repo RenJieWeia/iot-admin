@@ -4,7 +4,7 @@
 --   上报 → 校验 → 清洗 → 写 latest_value → 发布实时
 -- 「迟到」这个概念随之消失——没有窗口，就没有迟到。
 --
--- 不可逆：执行前已导出存档（.devcache/archive/snapshot-20261106/，gitignore）：
+-- 不可逆：执行前已导出存档（原 .devcache/archive/snapshot-20261106/，随仓库清理已删除）：
 --   hourly_snapshot.sql  37 行 + 8 个月度分区，hour_start 覆盖 2026-10-07 ~ 2026-11-06
 --   hourly_staging.sql    0 行（结算后为空）
 --   settle_config.sql     1 行（窗口 900s）

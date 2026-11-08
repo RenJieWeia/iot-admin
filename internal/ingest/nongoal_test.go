@@ -218,7 +218,7 @@ func goFiles(t *testing.T) []string {
 		}
 		if d.IsDir() {
 			base := d.Name()
-			if base == ".git" || base == ".devcache" || base == "docs" || base == "node_modules" {
+			if base == ".git" || base == ".dev" || base == ".devcache" || base == "docs" || base == "node_modules" {
 				return filepath.SkipDir
 			}
 			return nil
