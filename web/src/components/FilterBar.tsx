@@ -1,584 +1,528 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import * as Dialog from '@radix-ui/react-dialog';
-import { Button, Select, TextField } from '@radix-ui/themes';
-import type { FieldMeta, Option } from '../api/types';
-import { advancedFilters, quickFilters, type FieldHolder } from '../lib/fieldMeta';
-import { NARROW_QUERY } from '../lib/breakpoint';
-import {
- clearFilters,
- patchQuery,
- removeFilterAt,
- type ActiveFilter,
- type QueryState,
-} from '../lib/queryState';
-import { formatFilterValue, operatorLabel } from '../lib/format';
-import { EMPTY_SELECT_VALUE, fromSelectValue, toSelectValue } from '../lib/radixSelect';
-import { Drawer } from './Drawer';
-import { FilterMultiSelect } from './FilterMultiSelect';
+import { useEffect, useState } from 'react';
+import * as Checkbox from '@radix-ui/react-checkbox';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
+import * as Popover from '@radix-ui/react-popover';
+import { Check, ChevronDown, Search, X } from 'lucide-react';
+import { fetchOptions } from '../api/client';
+import type { FieldMeta, FilterOp, OptionItem } from '../api/types';
+import { cn } from '../lib/cn';
+import type { FilterCond, QueryState } from '../lib/query';
+import { useRelationLabels } from '../meta';
 
-interface Props {
- entity: FieldHolder;
- query: QueryState;
- /** 关联字段的 value→label 映射，用于筛选项与标签展示。 */
- relationOptions: Record<string, Record<string, string>>;
- /** replace=true 时不写浏览器历史（关键词连续输入用）。 */
- onChange: (next: QueryState, replace?: boolean) => void;
- /** 关联选项加载失败（table-query §5：保留已选条件，局部提示重试，不阻塞表格）。 */
- optionsError?: boolean;
- onRetryOptions?: () => void;
+const PRIMARY_FILTER_LIMIT = 5;
+const controlClass =
+  'w-full rounded-md border border-line bg-surface px-2 py-1.5 text-sm text-fg placeholder:text-muted focus:border-primary';
+const chipClass =
+  'inline-flex items-center gap-1 rounded-full border border-line bg-surface-2 px-2 py-0.5 text-xs text-fg';
+
+function withField(state: QueryState, field: string, conds: FilterCond[]): QueryState {
+  const kept = state.filters.filter((cond) => cond.field !== field);
+  return { ...state, filters: [...kept, ...conds.filter((cond) => cond.values.length)], page: 1 };
 }
 
-
-function useIsNarrow(): boolean {
- const [narrow, setNarrow] = useState(
- () => typeof window.matchMedia === 'function' && window.matchMedia(NARROW_QUERY).matches,
- );
- useEffect(() => {
- if (typeof window.matchMedia !== 'function') return;
- const query = window.matchMedia(NARROW_QUERY);
- const sync = () => setNarrow(query.matches);
- sync();
- query.addEventListener('change', sync);
- return () => query.removeEventListener('change', sync);
- }, []);
- return narrow;
+function withoutCond(state: QueryState, target: FilterCond): QueryState {
+  return { ...state, filters: state.filters.filter((cond) => cond !== target), page: 1 };
 }
 
-/**
- * 「筛选（N）」的 N 口径：关键词算 1 条，每个已生效筛选条件（chips 上的每一条）算 1 条。
- * 与 ActiveFilterChips 的条目一一对应，用户能把按钮上的数字和下面的标签对上。
- */
-function activeConditionCount(query: QueryState): number {
- return (query.q ? 1 : 0) + query.filters.length;
+function condText(
+  field: FieldMeta,
+  cond: FilterCond,
+  relationLabel: (ref: FieldMeta['ref'], value: unknown) => string,
+): string {
+  const operator = cond.op ? (field.operatorLabels[cond.op] ?? cond.op) : '';
+  const values = cond.values.map((value) => {
+    if (field.type === 'relation') return relationLabel(field.ref, value);
+    const option = field.options.find((item) => item.value === value);
+    return option?.label ?? value;
+  });
+  return [field.label, operator, values.join('、')].filter(Boolean).join(' ');
 }
 
-/** 范围非法提示：数值比大小，日期按 ISO 字典序（YYYY-MM-DD 可直接比较）；空值表示不限。 */
-function rangeProblem(filterType: string, gte: string, lte: string): string | null {
- if (!gte || !lte) return null;
- const invalid = filterType === 'numberRange' ? Number(gte) > Number(lte) : gte > lte;
- if (!invalid) return null;
- return filterType === 'numberRange'
- ? `最小值不能大于最大值（${gte} > ${lte}），已保留输入但未提交查询`
- : `开始日期不能晚于结束日期（${gte} > ${lte}），已保留输入但未提交查询`;
+interface FilterControlProps {
+  field: FieldMeta;
+  query: QueryState;
+  onChange: (next: QueryState) => void;
+  onClose: () => void;
 }
 
-function relationOptionList(labels: Record<string, string> | undefined): Option[] {
- if (!labels) return [];
- return Object.entries(labels)
- .sort(([a], [b]) => a.localeCompare(b, 'zh-Hans-CN', { numeric: true }))
- .map(([value, label]) => ({ value, label }));
+/** 单个字段的筛选控件：按 filterType 分派，本地草稿在“应用”时写回 QueryState。 */
+function FilterControl({ field, query, onChange, onClose }: FilterControlProps) {
+  const own = query.filters.filter((cond) => cond.field === field.key);
+  const [op, setOp] = useState<FilterOp>(own[0]?.op ?? field.operators[0] ?? 'contains');
+  const [text, setText] = useState(own[0]?.values[0] ?? '');
+  const [selected, setSelected] = useState<string[]>(own[0]?.values ?? []);
+  const [from, setFrom] = useState(own.find((cond) => cond.op === 'gte')?.values[0] ?? '');
+  const [to, setTo] = useState(own.find((cond) => cond.op === 'lte')?.values[0] ?? '');
+  const [term, setTerm] = useState('');
+  const [options, setOptions] = useState<OptionItem[]>([]);
+
+  useEffect(() => {
+    if (field.filterType !== 'relation' || !field.ref) return;
+    const controller = new AbortController();
+    const entity = field.ref.entity;
+    const load = async () => {
+      try {
+        const [found, picked] = await Promise.all([
+          fetchOptions(entity, term ? { q: term, limit: 20 } : { limit: 20 }, controller.signal),
+          selected.length
+            ? fetchOptions(entity, { ids: selected }, controller.signal)
+            : Promise.resolve<OptionItem[]>([]),
+        ]);
+        if (controller.signal.aborted) return;
+        const merged: OptionItem[] = [];
+        const seen = new Set<string>();
+        for (const item of [...picked, ...found]) {
+          if (seen.has(item.value)) continue;
+          seen.add(item.value);
+          merged.push(item);
+        }
+        setOptions(merged);
+      } catch {
+        // 选项拉取失败不阻塞列表：让用户先改条件
+      }
+    };
+    void load();
+    return () => controller.abort();
+  }, [field.filterType, field.ref, term, selected]);
+
+  const clear = () => {
+    onChange(withField(query, field.key, []));
+    onClose();
+  };
+
+  const applyValues = (values: string[]) => {
+    setSelected(values);
+    const operator = field.operators.includes('in') ? 'in' : field.operators[0];
+    onChange(
+      withField(
+        query,
+        field.key,
+        values.length ? [{ field: field.key, op: operator, values }] : [],
+      ),
+    );
+  };
+
+  const toggleValue = (value: string) => {
+    applyValues(
+      selected.includes(value) ? selected.filter((item) => item !== value) : [...selected, value],
+    );
+  };
+
+  const applyText = () => {
+    onChange(
+      withField(
+        query,
+        field.key,
+        text.trim() ? [{ field: field.key, op, values: [text.trim()] }] : [],
+      ),
+    );
+    onClose();
+  };
+
+  const applyRange = () => {
+    const conds: FilterCond[] = [];
+    if (from.trim()) conds.push({ field: field.key, op: 'gte', values: [from.trim()] });
+    if (to.trim()) conds.push({ field: field.key, op: 'lte', values: [to.trim()] });
+    onChange(withField(query, field.key, conds));
+    onClose();
+  };
+
+  if (field.filterType === 'text') {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <DropdownMenu.Root>
+            <DropdownMenu.Trigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md border border-line px-2 text-xs text-fg hover:bg-surface-2"
+              >
+                {field.operatorLabels[op] ?? op}
+                <ChevronDown className="size-3" aria-hidden />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content
+                align="start"
+                sideOffset={4}
+                className="z-50 min-w-24 rounded-md border border-line bg-surface p-1 shadow-panel"
+              >
+                {field.operators.map((operator) => (
+                  <DropdownMenu.Item
+                    key={operator}
+                    onSelect={() => setOp(operator)}
+                    className={cn(
+                      'cursor-pointer rounded px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-surface-2',
+                      operator === op && 'text-primary',
+                    )}
+                  >
+                    {field.operatorLabels[operator] ?? operator}
+                  </DropdownMenu.Item>
+                ))}
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+          <input
+            autoFocus
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') applyText();
+            }}
+            placeholder={`输入${field.label}`}
+            aria-label={field.label}
+            className={controlClass}
+          />
+        </div>
+        <div className="flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={clear}
+            className="rounded-md px-2 py-1 text-xs text-muted hover:text-fg"
+          >
+            清除
+          </button>
+          <button
+            type="button"
+            onClick={applyText}
+            className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-white hover:bg-primary-hover"
+          >
+            应用
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (field.filterType === 'numberRange' || field.filterType === 'dateRange') {
+    const dateMode = field.filterType === 'dateRange';
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex items-center gap-2">
+          <input
+            type={dateMode ? 'datetime-local' : 'number'}
+            step={dateMode ? undefined : 'any'}
+            value={from}
+            onChange={(event) => setFrom(event.target.value)}
+            aria-label={`${field.label} 下限`}
+            placeholder="下限"
+            className={controlClass}
+          />
+          <span className="text-xs text-muted">至</span>
+          <input
+            type={dateMode ? 'datetime-local' : 'number'}
+            step={dateMode ? undefined : 'any'}
+            value={to}
+            onChange={(event) => setTo(event.target.value)}
+            aria-label={`${field.label} 上限`}
+            placeholder="上限"
+            className={controlClass}
+          />
+        </div>
+        <div className="flex items-center justify-between">
+          <span className="text-xs text-muted">留空表示不限</span>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={clear}
+              className="rounded-md px-2 py-1 text-xs text-muted hover:text-fg"
+            >
+              清除
+            </button>
+            <button
+              type="button"
+              onClick={applyRange}
+              className="rounded-md bg-primary px-3 py-1 text-xs font-medium text-white hover:bg-primary-hover"
+            >
+              应用
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (field.filterType === 'boolean') {
+    const current = own[0]?.values[0];
+    const items = field.options.length
+      ? field.options
+      : [
+          { value: 'true', label: '是' },
+          { value: 'false', label: '否' },
+        ];
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="flex gap-2">
+          {items.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              aria-pressed={current === item.value}
+              onClick={() => applyValues(current === item.value ? [] : [item.value])}
+              className={cn(
+                'flex-1 rounded-md border px-2 py-1.5 text-sm',
+                current === item.value
+                  ? 'border-primary bg-primary-soft text-primary'
+                  : 'border-line text-fg hover:bg-surface-2',
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+        <button
+          type="button"
+          onClick={clear}
+          className="self-end rounded-md px-2 py-1 text-xs text-muted hover:text-fg"
+        >
+          清除
+        </button>
+      </div>
+    );
+  }
+
+  if (field.filterType === 'relation') {
+    return (
+      <div className="flex flex-col gap-2">
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted"
+            aria-hidden
+          />
+          <input
+            value={term}
+            onChange={(event) => setTerm(event.target.value)}
+            placeholder="搜索选项"
+            aria-label={`搜索${field.label}`}
+            className={cn(controlClass, 'pl-7')}
+          />
+        </div>
+        <div className="max-h-56 overflow-y-auto">
+          {options.length ? (
+            options.map((option) => (
+              <label
+                key={option.value}
+                className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm hover:bg-surface-2"
+              >
+                <Checkbox.Root
+                  checked={selected.includes(option.value)}
+                  onCheckedChange={() => toggleValue(option.value)}
+                  className="flex size-4 shrink-0 items-center justify-center rounded border border-line-strong bg-surface data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-white"
+                >
+                  <Checkbox.Indicator>
+                    <Check className="size-3" aria-hidden />
+                  </Checkbox.Indicator>
+                </Checkbox.Root>
+                <span className="truncate">{option.label}</span>
+              </label>
+            ))
+          ) : (
+            <p className="px-1 py-2 text-xs text-muted">没有可选数据</p>
+          )}
+        </div>
+        <button
+          type="button"
+          onClick={clear}
+          className="self-end rounded-md px-2 py-1 text-xs text-muted hover:text-fg"
+        >
+          清除
+        </button>
+      </div>
+    );
+  }
+
+  // multiSelect：复选即生效
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="max-h-56 overflow-y-auto">
+        {field.options.length ? (
+          field.options.map((option) => (
+            <label
+              key={option.value}
+              className="flex cursor-pointer items-center gap-2 rounded px-1 py-1.5 text-sm hover:bg-surface-2"
+            >
+              <Checkbox.Root
+                checked={selected.includes(option.value)}
+                onCheckedChange={() => toggleValue(option.value)}
+                className="flex size-4 shrink-0 items-center justify-center rounded border border-line-strong bg-surface data-[state=checked]:border-primary data-[state=checked]:bg-primary data-[state=checked]:text-white"
+              >
+                <Checkbox.Indicator>
+                  <Check className="size-3" aria-hidden />
+                </Checkbox.Indicator>
+              </Checkbox.Root>
+              <span className="truncate">{option.label}</span>
+            </label>
+          ))
+        ) : (
+          <p className="px-1 py-2 text-xs text-muted">没有可选数据</p>
+        )}
+      </div>
+      <button
+        type="button"
+        onClick={clear}
+        className="self-end rounded-md px-2 py-1 text-xs text-muted hover:text-fg"
+      >
+        清除
+      </button>
+    </div>
+  );
 }
 
-function optionList(
- field: FieldMeta,
- relationOptions: Record<string, Record<string, string>>,
-): Option[] {
- if (field.filterType === 'relation' || field.filterType === 'remoteSelect') {
- return relationOptionList(relationOptions[field.key]);
- }
- return field.options ?? [];
+interface FilterBarProps {
+  fields: FieldMeta[];
+  query: QueryState;
+  onChange: (next: QueryState) => void;
 }
 
-function valuesOf(query: QueryState, field: string, op: string): string[] {
- return query.filters.find((f) => f.field === field && f.op === op)?.values ?? [];
-}
+/** 搜索（300ms 防抖）+ 元数据驱动的筛选控件 + 已选条件 chips。 */
+export function FilterBar({ fields, query, onChange }: FilterBarProps) {
+  const relationLabel = useRelationLabels();
+  const [search, setSearch] = useState(query.q);
+  const [openField, setOpenField] = useState<string | null>(null);
+  const [showAll, setShowAll] = useState(false);
 
-/**
- * 字段已生效的值，合并该字段任一 op：删标签/清除全部后控件必须跟着清空，
- * 只认首个 op 会让「URL 里换了 op」的条件在控件里不可见（table-query §2、§10）。
- */
-function mergedValues(query: QueryState, field: string): string[] {
- return query.filters.filter((f) => f.field === field).flatMap((f) => f.values);
-}
+  useEffect(() => {
+    setSearch(query.q);
+  }, [query.q]);
 
-/**
- * 受控草稿：本地输入优先，只有 URL 被外部改动（删标签、清除全部、浏览器后退）时才回灌。
- * 判据是「我最后写进 URL 的值」——两者相同说明这次变化由自己引起，此时回灌会覆盖
- * 正在输入的内容并让光标跳位；不同才说明是外部改的，必须回灌。
- */
-function useQueryDraft(value: string) {
- const [draft, setDraft] = useState(value);
- const written = useRef(value);
- useEffect(() => {
- if (value === written.current) return;
- written.current = value;
- setDraft(value);
- }, [value]);
- /** 提交前登记即将写进 URL 的值，压掉这次自变的回灌。 */
- const noteWritten = (next: string) => {
- written.current = next;
- };
- return { draft, setDraft, noteWritten };
-}
+  useEffect(() => {
+    if (search === query.q) return;
+    const timer = window.setTimeout(() => {
+      onChange({ ...query, q: search, page: 1 });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [search, query, onChange]);
 
-/** 文本筛选的提交时机：输入 300ms 后写 URL，回车/失焦立即提交（table-query §4，与关键词同实现）。 */
-function useDebouncedCommit(commit: (value: string) => void, delay = 300) {
- const timer = useRef<number | null>(null);
- // 回调里取最新一次渲染的 commit：防抖窗口内 query 变了，旧闭包会覆盖掉别的条件。
- const latest = useRef(commit);
- const cancel = () => {
- if (timer.current !== null) window.clearTimeout(timer.current);
- };
- useEffect(() => {
- latest.current = commit;
- });
- useEffect(
- () => () => {
- if (timer.current !== null) window.clearTimeout(timer.current);
- },
- [],
- );
- return {
- schedule(value: string) {
- cancel();
- timer.current = window.setTimeout(() => latest.current(value), delay);
- },
- flush(value: string) {
- cancel();
- commit(value);
- },
- };
-}
+  const filterFields = fields.filter(
+    (field) => field.filterable && field.filterType !== 'none',
+  );
+  const primary = filterFields.slice(0, PRIMARY_FILTER_LIMIT);
+  const shown = showAll ? filterFields : primary;
+  const hiddenCount = filterFields.length - primary.length;
+  const fieldMap = new Map(fields.map((field) => [field.key, field]));
 
-/** 单字段筛选控件：控件类型由 filterType 决定，取值后立即写回 URL（变化回第一页）。 */
-function FilterControl({
- field,
- query,
- relationOptions,
- onChange,
- optionsError,
- onRetryOptions,
-}: {
- field: FieldMeta;
- query: QueryState;
- relationOptions: Record<string, Record<string, string>>;
- onChange: (next: QueryState) => void;
- optionsError?: boolean;
- onRetryOptions?: () => void;
-}) {
- const options = optionList(field, relationOptions);
- const inputId = `filter-${field.key}`;
+  const chips = query.filters.flatMap((cond) => {
+    const field = fieldMap.get(cond.field);
+    if (!field || !cond.values.length) return [];
+    return [{ cond, label: condText(field, cond, relationLabel) }];
+  });
 
- const commit = (op: ActiveFilter['op'], values: string[]) => {
- const rest = query.filters.filter((f) => f.field !== field.key);
- const next: ActiveFilter[] = values.length ? [...rest, { field: field.key, op, values }] : rest;
- onChange(patchQuery(query, { filters: next }));
- };
+  const dirty = query.q !== '' || query.filters.length > 0;
 
- // 草稿必须无条件建好：下面按 filterType 早返回，hooks 不能放进分支里。
- const current = mergedValues(query, field.key).join('、');
- const text = useQueryDraft(current);
- const gte = valuesOf(query, field.key, 'gte')[0] ?? '';
- const lte = valuesOf(query, field.key, 'lte')[0] ?? '';
- const gteDraft = useQueryDraft(gte);
- const lteDraft = useQueryDraft(lte);
+  return (
+    <div>
+      <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+        <div className="relative w-full sm:w-72">
+          <Search
+            className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted"
+            aria-hidden
+          />
+          <input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="搜索关键字"
+            aria-label="搜索关键字"
+            className="h-9 w-full rounded-md border border-line bg-surface pr-8 pl-8 text-sm text-fg placeholder:text-muted focus:border-primary"
+          />
+          {search ? (
+            <button
+              type="button"
+              aria-label="清空搜索"
+              onClick={() => {
+                setSearch('');
+                onChange({ ...query, q: '', page: 1 });
+              }}
+              className="absolute top-1/2 right-2 -translate-y-1/2 rounded p-0.5 text-muted hover:text-fg"
+            >
+              <X className="size-3.5" aria-hidden />
+            </button>
+          ) : null}
+        </div>
 
- const commitText = (raw: string) => {
- const value = raw.trim();
- // 空值不产生条件；和 URL 一致就不写历史（清除全部后失焦不能把旧值写回来）。
- if (value === current) return;
- text.noteWritten(value);
- commit(field.operators[0] ?? 'contains', value ? [value] : []);
- };
- const textCommit = useDebouncedCommit(commitText);
+        {shown.map((field) => {
+          const count = query.filters.filter((cond) => cond.field === field.key).length;
+          return (
+            <Popover.Root
+              key={field.key}
+              open={openField === field.key}
+              onOpenChange={(open) => setOpenField(open ? field.key : null)}
+            >
+              <Popover.Trigger asChild>
+                <button
+                  type="button"
+                  className={cn(
+                    'inline-flex h-9 items-center gap-1 rounded-md border px-2.5 text-sm',
+                    count
+                      ? 'border-primary bg-primary-soft text-primary'
+                      : 'border-line text-fg hover:bg-surface-2',
+                  )}
+                >
+                  {field.label}
+                  {count ? <span className="tabular text-xs">({count})</span> : null}
+                  <ChevronDown className="size-3.5 text-muted" aria-hidden />
+                </button>
+              </Popover.Trigger>
+              <Popover.Portal>
+                <Popover.Content
+                  align="start"
+                  sideOffset={6}
+                  className="z-50 w-72 rounded-lg border border-line bg-surface p-3 shadow-panel"
+                >
+                  <p className="mb-2 text-xs font-medium text-muted">{field.label}</p>
+                  <FilterControl
+                    field={field}
+                    query={query}
+                    onChange={onChange}
+                    onClose={() => setOpenField(null)}
+                  />
+                </Popover.Content>
+              </Popover.Portal>
+            </Popover.Root>
+          );
+        })}
 
- const commitRange = (nextGte: string, nextLte: string) => {
- // 非法范围（min>max / 起>止）不发请求：保留用户输入，只在控件下给提示。
- if (rangeProblem(field.filterType, nextGte, nextLte)) return;
- if (nextGte === gte && nextLte === lte) return;
- gteDraft.noteWritten(nextGte);
- lteDraft.noteWritten(nextLte);
- const rest = query.filters.filter((f) => f.field !== field.key);
- const next: ActiveFilter[] = [...rest];
- if (nextGte) next.push({ field: field.key, op: 'gte', values: [nextGte] });
- if (nextLte) next.push({ field: field.key, op: 'lte', values: [nextLte] });
- onChange(patchQuery(query, { filters: next }));
- };
+        {hiddenCount > 0 ? (
+          <button
+            type="button"
+            onClick={() => setShowAll((value) => !value)}
+            className="inline-flex h-9 items-center gap-1 rounded-md px-2 text-sm text-muted hover:text-fg"
+          >
+            {showAll ? '收起筛选' : `更多筛选 (${hiddenCount})`}
+          </button>
+        ) : null}
 
- const optionErrorHint =
- optionsError && options.length === 0 ? (
- <p className="m-0 text-sm text-negative-text">
- 选项加载失败，已选条件仍生效。
- <Button type="button" variant="ghost" size="3" className="h-10" onClick={onRetryOptions}>
- 重试
- </Button>
- </p>
- ) : null;
+        {dirty ? (
+          <button
+            type="button"
+            onClick={() => {
+              setSearch('');
+              onChange({ ...query, q: '', filters: [], page: 1 });
+            }}
+            className="ml-auto inline-flex h-9 items-center rounded-md px-2 text-sm text-muted hover:text-fg"
+          >
+            重置
+          </button>
+        ) : null}
+      </div>
 
- if (field.filterType === 'boolean') {
- // 布尔是两值单选，原生 select 最省事（不需要搜索），保持既有实现与既有用例。
- const selected = valuesOf(query, field.key, field.operators[0] ?? '');
- return (
- <div className="field">
- <label htmlFor={inputId}>{field.label}</label>
- {/* 空选项「全部」用哨兵承载：Radix 的 Select.Item 不接受 value=""（见 lib/radixSelect.ts）。 */}
- <Select.Root
- size="3"
- value={toSelectValue(selected[0])}
- onValueChange={(value) => {
- const next = fromSelectValue(value);
- commit(field.operators[0] ?? 'eq', next ? [next] : []);
- }}
- >
- <Select.Trigger id={inputId} placeholder="全部" aria-label={field.label} />
- <Select.Content position="popper" sideOffset={4}>
- <Select.Item value={EMPTY_SELECT_VALUE}>全部</Select.Item>
- {options.map((option) => (
- <Select.Item key={option.value} value={option.value}>
- {option.label}
- </Select.Item>
- ))}
- </Select.Content>
- </Select.Root>
- {optionErrorHint}
- </div>
- );
- }
-
- if (
- field.filterType === 'multiSelect' ||
- field.filterType === 'relation' ||
- field.filterType === 'remoteSelect'
- ) {
- // 多选/关联：可搜索组合框（§5.1/§14.1），替掉原生 <select multiple>。
- return (
- <div className="field">
- <label htmlFor={inputId}>{field.label}</label>
- <FilterMultiSelect
- id={inputId}
- label={field.label}
- options={options}
- selected={mergedValues(query, field.key)}
- onChange={(values) => commit(field.operators[0] ?? 'in', values)}
- />
- {optionErrorHint}
- </div>
- );
- }
-
- if (field.filterType === 'numberRange' || field.filterType === 'dateRange') {
- const isNumber = field.filterType === 'numberRange';
- const problem = rangeProblem(field.filterType, gteDraft.draft, lteDraft.draft);
- const errorId = `${inputId}-error`;
- return (
- <div className={problem ? 'field field-error' : 'field'}>
- <label htmlFor={`${inputId}-gte`}>
- {/* 日期是纯日期区间，后端按 +08:00 cast timestamptz，时区必须写清楚（table-query §4）。 */}
- {field.label}（范围{isNumber ? '' : '，+08:00'}）
- </label>
- {/* 范围组只做横排容器：每个 TextField.Root 自带 40px 高度与 1px 内描边，
- 容器不再加边框/内边距，否则同行 label 与输入框会底边错位。 */}
- <div className="flex flex-wrap items-center gap-2">
- <TextField.Root
- id={`${inputId}-gte`}
- size="3"
- className="option-group-field"
- style={problem ? { boxShadow: 'inset 0 0 0 1px var(--color-negative-text)' } : undefined}
- type={isNumber ? 'number' : 'date'}
- placeholder={isNumber ? '最小值' : undefined}
- aria-label={`${field.label} 下限`}
- aria-invalid={Boolean(problem)}
- aria-describedby={problem ? errorId : undefined}
- value={gteDraft.draft}
- onChange={(event) => gteDraft.setDraft(event.target.value)}
- onKeyDown={(event) => {
- if (event.key === 'Enter') commitRange(event.currentTarget.value, lteDraft.draft);
- }}
- onBlur={(event) => commitRange(event.currentTarget.value, lteDraft.draft)}
- />
- <span aria-hidden="true">–</span>
- <TextField.Root
- size="3"
- className="option-group-field"
- style={problem ? { boxShadow: 'inset 0 0 0 1px var(--color-negative-text)' } : undefined}
- type={isNumber ? 'number' : 'date'}
- placeholder={isNumber ? '最大值' : undefined}
- aria-label={`${field.label} 上限`}
- aria-invalid={Boolean(problem)}
- aria-describedby={problem ? errorId : undefined}
- value={lteDraft.draft}
- onChange={(event) => lteDraft.setDraft(event.target.value)}
- onKeyDown={(event) => {
- if (event.key === 'Enter') commitRange(gteDraft.draft, event.currentTarget.value);
- }}
- onBlur={(event) => commitRange(gteDraft.draft, event.currentTarget.value)}
- />
- </div>
- {problem && (
- <p
- id={errorId}
- className="m-0 rounded-sm border border-negative-text bg-negative-bg px-3 py-2 text-negative-text"
- role="alert"
- >
- {problem}
- </p>
- )}
- </div>
- );
- }
-
- return (
- <div className="field">
- <label htmlFor={inputId}>{field.label}</label>
- <TextField.Root
- id={inputId}
- size="3"
- type="search"
- value={text.draft}
- placeholder={`按${field.label}筛选`}
- onChange={(event) => {
- text.setDraft(event.target.value);
- textCommit.schedule(event.target.value);
- }}
- onKeyDown={(event) => {
- if (event.key !== 'Enter') return;
- textCommit.flush(event.currentTarget.value);
- }}
- onBlur={(event) => textCommit.flush(event.currentTarget.value)}
- />
- </div>
- );
-}
-
-/** 已生效条件必须始终以标签外显：可单删、可全清（table-query §5）。 */
-export function ActiveFilterChips({ entity, query, relationOptions, onChange }: Props) {
- const chips = query.filters
- .map((filter) => {
- const field = entity.fields.find((f) => f.key === filter.field);
- if (!field) return null;
- const op = filter.op || field.operators[0] || '';
- return {
- key: `${filter.field}:${filter.op}`,
- label: field.label,
- opLabel: operatorLabel(field, op),
- value: formatFilterValue(field, filter.values, relationOptions[filter.field]),
- field: filter.field,
- op: filter.op,
- };
- })
- .filter((chip): chip is NonNullable<typeof chip> => chip !== null);
-
- if (chips.length === 0 && !query.q) return null;
-
- return (
- <ul className="m-0 mb-3 flex list-none flex-wrap items-center gap-2 py-2" aria-label="已生效筛选条件">
- <li className="text-sm text-muted" aria-hidden="true">
- 筛选：
- </li>
- {query.q && (
- <li className="inline-flex max-w-80 items-center gap-1 rounded-sm border border-border bg-surface px-2 py-1 text-sm">
- <span className="text-sm text-muted">关键词</span>
- <span className="overflow-hidden text-ellipsis whitespace-nowrap" title={query.q}>
- {query.q}
- </span>
- <button
- type="button"
- className="min-h-6 cursor-pointer border-0 bg-transparent px-1 leading-none text-muted hover:text-negative-text"
- aria-label={`移除关键词筛选 ${query.q}`}
- onClick={() => onChange(patchQuery(query, { q: '' }))}
- >
- ✕
- </button>
- </li>
- )}
- {chips.map((chip) => (
- <li key={chip.key} className="inline-flex max-w-80 items-center gap-1 rounded-sm border border-border bg-surface px-2 py-1 text-sm">
- <span className="text-sm text-muted">{chip.label}</span>
- <span className="text-sm text-muted">{chip.opLabel}</span>
- <span className="overflow-hidden text-ellipsis whitespace-nowrap" title={chip.value}>
- {chip.value}
- </span>
- <button
- type="button"
- className="min-h-6 cursor-pointer border-0 bg-transparent px-1 leading-none text-muted hover:text-negative-text"
- aria-label={`移除筛选 ${chip.label} ${chip.opLabel} ${chip.value}`}
- onClick={() => onChange(removeFilterAt(query, chip.field, chip.op))}
- >
- ✕
- </button>
- </li>
- ))}
- <li>
- <Button
-   type="button"
-   variant="ghost"
-   size="3"
-   className="h-10"
-   onClick={() => onChange(clearFilters(query))}
- >
- 清除全部筛选
- </Button>
- </li>
- </ul>
- );
-}
-
-export function FilterBar({
- entity,
- query,
- relationOptions,
- onChange,
- optionsError,
- onRetryOptions,
-}: Props) {
- const quick = useMemo(() => quickFilters(entity), [entity]);
- const advanced = useMemo(() => advancedFilters(entity), [entity]);
- const [keyword, setKeyword] = useState(query.q);
- const [dialogOpen, setDialogOpen] = useState(false);
-
- useEffect(() => {
- setKeyword(query.q);
- }, [query.q]);
-
- const commitKeyword = (value: string) => {
- if (value === query.q) return;
- // 关键词是连续输入，写历史会把返回键刷满；用 replace 只保留最新一次。
- onChange(patchQuery(query, { q: value }), true);
- };
- // 与字段级文本筛选同一实现：输入 300ms 后写 URL，回车立即提交。
- const keywordCommit = useDebouncedCommit(commitKeyword);
-
- const narrow = useIsNarrow();
- const [panelOpen, setPanelOpen] = useState(false);
- const activeCount = activeConditionCount(query);
-
- const keywordField = (
- <div className="field filter-span-2">
- <label htmlFor="filter-keyword">关键词</label>
- <TextField.Root
- id="filter-keyword"
- size="3"
- type="search"
- value={keyword}
- placeholder="在可搜索的文本列中匹配"
- onChange={(event) => {
- const value = event.target.value;
- setKeyword(value);
- keywordCommit.schedule(value.trim());
- }}
- onKeyDown={(event) => {
- if (event.key !== 'Enter') return;
- keywordCommit.flush(event.currentTarget.value.trim());
- }}
- />
- </div>
- );
-
- const renderControl = (field: FieldMeta) => (
- <FilterControl
- key={field.key}
- field={field}
- query={query}
- relationOptions={relationOptions}
- onChange={onChange}
- optionsError={optionsError}
- onRetryOptions={onRetryOptions}
- />
- );
-
- const chips = (
- <ActiveFilterChips
- entity={entity}
- query={query}
- relationOptions={relationOptions}
- onChange={onChange}
- />
- );
-
- if (narrow) {
- // <1024px：筛选控件收进抽屉，页面上只留「筛选（N）」；已生效标签仍常驻页面外显（§14.1/§11.2）。
- return (
- <>
- <div className="mb-3 flex items-end gap-3">
- <Button
- type="button"
- variant="surface"
- size="3"
- aria-expanded={panelOpen}
- aria-controls="filter-panel"
- onClick={() => setPanelOpen(true)}
- >
- 筛选（{activeCount}）
- </Button>
- </div>
- {chips}
- <Drawer
- open={panelOpen}
- title="筛选"
- description="修改即生效，完成后收起面板"
- onClose={() => setPanelOpen(false)}
- footer={
- <Button type="button" variant="solid" size="3" onClick={() => setPanelOpen(false)}>
- 完成
- </Button>
- }
- >
- <div id="filter-panel" className="flex flex-col gap-3">
- {keywordField}
- {quick.map(renderControl)}
- {advanced.length > 0 && (
- <>
- <p className="m-0 text-nav uppercase tracking-nav text-faint">更多筛选</p>
- {advanced.map(renderControl)}
- </>
- )}
- </div>
- </Drawer>
- </>
- );
- }
-
- return (
- <>
- <div className="mb-3 flex items-end gap-3">
- <div className="filter-grid flex-1">
- {keywordField}
- {quick.map(renderControl)}
- </div>
- {advanced.length > 0 && (
- <Button
- type="button"
- variant="surface"
- size="3"
- className="mb-0.5 shrink-0"
- onClick={() => setDialogOpen(true)}
- >
- 更多筛选
- </Button>
- )}
- </div>
-
- {chips}
-
- <Dialog.Root open={dialogOpen} onOpenChange={setDialogOpen}>
- <Dialog.Portal>
- <Dialog.Overlay className="fixed inset-0 z-40 bg-overlay" />
- <Dialog.Content
- className="confirm-panel fixed left-1/2 top-1/2 z-40 flex -translate-x-1/2 -translate-y-1/2 flex-col gap-3 rounded-md bg-surface p-5"
- aria-describedby={undefined}
- >
- <Dialog.Title className="m-0 text-lg">更多筛选</Dialog.Title>
- <div className="grid grid-cols-2 gap-4">{advanced.map(renderControl)}</div>
- <div className="mt-2 flex items-center justify-between gap-2">
- <span className="text-sm text-muted">修改即生效</span>
- <div className="flex gap-2">
- {/* 取消只关闭浮层：条件修改即生效，取消不撤销（§5.4，用例锁定这条）。 */}
- <Button type="button" variant="surface" size="3" onClick={() => setDialogOpen(false)}>
- 取消
- </Button>
- <Button
- type="button"
- variant="solid"
- size="3"
- onClick={() => setDialogOpen(false)}
- >
- 完成
- </Button>
- </div>
- </div>
- </Dialog.Content>
- </Dialog.Portal>
- </Dialog.Root>
- </>
- );
+      {chips.length ? (
+        <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-2">
+          <span className="text-xs text-muted">已选条件</span>
+          {chips.map(({ cond, label }) => (
+            <span key={`${cond.field}-${cond.op ?? ''}-${cond.values.join('|')}`} className={chipClass}>
+              {label}
+              <button
+                type="button"
+                aria-label={`移除 ${label}`}
+                onClick={() => onChange(withoutCond(query, cond))}
+                className="rounded p-0.5 text-muted hover:text-fg"
+              >
+                <X className="size-3" aria-hidden />
+              </button>
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
 }
