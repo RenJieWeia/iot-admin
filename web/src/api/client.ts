@@ -101,6 +101,53 @@ export async function fetchList(
   };
 }
 
+export interface SnapshotQueryColumn {
+  key: string;
+  label: string;
+  unit?: string;
+}
+
+export interface SnapshotQueryCell {
+  num?: number;
+  text?: string;
+  unit?: string;
+  time?: string;
+  quality?: number;
+}
+
+export interface SnapshotQueryRow {
+  terminalId: string;
+  terminalName: string;
+  typeId: number;
+  values: Record<string, SnapshotQueryCell>;
+}
+
+export interface SnapshotQueryPayload {
+  template: { id: number; name: string; description: string };
+  granularity: string;
+  from: string;
+  to: string;
+  columns: SnapshotQueryColumn[];
+  rows: SnapshotQueryRow[];
+}
+
+/** 快照查询：模板 + 档位 + 时间范围 → 终端 × 字段的透视结果。 */
+export async function runSnapshotQuery(params: {
+  template: number;
+  granularity: 'hour' | 'day' | 'month' | 'year';
+  from: string;
+  to: string;
+}): Promise<SnapshotQueryPayload> {
+  const search = new URLSearchParams({
+    template: String(params.template),
+    granularity: params.granularity,
+    from: params.from,
+    to: params.to,
+  });
+  const payload = await request<SnapshotQueryPayload>(`/snapshot-query?${search.toString()}`);
+  return payload.data as SnapshotQueryPayload;
+}
+
 export async function fetchOne(
   entity: string,
   id: string,

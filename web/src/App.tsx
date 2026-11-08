@@ -7,6 +7,9 @@ import { ListPage } from './pages/ListPage';
 import { SnapshotPlanPage } from './pages/SnapshotPlanPage';
 import { DeviceTypeDetailPage } from './pages/DeviceTypeDetailPage';
 import { TerminalDetailPage } from './pages/TerminalDetailPage';
+import { SnapshotQueryListPage } from './pages/SnapshotQueryListPage';
+import { SnapshotQueryEditPage } from './pages/SnapshotQueryEditPage';
+import { SnapshotQueryResultPage } from './pages/SnapshotQueryResultPage';
 
 /** 路由参数绑到 ListPage 的 props（路由声明仍是 /e/:name、/r/:slot、/x/:slot）。 */
 function ListRoute({ kind, param }: { kind: ListKind; param: 'name' | 'slot' }) {
@@ -36,6 +39,11 @@ export default function App() {
         />
         {/* 快照计划是固定六档的配置页，不进通用列表（分组 + 开关 + 固定操作列）。 */}
         <Route path="e/snapshot-slots" element={<SnapshotPlanPage />} />
+        {/* 快照查询：模板卡片 → 编辑 → 结果（取代旧的粗表只读页） */}
+        <Route path="e/snapshot-queries" element={<SnapshotQueryListPage />} />
+        <Route path="e/snapshot-queries/new" element={<SnapshotQueryEditPage />} />
+        <Route path="e/snapshot-queries/:id/edit" element={<SnapshotQueryEditPage />} />
+        <Route path="e/snapshot-queries/:id/query" element={<SnapshotQueryResultPage />} />
         {/* 终端类型详情：字段绑定 + 终端实例 */}
         <Route path="e/device-types/:id" element={<DeviceTypeDetailPage />} />
         {/* 终端详情：基础信息 + 类型字段 + 最新值 */}
