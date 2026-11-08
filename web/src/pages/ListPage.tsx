@@ -65,14 +65,10 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
   const cardEnabled = kind === 'entity' && CARD_ENTITIES.has(name);
   // 视图与密度都按实体记在浏览器里；切实体时重新读取自己的偏好。
   const [viewMode, setViewMode] = useState<ViewMode>(() => (cardEnabled ? readViewMode(name) : 'table'));
-  const [density, setDensity] = useState<CardDensity>(() => (cardEnabled ? readDensity(name) : 'comfortable'));
+  const [density, setDensity] = useState<CardDensity>(() => readDensity(name));
 
   useEffect(() => {
-    if (!cardEnabled) {
-      setViewMode('table');
-      return;
-    }
-    setViewMode(readViewMode(name));
+    setViewMode(cardEnabled ? readViewMode(name) : 'table');
     setDensity(readDensity(name));
   }, [name, cardEnabled]);
 
@@ -206,8 +202,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
               </button>
             </div>
           ) : null}
-          {cardEnabled && viewMode === 'card' ? (
-            <div className="inline-flex h-9 items-center rounded-md border border-line p-0.5" role="group" aria-label="卡片密度">
+          <div className="inline-flex h-9 items-center rounded-md border border-line p-0.5" role="group" aria-label="列表密度">
               <button
                 type="button"
                 aria-pressed={density === 'comfortable'}
@@ -234,8 +229,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
                 <Grid3x3 className="size-4" aria-hidden />
                 紧凑
               </button>
-            </div>
-          ) : null}
+          </div>
           <button
             type="button"
             onClick={list.reload}
@@ -284,6 +278,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
             sort={query.sort}
             order={query.order}
             disableSort={cursorMode}
+            density={density}
             onSortChange={handleSort}
             onRowClick={openRow}
             renderActions={rowActions}

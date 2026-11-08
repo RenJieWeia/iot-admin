@@ -1,6 +1,7 @@
 import { ChevronDown, ChevronUp, ChevronsUpDown } from 'lucide-react';
 import type { ReactNode } from 'react';
 import type { FieldMeta, RowData } from '../api/types';
+import type { CardDensity } from '../lib/viewPrefs';
 import { cn } from '../lib/cn';
 import { FieldValue } from './FieldValue';
 import { EmptyState, ErrorState, Skeleton } from './States';
@@ -21,6 +22,8 @@ interface DataTableProps {
   onReset?: () => void;
   /** 行内操作（如网关启停开关）；提供时在最后一列渲染固定操作栏。 */
   renderActions?: (row: RowData) => ReactNode;
+  /** 行密度：紧凑减少上下内边距，一屏看更多行。 */
+  density?: CardDensity;
 }
 
 /** 列宽从 field.width 取：fixed/min 走像素，flex 吃剩余宽度；超宽横向滚动不压缩。 */
@@ -38,6 +41,7 @@ export function DataTable({
   onRetry,
   onReset,
   renderActions,
+  density = 'comfortable',
 }: DataTableProps) {
   const fixedWidth = fields.reduce(
     (sum, field) => sum + (field.widthStrategy === 'flex' ? 0 : (field.width ?? 120)),
@@ -45,6 +49,7 @@ export function DataTable({
   );
   const flexCount = fields.filter((field) => field.widthStrategy === 'flex').length;
   const minWidth = fixedWidth + flexCount * 180;
+  const cellPad = density === 'compact' ? 'px-3 py-1.5' : 'px-3 py-2.5';
   const showSkeleton = loading && rows.length === 0;
   const colSpan = Math.max(fields.length, 1);
 
@@ -74,7 +79,7 @@ export function DataTable({
                   key={field.key}
                   scope="col"
                   aria-sort={active ? (order === 'asc' ? 'ascending' : 'descending') : 'none'}
-                  className="border-b border-line px-3 py-2.5 text-left font-medium"
+                  className={cn('border-b border-line text-left font-medium', cellPad)}
                 >
                   {sortable ? (
                     <button
@@ -110,7 +115,7 @@ export function DataTable({
             {renderActions ? (
               <th
                 scope="col"
-                className="sticky right-0 z-10 border-b border-l border-line bg-surface-2 px-3 py-2.5 text-right font-medium"
+                className={cn('sticky right-0 z-10 border-b border-l border-line bg-surface-2 text-right font-medium', cellPad)}
               >
                 操作
               </th>
@@ -122,7 +127,7 @@ export function DataTable({
             ? Array.from({ length: skeletonRows }, (_, rowIndex) => (
                 <tr key={`skeleton-${rowIndex}`} className="border-b border-line last:border-b-0">
                   {fields.map((field, cellIndex) => (
-                    <td key={field.key} className="px-3 py-2.5">
+                    <td key={field.key} className={cellPad}>
                       <Skeleton
                         className={cn('h-4', cellIndex === 0 ? 'w-3/5' : 'w-4/5')}
                       />
@@ -183,7 +188,7 @@ export function DataTable({
                     const title =
                       typeof raw === 'string' || typeof raw === 'number' ? String(raw) : undefined;
                     return (
-                      <td key={field.key} className="px-3 py-2.5 align-middle">
+                      <td key={field.key} className={cn(cellPad, 'align-middle')}>
                         <div className="truncate" title={title}>
                           <FieldValue field={field} value={raw} />
                         </div>
@@ -192,7 +197,7 @@ export function DataTable({
                   })}
                   {renderActions ? (
                     <td
-                      className="sticky right-0 z-10 border-l border-line bg-surface px-3 py-2.5 align-middle"
+                      className={cn('sticky right-0 z-10 border-l border-line bg-surface align-middle', cellPad)}
                       onClick={(event) => event.stopPropagation()}
                     >
                       <div className="flex justify-end">{renderActions(row)}</div>
