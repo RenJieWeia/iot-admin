@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Grid2x2, Grid3x3, LayoutGrid, Plus, RotateCw, Table2 } from 'lucide-react';
+import { Check, Plus, RotateCw } from 'lucide-react';
+import * as ContextMenu from '@radix-ui/react-context-menu';
 import type { ListKind } from '../api/client';
 import type { MetaPayload, PageMeta, ReadonlyMeta, RowData } from '../api/types';
 import { cn } from '../lib/cn';
@@ -172,64 +173,6 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
           ) : null}
         </div>
         <div className="flex items-center gap-2">
-          {cardEnabled ? (
-            <div className="inline-flex h-9 items-center rounded-md border border-line p-0.5" role="group" aria-label="视图切换">
-              <button
-                type="button"
-                aria-pressed={viewMode === 'table'}
-                title="表格视图"
-                onClick={() => changeView('table')}
-                className={cn(
-                  'inline-flex h-8 items-center gap-1 rounded px-2 text-xs',
-                  viewMode === 'table' ? 'bg-primary-soft text-primary' : 'text-muted hover:text-fg',
-                )}
-              >
-                <Table2 className="size-4" aria-hidden />
-                表格
-              </button>
-              <button
-                type="button"
-                aria-pressed={viewMode === 'card'}
-                title="卡片视图"
-                onClick={() => changeView('card')}
-                className={cn(
-                  'inline-flex h-8 items-center gap-1 rounded px-2 text-xs',
-                  viewMode === 'card' ? 'bg-primary-soft text-primary' : 'text-muted hover:text-fg',
-                )}
-              >
-                <LayoutGrid className="size-4" aria-hidden />
-                卡片
-              </button>
-            </div>
-          ) : null}
-          <div className="inline-flex h-9 items-center rounded-md border border-line p-0.5" role="group" aria-label="列表密度">
-              <button
-                type="button"
-                aria-pressed={density === 'comfortable'}
-                title="适中"
-                onClick={() => changeDensity('comfortable')}
-                className={cn(
-                  'inline-flex h-8 items-center rounded px-2 text-xs',
-                  density === 'comfortable' ? 'bg-primary-soft text-primary' : 'text-muted hover:text-fg',
-                )}
-              >
-                <Grid2x2 className="size-4" aria-hidden />
-                适中
-              </button>
-              <button
-                type="button"
-                aria-pressed={density === 'compact'}
-                title="紧凑"
-                onClick={() => changeDensity('compact')}
-                className={cn(
-                  'inline-flex h-8 items-center rounded px-2 text-xs',
-                  density === 'compact' ? 'bg-primary-soft text-primary' : 'text-muted hover:text-fg',
-                )}
-              >
-                <Grid3x3 className="size-4" aria-hidden />
-                紧凑
-              </button>
-          </div>
           <button
             type="button"
             onClick={list.reload}
@@ -256,7 +199,10 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
           视口较高时基本吃满顶栏以下的剩余空间。 */}
       <div className="mt-4 flex min-h-[max(420px,calc(100vh-15rem))] flex-col overflow-hidden rounded-xl border border-line bg-surface shadow-panel">
         <FilterBar fields={page.fields} query={query} onChange={setQuery} />
-        <div className="flex-1">
+        {/* 样式选项只在表格/卡片区域右击出现；筛选栏与分页条保持浏览器默认菜单。 */}
+        <ContextMenu.Root>
+          <ContextMenu.Trigger asChild>
+            <div className="flex-1">
         {cardEnabled && viewMode === 'card' ? (
           <CardGrid
             fields={visibleFields}
@@ -286,7 +232,53 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
             onReset={resetQuery}
           />
         )}
-        </div>
+            </div>
+          </ContextMenu.Trigger>
+          <ContextMenu.Portal>
+            <ContextMenu.Content className="z-50 min-w-44 rounded-lg border border-line bg-surface p-1 shadow-panel">
+              <ContextMenu.Label className="px-2 py-1.5 text-xs text-muted">表格样式</ContextMenu.Label>
+              {cardEnabled ? (
+                <>
+                  <ContextMenu.Label className="px-2 pt-1 pb-0.5 text-xs text-muted">视图</ContextMenu.Label>
+                  <ContextMenu.RadioGroup value={viewMode} onValueChange={(value) => changeView(value as ViewMode)}>
+                    <ContextMenu.RadioItem
+                      value="table"
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-surface-2"
+                    >
+                      <ContextMenu.ItemIndicator><Check className="size-3.5" aria-hidden /></ContextMenu.ItemIndicator>
+                      表格
+                    </ContextMenu.RadioItem>
+                    <ContextMenu.RadioItem
+                      value="card"
+                      className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-surface-2"
+                    >
+                      <ContextMenu.ItemIndicator><Check className="size-3.5" aria-hidden /></ContextMenu.ItemIndicator>
+                      卡片
+                    </ContextMenu.RadioItem>
+                  </ContextMenu.RadioGroup>
+                  <ContextMenu.Separator className="my-1 h-px bg-line" />
+                </>
+              ) : null}
+              <ContextMenu.Label className="px-2 pt-1 pb-0.5 text-xs text-muted">密度</ContextMenu.Label>
+              <ContextMenu.RadioGroup value={density} onValueChange={(value) => changeDensity(value as CardDensity)}>
+                <ContextMenu.RadioItem
+                  value="comfortable"
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-surface-2"
+                >
+                  <ContextMenu.ItemIndicator><Check className="size-3.5" aria-hidden /></ContextMenu.ItemIndicator>
+                  适中
+                </ContextMenu.RadioItem>
+                <ContextMenu.RadioItem
+                  value="compact"
+                  className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 text-sm outline-none data-[highlighted]:bg-surface-2"
+                >
+                  <ContextMenu.ItemIndicator><Check className="size-3.5" aria-hidden /></ContextMenu.ItemIndicator>
+                  紧凑
+                </ContextMenu.RadioItem>
+              </ContextMenu.RadioGroup>
+            </ContextMenu.Content>
+          </ContextMenu.Portal>
+        </ContextMenu.Root>
         {cursorMode ? (
           <CursorPager
             hasMore={list.cursor?.hasMore ?? false}
