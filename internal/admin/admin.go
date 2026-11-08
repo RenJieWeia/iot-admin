@@ -27,6 +27,9 @@ type Entity struct {
 	Table string   // 表名
 	Cols  []string // 可写列白名单
 	JSONB []string // 需要 ::jsonb 转换的列
+	// ReadCols 是"只读但可筛选/排序"的列（如 terminal.online、gateway.created_at）：
+	// 不进写白名单，但筛选构造需要承认它们是真实列。
+	ReadCols []string
 	// Hidden 表示「可 CRUD 但不可导航」：实体仍留在 Entities 里（路由与写白名单一字不变），
 	// 只是 _meta.entities 不再下发它，改由 _meta.subresources 下发同一份字段元数据，
 	// 供详情页取列定义/筛选能力/必填（§1.1）。
@@ -352,10 +355,12 @@ var Entities = []Entity{
 		}},
 	{Name: "thing-model-properties", Hidden: true, Table: "thing_model_property", Cols: []string{
 		"type_id", "item_code", "name", "value_type", "unit", "precision", "required", "min_value", "max_value"}},
-	{Name: "terminals", Table: "terminal", Cols: []string{"id", "type_id", "gateway_id", "name", "enabled"}},
+	{Name: "terminals", Table: "terminal", Cols: []string{"id", "type_id", "gateway_id", "name", "enabled"},
+		ReadCols: []string{"online", "last_seen_at"}},
 	// 边缘网关注册表：接入面按 gateway_id 鉴权（未注册/停用直接 403），主键不是 id。
 	{Name: "gateways", Table: "gateway", PKey: "gateway_id",
-		Cols: []string{"gateway_id", "name", "enabled", "remark"}},
+		Cols: []string{"gateway_id", "name", "enabled", "remark"},
+		ReadCols: []string{"created_at"}},
 	{Name: "quality-rules", Table: "quality_rule", Cols: []string{
 		"terminal_id", "item_code", "rule_type", "params", "enabled"}, JSONB: []string{"params"}},
 	// 全局六档配置：六行固定（granularity 主键），只允许改 enabled / step。

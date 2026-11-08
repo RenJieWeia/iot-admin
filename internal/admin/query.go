@@ -310,6 +310,11 @@ func hasColumn(e Entity, col string) bool {
 			return true
 		}
 	}
+	for _, c := range e.ReadCols {
+		if c == col {
+			return true
+		}
+	}
 	return false
 }
 

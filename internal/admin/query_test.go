@@ -309,3 +309,15 @@ func TestListRowsWithDB(t *testing.T) {
 		t.Fatalf("超范围页 total=%d rows=%d，期望 3/0", res.Meta.Total, len(res.Data))
 	}
 }
+
+// 只读列（terminal.online、gateway.created_at）可筛选：它们不在写白名单里，但确实是表列。
+func TestFilterOnReadOnlyColumns(t *testing.T) {
+	term := mustEntity(t, "terminals")
+	if _, _, err := BuildListQuery(term, QueryState{Filters: []Filter{{Field: "online", Op: "eq", Value: "true"}}}); err != nil {
+		t.Fatalf("按在线状态筛选应通过: %v", err)
+	}
+	gw := mustEntity(t, "gateways")
+	if _, _, err := BuildListQuery(gw, QueryState{Filters: []Filter{{Field: "created_at", Op: "gte", Value: "2026-01-01"}}}); err != nil {
+		t.Fatalf("按注册时间筛选应通过: %v", err)
+	}
+}
