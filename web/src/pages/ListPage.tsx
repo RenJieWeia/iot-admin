@@ -24,7 +24,7 @@ import { CardGrid } from '../components/CardGrid';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { BatchResultDialog } from '../components/BatchResultDialog';
 import { RowMenu } from '../components/RowMenu';
-import type { RowMenuItem } from '../components/RowMenu';
+import type { RowMenuEntry, RowMenuItem } from '../components/RowMenu';
 import { useToast } from '../components/Toast';
 import { readDensity, readViewMode, writeDensity, writeViewMode } from '../lib/viewPrefs';
 import type { CardDensity, ViewMode } from '../lib/viewPrefs';
@@ -310,9 +310,9 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
     toggleSelect(row);
   };
 
-  const buildRowMenu = (row: RowData, batch: boolean): RowMenuItem[] => {
+  const buildRowMenu = (row: RowData, batch: boolean): RowMenuEntry[] => {
     if (kind !== 'entity' || !page || name.startsWith('snapshot')) return [];
-    const items: RowMenuItem[] = [];
+    const items: RowMenuEntry[] = [];
     const rowID = rowKey(row);
 
     // 选中多行时右键给批量菜单；只选中一行时仍给单行菜单。
@@ -356,23 +356,27 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
       'data-domains': ['code', 'name'],
       'quality-rules': ['terminal_id', 'item_code', 'rule_type'],
     };
+    const filterChildren: RowMenuItem[] = [];
     for (const key of filterKeys[name] ?? []) {
       const field = page.fields.find((candidate) => candidate.key === key);
       if (!field || isBlank(row[key])) continue;
-      items.push({
+      filterChildren.push({
         key: `filter-${key}`,
-        section: '按当前值筛选',
         label: `${field.label}：${displayValue(field, row[key])}`,
         onSelect: () => appendFilter(field, row[key]),
       });
     }
+    if (filterChildren.length) {
+      items.push({ key: 'filter', section: '筛选', label: '按当前值筛选', children: filterChildren });
+    }
 
     // ③ 跳转
-    const jump = (key: string, label: string, to: string) => items.push({ key, section: '跳转', label, onSelect: () => navigate(to) });
+    const jumpChildren: RowMenuItem[] = [];
+    const jump = (key: string, label: string, to: string) =>
+      jumpChildren.push({ key, label, onSelect: () => navigate(to) });
     const jumpWithFilter = (key: string, label: string, path: string, filter: FilterCond) =>
-      items.push({
+      jumpChildren.push({
         key,
-        section: '跳转',
         label,
         onSelect: () => navigate(path, { state: { filters: [filter] } }),
       });
@@ -417,6 +421,10 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
         if (!isBlank(row.terminal_id)) jump('terminal', '查看终端详情', `/e/terminals/${String(row.terminal_id)}`);
         break;
       }
+    }
+
+    if (jumpChildren.length) {
+      items.push({ key: 'jump', section: '跳转', label: '快速跳转', children: jumpChildren });
     }
 
     // ④ 删除（终端的删除是软删除：标记 + 隐藏，保留历史数据）
