@@ -132,8 +132,7 @@ func (p *Processor) HandleSource(ctx context.Context, source, ingressGateway str
 			}
 		}
 	}
-	p.Log.Debug("接入批量消息", "messageId", env.MessageID, "gateway", ingress,
-		"terminals", len(env.Terminals))
+	p.Log.Debug("接入批量消息", "gateway", ingress, "terminals", len(env.Terminals))
 
 	out := BatchResult{Results: make([]Result, 0, len(env.Terminals))}
 	present := make([]string, 0, len(env.Terminals))

@@ -90,7 +90,6 @@ func (e *TerminalError) Error() string {
 // Envelope 是 v2 批量信封：一条消息承载同一网关下的多个终端。
 type Envelope struct {
 	Ver       int
-	MessageID string
 	Terminals []TerminalWire
 }
 
@@ -117,7 +116,6 @@ type TerminalPayload struct {
 
 type envelopeWire struct {
 	Ver       *int            `json:"ver"`
-	MessageID string          `json:"messageId"`
 	Terminals json.RawMessage `json:"terminals"`
 }
 
@@ -146,7 +144,7 @@ func ParseEnvelope(payload []byte) (*Envelope, error) {
 	if len(terminals) == 0 {
 		return nil, &EnvelopeError{Reason: ReasonTerminalsInvalid, Detail: "terminals 为空"}
 	}
-	return &Envelope{Ver: ver, MessageID: w.MessageID, Terminals: terminals}, nil
+	return &Envelope{Ver: ver, Terminals: terminals}, nil
 }
 
 // ParseTerminal 做单终端校验（R2/R3/R4/R7/R8）：terminalId 非空、items 非空、code 非空、

@@ -3,7 +3,6 @@ package ingest_test
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
@@ -268,9 +267,7 @@ func batch(gatewayID string, terms ...term) []byte { return batchVer(1, gatewayI
 
 // batchVer 指定 ver；ver<=0 表示不带 ver 字段。
 func batchVer(ver int, gatewayID string, terms ...term) []byte {
-	body := map[string]any{
-		"messageId": fmt.Sprintf("m-%d", time.Now().UnixNano()),
-	}
+	body := map[string]any{}
 	if ver > 0 {
 		body["ver"] = ver
 	}

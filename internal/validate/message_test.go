@@ -53,9 +53,6 @@ func TestParseEnvelopeOK(t *testing.T) {
 	if env.Ver != 1 {
 		t.Fatalf("Ver: 期望缺省 1，实际 %d", env.Ver)
 	}
-	if env.MessageID != "m-1" {
-		t.Fatalf("消息 ID: 期望 m-1，实际 %q", env.MessageID)
-	}
 	if len(env.Terminals) != 2 {
 		t.Fatalf("终端数: 期望 2，实际 %d", len(env.Terminals))
 	}
@@ -109,12 +106,8 @@ func TestParseEnvelopeInvalidJSON(t *testing.T) {
 
 // 5) 未知字段（含历史 gatewayId）一律忽略，身份由传输层决定。
 func TestParseEnvelopeIgnoresUnknownFields(t *testing.T) {
-	env, err := validate.ParseEnvelope([]byte(`{"terminals":[{"terminalId":"T1","items":[]}]}`))
-	if err != nil {
+	if _, err := validate.ParseEnvelope([]byte(`{"terminals":[{"terminalId":"T1","items":[]}]}`)); err != nil {
 		t.Fatalf("缺 gatewayId 不应报错: %v", err)
-	}
-	if env.MessageID != "" {
-		t.Fatalf("未声明 messageId 应为空，实际 %q", env.MessageID)
 	}
 	if _, err := validate.ParseEnvelope([]byte(`{"gatewayId":"GW2","terminals":[{"terminalId":"T1","items":[]}]}`)); err != nil {
 		t.Fatalf("带 gatewayId 不应报错: %v", err)
