@@ -18,12 +18,12 @@ var ErrConvert = errors.New("clean_failed")
 
 // Out 是清洗后的数据项：Number/Text 二选一入库，Value 用于实时发布。
 type Out struct {
-	Code        string
-	Number      *float64
-	Text        *string
-	Value       any
-	Unit string // 单位只取物模型声明（服务端事实源），网关侧 unit 一律忽略
-	Time time.Time
+	Code   string
+	Number *float64
+	Text   *string
+	Value  any
+	Unit   string // 单位只取物模型声明（服务端事实源），网关侧 unit 一律忽略
+	Time   time.Time
 }
 
 // Item 按物模型声明做类型转换、单位换算、精度取整，并给出物模型边界违规。
