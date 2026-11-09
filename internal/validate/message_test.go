@@ -53,8 +53,8 @@ func TestParseEnvelopeOK(t *testing.T) {
 	if env.Ver != 1 {
 		t.Fatalf("Ver: 期望缺省 1，实际 %d", env.Ver)
 	}
-	if env.GatewayID != "GW1" || env.MessageID != "m-1" {
-		t.Fatalf("网关/消息: 期望 GW1/m-1，实际 %q/%q", env.GatewayID, env.MessageID)
+	if env.MessageID != "m-1" {
+		t.Fatalf("消息 ID: 期望 m-1，实际 %q", env.MessageID)
 	}
 	if len(env.Terminals) != 2 {
 		t.Fatalf("终端数: 期望 2，实际 %d", len(env.Terminals))
@@ -107,22 +107,17 @@ func TestParseEnvelopeInvalidJSON(t *testing.T) {
 	wantEnvelopeErr(t, err, validate.ReasonInvalidJSON)
 }
 
-// 5) payload 里的 gatewayId 只是历史自报字段：缺失或空白都不再报错，
-//    身份由传输层（MQTT topic / HTTP 头）决定。
-func TestParseEnvelopeIgnoresGatewayID(t *testing.T) {
+// 5) 未知字段（含历史 gatewayId）一律忽略，身份由传输层决定。
+func TestParseEnvelopeIgnoresUnknownFields(t *testing.T) {
 	env, err := validate.ParseEnvelope([]byte(`{"terminals":[{"terminalId":"T1","items":[]}]}`))
 	if err != nil {
 		t.Fatalf("缺 gatewayId 不应报错: %v", err)
 	}
-	if env.GatewayID != "" {
-		t.Fatalf("缺省 gatewayId 应为空，实际 %q", env.GatewayID)
+	if env.MessageID != "" {
+		t.Fatalf("未声明 messageId 应为空，实际 %q", env.MessageID)
 	}
-	env, err = validate.ParseEnvelope([]byte(`{"gatewayId":"GW2","terminals":[{"terminalId":"T1","items":[]}]}`))
-	if err != nil {
+	if _, err := validate.ParseEnvelope([]byte(`{"gatewayId":"GW2","terminals":[{"terminalId":"T1","items":[]}]}`)); err != nil {
 		t.Fatalf("带 gatewayId 不应报错: %v", err)
-	}
-	if env.GatewayID != "GW2" {
-		t.Fatalf("字段仍应解析（但不参与判定），实际 %q", env.GatewayID)
 	}
 }
 
@@ -344,37 +339,5 @@ func TestFindFuture(t *testing.T) {
 	}
 	if got, ok := validate.FindFuture([]validate.RawItem{item("a", now.Add(validate.MaxClockSkew))}, now); ok {
 		t.Fatalf("边界 now+5m: 期望不命中，实际命中 %q", got.Code)
-	}
-}
-
-// R-031：msgType 是可选字段，只做来源标记，不影响整包/终端校验结果。
-func TestParseEnvelopeMsgType(t *testing.T) {
-	payload := func(extra string) []byte {
-		return []byte(`{"ver":1,"messageId":"m-1","gatewayId":"GW1",` + extra +
-			`"terminals":[{"terminalId":"T1","items":[{"code":"temp","value":1,"collectedAt":"2026-11-05T10:00:00+08:00"}]}]}`)
-	}
-	cases := []struct {
-		name string
-		raw  []byte
-		want int
-	}{
-		{"缺省", payload(""), 0},
-		{"实时", payload(`"msgType":1,`), 1},
-		{"补传", payload(`"msgType":2,`), 2},
-		{"未知值原样透传", payload(`"msgType":9,`), 9},
-	}
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			env, err := validate.ParseEnvelope(c.raw)
-			if err != nil {
-				t.Fatalf("解析失败: %v", err)
-			}
-			if env.MsgType != c.want {
-				t.Fatalf("MsgType = %d，期望 %d", env.MsgType, c.want)
-			}
-			if len(env.Terminals) != 1 {
-				t.Fatalf("terminals = %d，期望 1（msgType 不影响终端解析）", len(env.Terminals))
-			}
-		})
 	}
 }

@@ -18,8 +18,8 @@ const (
 	ReasonTerminalsInvalid   = "terminals_invalid"
 	ReasonUnsupportedVersion = "unsupported_version"
 	// ReasonGatewayMissing 只表示"传输层没带身份"（HTTP 缺 X-Gateway-Id；
-	// MQTT topic 必然带）。payload 里的 gatewayId 已不再参与校验。
-	ReasonGatewayMissing     = "gateway_id_missing"
+	// MQTT topic 必然带）。payload 不再包含身份字段。
+	ReasonGatewayMissing = "gateway_id_missing"
 	// ReasonGatewayUnknown / ReasonGatewayDisabled 是接入鉴权的整包级拒收：
 	// 未注册的网关不能在接入面发布消息（HTTP 403，MQTT 只记日志丢弃）。
 	ReasonGatewayUnknown  = "gateway_unknown"
@@ -91,12 +91,6 @@ func (e *TerminalError) Error() string {
 type Envelope struct {
 	Ver       int
 	MessageID string
-	// GatewayID 是历史自报字段：MQTT 身份只认 topic，payload 里的值解析后忽略，
-	// 不参与校验、日志判定与落库（仅为兼容存量报文的 JSON 形状保留）。
-	GatewayID string
-	// MsgType 是可选的上游报文类型（R-031）：1 实时、2 补传；0 表示未声明。
-	// **只用于异常 detail/日志的来源标记，不参与任何路径判定**。
-	MsgType   int
 	Terminals []TerminalWire
 }
 
@@ -125,13 +119,11 @@ type TerminalPayload struct {
 type envelopeWire struct {
 	Ver       *int            `json:"ver"`
 	MessageID string          `json:"messageId"`
-	GatewayID string          `json:"gatewayId"`
-	MsgType   *int            `json:"msgType"` // 可选：1 实时 / 2 补传，仅来源标记
 	Terminals json.RawMessage `json:"terminals"`
 }
 
 // ParseEnvelope 只做整包级校验（R1/R13）：JSON 可解析、ver 受支持、terminals 为数组且非空。
-// gatewayId 只是历史自报字段，解析后保留形状但不参与校验（身份来自接入层）。
+// 身份只来自接入层，payload 里的未知字段（如历史 gatewayId）会被忽略。
 // 任何一条不满足都返回 *EnvelopeError，调用方按 400 处理。
 func ParseEnvelope(payload []byte) (*Envelope, error) {
 	var w envelopeWire
@@ -155,12 +147,7 @@ func ParseEnvelope(payload []byte) (*Envelope, error) {
 	if len(terminals) == 0 {
 		return nil, &EnvelopeError{Reason: ReasonTerminalsInvalid, Detail: "terminals 为空"}
 	}
-	msgType := 0
-	if w.MsgType != nil {
-		msgType = *w.MsgType
-	}
-	return &Envelope{Ver: ver, MessageID: w.MessageID, GatewayID: w.GatewayID,
-		MsgType: msgType, Terminals: terminals}, nil
+	return &Envelope{Ver: ver, MessageID: w.MessageID, Terminals: terminals}, nil
 }
 
 // ParseTerminal 做单终端校验（R2/R3/R4/R7/R8）：terminalId 非空、items 非空、code 非空、

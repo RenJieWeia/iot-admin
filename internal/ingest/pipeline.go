@@ -98,7 +98,7 @@ func (p *Processor) Handle(ctx context.Context, ingressGateway string, raw []byt
 }
 
 // HandleSource 与 Handle 相同，额外记录接入来源（mqtt|api），只用于异常 detail 的来源标记
-// （R-030 §2.4 / R-031），不参与任何路径判定。
+// （R-030 §2.4），不参与任何路径判定。
 func (p *Processor) HandleSource(ctx context.Context, source, ingressGateway string, raw []byte) (BatchResult, error) {
 	now := p.Now()
 	env, err := validate.ParseEnvelope(raw)
@@ -106,7 +106,6 @@ func (p *Processor) HandleSource(ctx context.Context, source, ingressGateway str
 		return BatchResult{}, err
 	}
 	// 身份只认传输层：MQTT = iot/ingest/{gateway_id} 的 topic 段，HTTP = X-Gateway-Id。
-	// payload 里的 gatewayId 不再参与任何判定。
 	ingress := strings.TrimSpace(ingressGateway)
 	if ingress == "" {
 		return BatchResult{}, &validate.EnvelopeError{
@@ -193,7 +192,7 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 	if terr != nil {
 		return p.rejectTerminal(ctx, tw.TerminalID, ingress, now, terr, "")
 	}
-	// 2.3 身份只认传输层（MQTT topic / HTTP 头），payload.gatewayId 已忽略。
+	// 2.3 身份只认传输层（MQTT topic / HTTP 头）。
 	term, err := p.Meta.LoadTerminal(ctx, tp.TerminalID)
 	if err != nil {
 		if errors.Is(err, validate.ErrTerminalUnknown) {
@@ -341,12 +340,11 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 			return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}
 		}
 		for _, o := range regressed {
-			// R-026/R-031：detail 带来源与 msgType，便于区分实时上报与补传回填
-			// （msgType 只是来源标记，不参与任何路径判定）。
+			// R-026：detail 带接入来源，便于区分实时上报与补传回填。
 			// 守卫跳过的两种情形（同值幂等重发 / 更早的回拨）在 SQL 层无法区分，detail 如实写「未覆盖」。
 			p.Exc.Event(ctx, exception.ProtocolError, term.ID, ingress, staging.HourStart(o.Time), 1,
-				fmt.Sprintf("source=%s msgType=%s value_time 未大于已有值，未覆盖: item=%s collectedAt=%s",
-					sourceTag(source), msgTypeLabel(env.MsgType), o.Code,
+				fmt.Sprintf("source=%s value_time 未大于已有值，未覆盖: item=%s collectedAt=%s",
+					sourceTag(source), o.Code,
 					o.Time.Format(time.RFC3339Nano)))
 		}
 	}
@@ -530,20 +528,6 @@ func sourceTag(source string) string {
 		return "mqtt"
 	}
 	return "api"
-}
-
-// msgTypeLabel 把可选 msgType 变成可读标记（只用于 detail/日志，不参与路径判定）。
-func msgTypeLabel(msgType int) string {
-	switch msgType {
-	case 1:
-		return "1(实时)"
-	case 2:
-		return "2(补传)"
-	case 0:
-		return "未声明"
-	default:
-		return fmt.Sprintf("%d", msgType)
-	}
 }
 
 func (p *Processor) publishRealtime(ctx context.Context, term validate.Terminal, outs []clean.Out,
