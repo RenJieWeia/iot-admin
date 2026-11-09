@@ -31,7 +31,7 @@ func wantEnvelopeErr(t *testing.T, err error, wantReason string) {
 	}
 }
 
-// 1) 合法批量信封：ver 缺省=1，多终端。
+// 1) 合法批量信封：多终端。
 func TestParseEnvelopeOK(t *testing.T) {
 	payload := []byte(`{
 		"messageId": "m-1",
@@ -49,9 +49,6 @@ func TestParseEnvelopeOK(t *testing.T) {
 	env, err := validate.ParseEnvelope(payload)
 	if err != nil {
 		t.Fatalf("ParseEnvelope: 期望成功，实际 %v", err)
-	}
-	if env.Ver != 1 {
-		t.Fatalf("Ver: 期望缺省 1，实际 %d", env.Ver)
 	}
 	if len(env.Terminals) != 2 {
 		t.Fatalf("终端数: 期望 2，实际 %d", len(env.Terminals))
@@ -75,12 +72,6 @@ func TestParseEnvelopeOK(t *testing.T) {
 			t.Fatalf("终端 %s 的 ParsedTime 未回填", tw.TerminalID)
 		}
 	}
-}
-
-// 2) ver=2 → unsupported_version。
-func TestParseEnvelopeUnsupportedVersion(t *testing.T) {
-	_, err := validate.ParseEnvelope([]byte(`{"ver":2,"gatewayId":"GW1","terminals":[{"terminalId":"T1","items":[]}]}`))
-	wantEnvelopeErr(t, err, validate.ReasonUnsupportedVersion)
 }
 
 // 3) terminals 不是数组 / 为空 / null → terminals_invalid。

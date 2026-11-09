@@ -435,23 +435,6 @@ func TestEmptyCodeRejectsTerminal(t *testing.T) {
 
 // ---------- 整包级错误（不受本次改造影响） ----------
 
-// 用例 9：ver = 2 → 整包 400。
-func TestUnsupportedVersionRejectedWholeBatch(t *testing.T) {
-	e := newEnv(t)
-	at := baseTime.Add(5 * time.Minute)
-	status, resp := e.post(testGatewayID, batchVer(2, testGatewayID,
-		termOf(testTerminalID, it("temp", 25.0, "C", at), it("power", 1.0, "kW", at))))
-	if status != 400 {
-		t.Fatalf("ver=2 应返回 400，实际 %d", status)
-	}
-	if resp["message"] != validate.ReasonUnsupportedVersion {
-		t.Fatalf("reason = %v，期望 %s", resp["message"], validate.ReasonUnsupportedVersion)
-	}
-	if n := e.count(`select count(*) from latest_value`); n != 0 {
-		t.Fatalf("整包被拒不应落库，实际 %d 行", n)
-	}
-}
-
 // 用例 10：请求体超过 1MB → 400 且 reason = body_too_large。
 func TestBodyTooLargeRejected(t *testing.T) {
 	e := newEnv(t)

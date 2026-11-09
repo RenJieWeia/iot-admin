@@ -14,9 +14,8 @@ import (
 
 // 整包级错误的 reason（对应 HTTP 400），与逐终端 reason 分开。
 const (
-	ReasonInvalidJSON        = "invalid_json"
-	ReasonTerminalsInvalid   = "terminals_invalid"
-	ReasonUnsupportedVersion = "unsupported_version"
+	ReasonInvalidJSON      = "invalid_json"
+	ReasonTerminalsInvalid = "terminals_invalid"
 	// ReasonGatewayMissing 只表示"传输层没带身份"（HTTP 缺 X-Gateway-Id；
 	// MQTT topic 必然带）。payload 不再包含身份字段。
 	ReasonGatewayMissing = "gateway_id_missing"
@@ -87,9 +86,8 @@ func (e *TerminalError) Error() string {
 	return e.Reason + ": " + e.Detail
 }
 
-// Envelope 是 v2 批量信封：一条消息承载同一网关下的多个终端。
+// Envelope 是批量信封：一条消息承载同一网关下的多个终端。
 type Envelope struct {
-	Ver       int
 	Terminals []TerminalWire
 }
 
@@ -115,24 +113,16 @@ type TerminalPayload struct {
 }
 
 type envelopeWire struct {
-	Ver       *int            `json:"ver"`
 	Terminals json.RawMessage `json:"terminals"`
 }
 
-// ParseEnvelope 只做整包级校验（R1/R13）：JSON 可解析、ver 受支持、terminals 为数组且非空。
+// ParseEnvelope 只做整包级校验（R1/R13）：JSON 可解析、terminals 为数组且非空。
 // 身份只来自接入层，payload 里的未知字段（如历史 gatewayId）会被忽略。
 // 任何一条不满足都返回 *EnvelopeError，调用方按 400 处理。
 func ParseEnvelope(payload []byte) (*Envelope, error) {
 	var w envelopeWire
 	if err := json.Unmarshal(payload, &w); err != nil {
 		return nil, &EnvelopeError{Reason: ReasonInvalidJSON, Detail: err.Error()}
-	}
-	ver := 1
-	if w.Ver != nil {
-		ver = *w.Ver
-	}
-	if ver != 1 {
-		return nil, &EnvelopeError{Reason: ReasonUnsupportedVersion, Detail: fmt.Sprintf("ver=%d", ver)}
 	}
 	if len(w.Terminals) == 0 || string(w.Terminals) == "null" {
 		return nil, &EnvelopeError{Reason: ReasonTerminalsInvalid, Detail: "terminals 缺失"}
@@ -144,7 +134,7 @@ func ParseEnvelope(payload []byte) (*Envelope, error) {
 	if len(terminals) == 0 {
 		return nil, &EnvelopeError{Reason: ReasonTerminalsInvalid, Detail: "terminals 为空"}
 	}
-	return &Envelope{Ver: ver, Terminals: terminals}, nil
+	return &Envelope{Terminals: terminals}, nil
 }
 
 // ParseTerminal 做单终端校验（R2/R3/R4/R7/R8）：terminalId 非空、items 非空、code 非空、
