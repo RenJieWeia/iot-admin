@@ -104,7 +104,6 @@ type TerminalWire struct {
 type RawItem struct {
 	Code        string          `json:"code"`
 	Value       json.RawMessage `json:"value"`
-	Unit        string          `json:"unit"`
 	CollectedAt string          `json:"collectedAt"`
 
 	ParsedTime time.Time `json:"-"`

@@ -17,7 +17,7 @@ const atOK = "2026-11-05T10:00:00+08:00"
 func f64(v float64) *float64 { return &v }
 func intp(v int) *int        { return &v }
 
-func rawItem(t *testing.T, code, valueJSON, unit, at string) validate.RawItem {
+func rawItem(t *testing.T, code, valueJSON, _ string, at string) validate.RawItem {
 	t.Helper()
 	parsed, err := validate.ParseCollectedAt(at)
 	if err != nil {
@@ -26,7 +26,6 @@ func rawItem(t *testing.T, code, valueJSON, unit, at string) validate.RawItem {
 	return validate.RawItem{
 		Code:        code,
 		Value:       json.RawMessage(valueJSON),
-		Unit:        unit,
 		CollectedAt: at,
 		ParsedTime:  parsed,
 	}

@@ -255,9 +255,6 @@ func (t term) marshal() map[string]any {
 	items := make([]map[string]any, 0, len(t.Items))
 	for _, i := range t.Items {
 		m := map[string]any{"code": i.Code, "value": i.Value}
-		if i.Unit != "" {
-			m["unit"] = i.Unit
-		}
 		if i.At != "" {
 			m["collectedAt"] = i.At
 		}
