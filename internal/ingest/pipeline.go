@@ -17,6 +17,7 @@ import (
 	"github.com/RenJieWeia/iot-admin/internal/latest"
 	"github.com/RenJieWeia/iot-admin/internal/meta"
 	"github.com/RenJieWeia/iot-admin/internal/publish"
+	rawpkg "github.com/RenJieWeia/iot-admin/internal/raw"
 	"github.com/RenJieWeia/iot-admin/internal/snapshot"
 	"github.com/RenJieWeia/iot-admin/internal/staging"
 	"github.com/RenJieWeia/iot-admin/internal/store"
@@ -35,6 +36,8 @@ type Processor struct {
 	Locks *store.ShardedLock
 	// Snap 是六档快照的计划缓存；未装配时跳过快照（仅精简夹具会这样）。
 	Snap *snapshot.Store
+	// Raw 是接入流水（整包原文 + 逐项结果）；nil 时跳过快照流水（仅精简夹具会这样）。
+	Raw *rawpkg.Store
 	// Gateways 是边缘网关注册表缓存；未装配时跳过鉴权（仅精简夹具会这样）。
 	// 生产装配后：未注册 403 gateway_unknown，已注册但停用 403 gateway_disabled。
 	Gateways *gateway.Registry
@@ -132,13 +135,23 @@ func (p *Processor) HandleSource(ctx context.Context, source, ingressGateway str
 			}
 		}
 	}
+	// 流水：整包原文先落一条，逐项结果在终端事务里写。
+	var messageID int64
+	if p.Raw != nil {
+		id, err := p.Raw.InsertMessage(ctx, ingress, source, now, raw, len(env.Terminals))
+		if err != nil {
+			p.Log.Error("写入接入流水失败", "gateway", ingress, "err", err)
+			return BatchResult{}, err
+		}
+		messageID = id
+	}
 	p.Log.Debug("接入批量消息", "gateway", ingress, "terminals", len(env.Terminals))
 
 	out := BatchResult{Results: make([]Result, 0, len(env.Terminals))}
 	present := make([]string, 0, len(env.Terminals))
 	for _, tw := range env.Terminals {
 		present = append(present, tw.TerminalID)
-		out.Results = append(out.Results, p.handleTerminal(ctx, source, env, ingress, tw, now))
+		out.Results = append(out.Results, p.handleTerminal(ctx, source, env, ingress, tw, now, messageID))
 	}
 	p.markGatewaySeen(ctx, ingress, now)
 	// 该网关的批次里没带上的终端 → 置离线（整机离线暂不处理）。
@@ -183,7 +196,7 @@ func (p *Processor) markMissingOffline(ctx context.Context, gatewayID string, pr
 
 // handleTerminal 处理单个终端；任何失败都只影响本终端。
 func (p *Processor) handleTerminal(ctx context.Context, source string, env *validate.Envelope, ingress string,
-	tw validate.TerminalWire, now time.Time) Result {
+	tw validate.TerminalWire, now time.Time, messageID int64) Result {
 
 	// 2.1/2.2 结构、value、collectedAt、code 重复、跨度
 	// 项级失败（value 缺失/时间不可解析）从解析阶段带出，结构性错误仍是 terr。
@@ -224,6 +237,13 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 	// 项级失败：先装解析阶段的失败项，再补 required 缺失（同一 code 只记一次，
 	// 例如「value 为 null 的必填项」两边都会命中，保留更具体的 value_missing 明细）。
 	failures := append([]validate.ItemFailure(nil), parseFailures...)
+	rawItems := make([]rawpkg.Item, 0, len(failures))
+	for _, f := range failures {
+		rawItems = append(rawItems, rawpkg.Item{
+			TerminalID: tp.TerminalID, ItemCode: f.Code, Status: "dropped",
+			Reason: rawReason(f.Reason, f.Detail),
+		})
+	}
 	failedCodes := make(map[string]struct{}, len(failures))
 	for _, f := range failures {
 		failedCodes[f.Code] = struct{}{}
@@ -271,6 +291,10 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 		pr, ok := propByCode[item.Code]
 		if !ok {
 			unknownCodes = append(unknownCodes, item.Code)
+			rawItems = append(rawItems, rawpkg.Item{
+				TerminalID: tp.TerminalID, ItemCode: item.Code, Status: "ignored",
+				Reason: "unknown_code", RawValue: item.Value,
+			})
 			continue
 		}
 		out, vios, cerr := clean.Item(pr, item)
@@ -279,6 +303,10 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 			cleanFailed++
 			failures = append(failures, validate.ItemFailure{
 				Code: item.Code, Reason: validate.ItemValueType, Detail: cerr.Error(),
+			})
+			rawItems = append(rawItems, rawpkg.Item{
+				TerminalID: tp.TerminalID, ItemCode: item.Code, Status: "dropped",
+				Reason: rawReason(validate.ItemValueType, cerr.Error()), RawValue: item.Value,
 			})
 			continue
 		}
@@ -329,7 +357,8 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 	var written, regressed []clean.Out
 	if len(cleaned) > 0 {
 		var werr error
-		written, regressed, werr = p.write(ctx, term.ID, cleaned, qualityBits, qualityNotes)
+		written, regressed, werr = p.write(ctx, term.ID, cleaned, qualityBits, qualityNotes,
+			rawItems, messageID, now)
 		if werr != nil {
 			p.Log.Error("写最新值失败", "terminal", term.ID, "err", werr)
 			// 写失败属平台侧故障：异常仍记 cache_write_failed 保可观测，但返回值必须是
@@ -345,6 +374,13 @@ func (p *Processor) handleTerminal(ctx context.Context, source string, env *vali
 				fmt.Sprintf("source=%s value_time 未大于已有值，未覆盖: item=%s collectedAt=%s",
 					sourceTag(source), o.Code,
 					o.Time.Format(time.RFC3339Nano)))
+		}
+	}
+
+	if len(cleaned) == 0 && p.Raw != nil && messageID > 0 && len(rawItems) > 0 {
+		if err := rawpkg.InsertItems(ctx, p.DB, messageID, now, rawItems); err != nil {
+			p.Log.Error("写入流水失败", "terminal", term.ID, "err", err)
+			return Result{TerminalID: tp.TerminalID, Reason: ReasonInternal}
 		}
 	}
 
@@ -485,7 +521,8 @@ func lateDropDetail(dropped []snapshot.Dropped) string {
 //     不在集合里 —— 发布只认这个集合，因此重复上报不会重复发布；
 //   - regressed：被守卫跳过的项（collectedAt 回拨不覆盖），由调用方记协议异常。
 func (p *Processor) write(ctx context.Context, terminalID string, cleaned []clean.Out,
-	qualityBits map[string]int16, qualityNotes map[string][]string) (written, regressed []clean.Out, err error) {
+	qualityBits map[string]int16, qualityNotes map[string][]string,
+	extraRaw []rawpkg.Item, messageID int64, receivedAt time.Time) (written, regressed []clean.Out, err error) {
 	unlock := p.Locks.Lock(terminalID)
 	defer unlock()
 
@@ -507,6 +544,26 @@ func (p *Processor) write(ctx context.Context, terminalID string, cleaned []clea
 	writtenSet, err := latest.Upsert(ctx, tx, vals)
 	if err != nil {
 		return nil, nil, err
+	}
+	if p.Raw != nil && messageID > 0 {
+		rows := make([]rawpkg.Item, 0, len(cleaned)+len(extraRaw))
+		for _, o := range cleaned {
+			status := "written"
+			reason := ""
+			if _, ok := writtenSet[o.Code]; !ok {
+				status = "dropped"
+				reason = "value_time_not_newer"
+			}
+			rows = append(rows, rawpkg.Item{
+				TerminalID: terminalID, ItemCode: o.Code, ValueNum: o.Number, ValueText: o.Text,
+				Unit: o.Unit, ValueTime: o.Time, Quality: qualityBits[o.Code],
+				QualityReason: strings.Join(qualityNotes[o.Code], "; "), Status: status, Reason: reason,
+			})
+		}
+		rows = append(rows, extraRaw...)
+		if err := rawpkg.InsertItems(ctx, tx, messageID, receivedAt, rows); err != nil {
+			return nil, nil, err
+		}
 	}
 	if err := tx.Commit(ctx); err != nil {
 		return nil, nil, err
@@ -614,4 +671,12 @@ func eventTypeFor(reason string) exception.ErrorType {
 	default:
 		return exception.ProtocolError
 	}
+}
+
+// rawReason 把项级失败原因与明细合成一列（明细可能为空）。
+func rawReason(reason, detail string) string {
+	if detail == "" {
+		return reason
+	}
+	return reason + ": " + detail
 }

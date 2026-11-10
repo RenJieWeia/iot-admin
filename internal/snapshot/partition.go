@@ -16,17 +16,15 @@ const (
 	partitionLeadMonths = 3
 )
 
-// EnsurePartitions 给两张快照表续建未来分区：粗表/分表按月（秒表已随 0017 下线）。
+// EnsurePartitions 给快照粗表续建未来分区（按月）；分表已随分钟快照下线。
 // 开机跑一次 + 每日 ticker；失败由调用方只记日志告警（缺分区时插入失败 = 平台故障，可重传）。
 func EnsurePartitions(ctx context.Context, pool *pgxpool.Pool, now time.Time) error {
 	monthStart := SegmentStart(now, Month, 1)
 	for i := 0; i <= partitionLeadMonths; i++ {
 		start := SegmentEnd(monthStart, Month, i)
 		end := SegmentEnd(start, Month, 1)
-		for _, parent := range []string{"snapshot_coarse", "snapshot_minute"} {
-			if err := createPartition(ctx, pool, parent, parent+"_"+start.Format("200601"), start, end); err != nil {
-				return err
-			}
+		if err := createPartition(ctx, pool, "snapshot_coarse", "snapshot_coarse_"+start.Format("200601"), start, end); err != nil {
+			return err
 		}
 	}
 	return nil

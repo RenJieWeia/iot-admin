@@ -2,8 +2,7 @@
 //
 // 口径（与 migrations/0017 一致）：
 //   - 时/日/月/年合并为「快照」一个概念，由一个总开关控制，四档同时写；
-//   - 分钟档独立开关，步长保留倍数（1…30 分钟）；
-//   - 秒档已下线：不再写入，snapshot_second 已删除；
+//   - 分钟档已下线：接入流水（raw_item）替代它做现场回放，snapshot_minute 已删除；
 //   - 段起点一律按 Asia/Shanghai 本地自然时间对齐；每档独立判迟到：段结束 + 15 分钟宽限；
 //   - 覆盖写只认「采集时间更新」：excluded.value_time > 目标行 value_time 才覆盖并 revision+1。
 package snapshot
@@ -20,30 +19,27 @@ import (
 type Granularity string
 
 const (
-	Minute Granularity = "minute"
-	Hour   Granularity = "hour"
-	Day    Granularity = "day"
-	Month  Granularity = "month"
-	Year   Granularity = "year"
+	Hour  Granularity = "hour"
+	Day   Granularity = "day"
+	Month Granularity = "month"
+	Year  Granularity = "year"
 )
 
 // CoarseGranularities 是「快照」开关统管的四档（固定顺序）。
 var CoarseGranularities = []Granularity{Hour, Day, Month, Year}
 
-// AllGranularities 是写入顺序：先四档粗档，再分钟档。
-var AllGranularities = append(append([]Granularity{}, CoarseGranularities...), Minute)
+// AllGranularities 是写入顺序（与 CoarseGranularities 相同，保留别名以少改调用方）。
+var AllGranularities = CoarseGranularities
 
 // GracePeriod 是每档的迟到宽限：段结束 + 15 分钟内仍可写。
 const GracePeriod = 15 * time.Minute
 
-// 步长白名单：必须与 migrations/0017 的 CHECK 约束逐项一致（DB 是最后一道，服务层先返回 400）。
-//
-// 「快照」（时/日/月/年）步长固定 1 个自然单位；分钟档保留倍数步长。
+// 步长白名单：必须与迁移 CHECK 约束一致（DB 是最后一道，服务层先返回 400）。
+// 「快照」（时/日/月/年）步长固定 1 个自然单位。
 const SlotSnapshotName = "snapshot"
 
 var stepWhitelist = map[Granularity][]int{
 	SlotSnapshotName: {1},
-	Minute:           {1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30},
 }
 
 // Validate 校验某档的步长是否在白名单内。管理 API 写入前调用（DB CHECK 兜底）。
@@ -67,11 +63,10 @@ type Slot struct {
 	Step    int
 }
 
-// Config 是快照配置：一个总开关统管时/日/月/年，分钟档独立。
+// Config 是快照配置：一个总开关统管时/日/月/年。
 // 「哪些序列要快照」由 Bindings 决定，两者正交。
 type Config struct {
 	Snapshot Slot
-	Minute   Slot
 }
 
 // Enabled 返回按 AllGranularities 顺序排列的生效档位（稳定顺序，便于遍历与断言）。
@@ -80,19 +75,11 @@ func (c Config) Enabled() []Granularity {
 	if c.Snapshot.Enabled {
 		out = append(out, CoarseGranularities...)
 	}
-	if c.Minute.Enabled && c.Minute.Step > 0 {
-		out = append(out, Minute)
-	}
 	return out
 }
 
-// Step 返回某档写入时使用的步长：粗档固定 1，分钟档用配置值。
-func (c Config) Step(g Granularity) int {
-	if g == Minute {
-		return c.Minute.Step
-	}
-	return 1
-}
+// Step 返回某档写入时使用的步长（粗档固定 1）。
+func (c Config) Step(g Granularity) int { return 1 }
 
 // Bindings 是两级绑定集合（snapshot_binding 的两种作用域）：
 // 类型级 = 该类型下所有终端，实例级 = 指定终端。
@@ -153,10 +140,6 @@ func SegmentStart(t time.Time, g Granularity, step int) time.Time {
 	}
 	lt := t.In(staging.Zone)
 	switch g {
-	case Minute:
-		minOfDay := lt.Hour()*60 + lt.Minute()
-		base := minOfDay - minOfDay%step
-		return time.Date(lt.Year(), lt.Month(), lt.Day(), base/60, base%60, 0, 0, staging.Zone)
 	case Hour:
 		base := lt.Hour() - lt.Hour()%step
 		return time.Date(lt.Year(), lt.Month(), lt.Day(), base, 0, 0, 0, staging.Zone)
@@ -179,8 +162,6 @@ func SegmentEnd(start time.Time, g Granularity, step int) time.Time {
 		step = 1
 	}
 	switch g {
-	case Minute:
-		return start.Add(time.Duration(step) * time.Minute)
 	case Hour:
 		return start.Add(time.Duration(step) * time.Hour)
 	case Day:

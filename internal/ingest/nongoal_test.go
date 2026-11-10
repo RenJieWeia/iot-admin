@@ -34,6 +34,8 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 		"snapshot_query_template": true,
 		// 0022：网关 MQTT 密码密文（凭据展示，不新增报表/权限能力）。
 		"gateway_credential": true,
+		// 0024：接入流水（现场回放）与保留配置。
+		"raw_message": true, "raw_item": true, "raw_retention": true,
 		// R-034（task-013）曾新增，收敛后由 0008 删除：补录留痕的版本记录表
 		"snapshot_cell_history": true,
 	}
@@ -99,7 +101,7 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 	wantEntities := []string{
 		"data-domains", "thing-models", "thing-model-properties",
 		"terminals", "gateways", "quality-rules", "snapshot-slots", "snapshot-queries",
-		"snapshot-bindings", "snapshot-settings",
+		"snapshot-bindings", "snapshot-settings", "raw-retention",
 	}
 	if len(admin.Entities) != len(wantEntities) {
 		t.Fatalf("管理 API 实体数 = %d，期望 %d", len(admin.Entities), len(wantEntities))
@@ -132,9 +134,9 @@ func TestNoOutOfScopeArtifacts(t *testing.T) {
 			t.Fatalf("subresources 里的 %s 没有字段元数据", sub.Name)
 		}
 	}
-	if len(meta.Subresources) != 3 || !subs["thing-model-properties"] ||
-		!subs["snapshot-settings"] || !subs["snapshot-bindings"] {
-		t.Fatalf("subresources = %v，期望 thing-model-properties + snapshot-settings + snapshot-bindings", subs)
+	if len(meta.Subresources) != 4 || !subs["thing-model-properties"] ||
+		!subs["snapshot-settings"] || !subs["snapshot-bindings"] || !subs["raw-retention"] {
+		t.Fatalf("subresources = %v，期望属性/绑定/快照保留/流水保留", subs)
 	}
 	handler := admin.New(nil).Handler()
 	for _, bad := range []string{"consumers", "permissions", "commands", "reports",

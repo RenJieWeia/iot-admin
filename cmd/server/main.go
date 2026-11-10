@@ -22,6 +22,7 @@ import (
 	"github.com/RenJieWeia/iot-admin/internal/ingest"
 	"github.com/RenJieWeia/iot-admin/internal/meta"
 	"github.com/RenJieWeia/iot-admin/internal/publish"
+	"github.com/RenJieWeia/iot-admin/internal/raw"
 	"github.com/RenJieWeia/iot-admin/internal/snapshot"
 	"github.com/RenJieWeia/iot-admin/internal/store"
 	"github.com/RenJieWeia/iot-admin/internal/ui"
@@ -71,6 +72,7 @@ func run(log *slog.Logger) error {
 		Exc:      rec,
 		Locks:    store.NewShardedLock(64),
 		Snap:     snapStore,
+		Raw:      raw.New(pool),
 		Gateways: gateways,
 		Now:      now,
 		Log:      log,
@@ -78,6 +80,28 @@ func run(log *slog.Logger) error {
 	if err := ingest.Subscribe(client, proc, log); err != nil {
 		return err
 	}
+	// 流水分区：开机维护一次，之后每 6 小时续建/按保留期清理。
+	go func() {
+		if n, err := proc.Raw.Maintain(ctx, now()); err != nil {
+			log.Warn("接入流水分区维护失败", "err", err)
+		} else if n > 0 {
+			log.Info("接入流水过期分区已清理", "partitions", n)
+		}
+		ticker := time.NewTicker(6 * time.Hour)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if n, err := proc.Raw.Maintain(ctx, now()); err != nil {
+					log.Warn("接入流水分区维护失败", "err", err)
+				} else if n > 0 {
+					log.Info("接入流水过期分区已清理", "partitions", n)
+				}
+			}
+		}
+	}()
 
 	adminAPI := admin.New(pool)
 	if err := ingest.SubscribeGatewayStatus(client, adminAPI.SetGatewayOnline, log); err != nil {

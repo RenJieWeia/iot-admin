@@ -7,11 +7,9 @@ import "net/http"
 //
 // 只读源：
 //   - latest-values    latest_value      offset 分页（行数受「终端 × 数据项」约束）
-//   - snapshot-minute  snapshot_minute   游标分页
 //
-// 时/日/月/年不再提供原始只读页：统一走「快照查询」模板（见 snapshot_query.go）。
-// 快照表是分区表：count(*) 会随存活分区数退化，因此只做游标分页、不报总数；
-// 保留期把老分区 DROP 之后查不到数据 = 正常空结果（不是错误）。
+// 快照不再提供原始只读页：统一走「快照查询」模板（见 snapshot_query.go）；
+// 分钟快照已下线，现场回放改看接入流水（raw_message / raw_item）。
 //
 // 分页方式由 Pagination 显式声明并随 _meta.readonly[].pagination 下发。
 type ReadonlyPage struct {
@@ -26,9 +24,6 @@ const (
 	PaginationCursor = "cursor"
 )
 
-// 快照只读页的 URL 段（粗表查询已由模板化「快照查询」取代）。
-const SlotSnapshotMinute = "snapshot-minute"
-
 var readonlyPages = []ReadonlyPage{
 	{
 		Slot: "latest-values",
@@ -41,19 +36,6 @@ var readonlyPages = []ReadonlyPage{
 			},
 		},
 		Pagination: PaginationOffset,
-	},
-	{
-		Slot: SlotSnapshotMinute,
-		Entity: Entity{
-			Name:  "snapshot-minute",
-			Table: "snapshot_minute",
-			Cols: []string{
-				"terminal_id", "item_code", "segment_start",
-				"value_num", "value_text", "unit", "value_time", "quality", "quality_reason",
-				"revision", "updated_at",
-			},
-		},
-		Pagination: PaginationCursor,
 	},
 }
 

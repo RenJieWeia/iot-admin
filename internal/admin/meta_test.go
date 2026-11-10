@@ -98,10 +98,11 @@ func TestMetaSections(t *testing.T) {
 	for _, sub := range subresources {
 		subBy[sub.Name] = sub
 	}
-	// 三个子资源：属性（详情页用）+ 绑定（快照页第三段）+ 保留期（快照页顶部），都不进导航。
-	if len(subresources) != 3 || subBy["thing-model-properties"].Name == "" ||
-		subBy["snapshot-settings"].Name == "" || subBy["snapshot-bindings"].Name == "" {
-		t.Fatalf("subresources = %v，期望 thing-model-properties + snapshot-settings + snapshot-bindings", subBy)
+	// 四个子资源：属性 + 绑定 + 快照保留期 + 接入流水保留期，都不进导航。
+	if len(subresources) != 4 || subBy["thing-model-properties"].Name == "" ||
+		subBy["snapshot-settings"].Name == "" || subBy["snapshot-bindings"].Name == "" ||
+		subBy["raw-retention"].Name == "" {
+		t.Fatalf("subresources = %v，期望 thing-model-properties + snapshot-settings + snapshot-bindings + raw-retention", subBy)
 	}
 	if subBy["thing-model-properties"].Title != "终端属性" {
 		t.Fatalf("subresources 标题 = %q，期望 终端属性", subBy["thing-model-properties"].Title)
@@ -399,7 +400,6 @@ func TestMetaDictionaries(t *testing.T) {
 	}
 	wantEnums := map[string][]Option{
 		"value_type": valueTypeOptions, "rule_type": ruleTypeOptions,
-		"minute_step": minuteStepOptions,
 	}
 	if len(enums) != len(wantEnums) {
 		t.Fatalf("enums 字典 = %v，期望只有 %d 张", enums, len(wantEnums))
@@ -515,6 +515,7 @@ func TestRequiredMatchesDDL(t *testing.T) {
 		"0014_snapshot_binding_multi_items.sql",
 		"0016_gateway.sql",
 		"0018_snapshot_query_templates.sql",
+		"0024_raw_ingest.sql",
 	} {
 		for tbl, cols := range ddlColumns(t, string(mustReadMigrations(t, name))) {
 			table[tbl] = cols

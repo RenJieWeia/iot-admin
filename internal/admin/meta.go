@@ -31,8 +31,6 @@ var entityLabels = map[string]string{
 	"snapshot-settings":      "存储与保留",
 	"exception-events":       "异常事件",
 	"latest-values":          "最新值",
-	// 分钟快照只读页；时/日/月/年已由模板化「快照查询」取代。
-	"snapshot-minute": "快照 · 分钟",
 }
 
 // entityDescriptions 是各实体页面顶部的说明文案（没有条目的实体不显示说明）。
@@ -249,13 +247,11 @@ func labelKeyOf(entity string) string {
 	return "id"
 }
 
-// enumDictionaries 下发静态枚举字典（value_type / rule_type / 分钟步长）。
-// 快照只剩分钟档需要步长下拉（时/日/月/年合并后步长固定 1），文案仍以 fields.go 为准。
+// enumDictionaries 下发静态枚举字典（value_type / rule_type）。
 func enumDictionaries() map[string]map[string]string {
 	return map[string]map[string]string{
-		"value_type":  optionLabels(valueTypeOptions),
-		"rule_type":   optionLabels(ruleTypeOptions),
-		"minute_step": optionLabels(minuteStepOptions),
+		"value_type": optionLabels(valueTypeOptions),
+		"rule_type":  optionLabels(ruleTypeOptions),
 	}
 }
 

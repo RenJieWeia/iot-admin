@@ -19,7 +19,7 @@ func mustEqual(t *testing.T, what string, got, want time.Time) {
 	}
 }
 
-// 段起点对齐：六档 × 边界（跨月、跨年、闰年 2 月）。全部按 Asia/Shanghai。
+// 段起点对齐：四档 × 边界（跨月、跨年、闰年 2 月）。全部按 Asia/Shanghai。
 func TestSegmentStart(t *testing.T) {
 	cases := []struct {
 		name string
@@ -28,9 +28,6 @@ func TestSegmentStart(t *testing.T) {
 		step int
 		want time.Time
 	}{
-		{"分 step=15", local(2026, 11, 5, 10, 37, 12), snapshot.Minute, 15, local(2026, 11, 5, 10, 30, 0)},
-		{"分 step=2 偶数分", local(2026, 11, 5, 10, 37, 0), snapshot.Minute, 2, local(2026, 11, 5, 10, 36, 0)},
-		{"分 step=30 跨小时", local(2026, 11, 5, 10, 59, 0), snapshot.Minute, 30, local(2026, 11, 5, 10, 30, 0)},
 		{"时 step=2 偶数小时", local(2026, 11, 5, 13, 37, 0), snapshot.Hour, 2, local(2026, 11, 5, 12, 0, 0)},
 		{"时 step=3 三小时档", local(2026, 11, 5, 13, 37, 0), snapshot.Hour, 3, local(2026, 11, 5, 12, 0, 0)},
 		{"时 step=12 半日档", local(2026, 11, 5, 11, 0, 0), snapshot.Hour, 12, local(2026, 11, 5, 0, 0, 0)},
@@ -78,7 +75,6 @@ func TestValidate(t *testing.T) {
 		step int
 	}{
 		{snapshot.Granularity(snapshot.SlotSnapshotName), 1},
-		{snapshot.Minute, 1}, {snapshot.Minute, 30},
 	}
 	for _, c := range ok {
 		if err := snapshot.Validate(c.step, c.g); err != nil {
@@ -90,7 +86,6 @@ func TestValidate(t *testing.T) {
 		step int
 	}{
 		{snapshot.Granularity(snapshot.SlotSnapshotName), 2},
-		{snapshot.Minute, 7}, {snapshot.Minute, 60},
 		{snapshot.Granularity("hour"), 2},
 		{snapshot.Granularity("week"), 1},
 	}
@@ -101,36 +96,33 @@ func TestValidate(t *testing.T) {
 	}
 }
 
-// 每档独立判迟到：同一条数据进粗档、进不了秒/分档；未绑定则零写入（即使六档全开）。
+// 每档独立判迟到：小时档过期时，日/月/年仍照写；未绑定则零写入。
 func TestRowsLatePerGranularity(t *testing.T) {
-	cfg := snapshot.Config{
-		Snapshot: snapshot.Slot{Enabled: true, Step: 1},
-		Minute:   snapshot.Slot{Enabled: true, Step: 1},
-	}
+	cfg := snapshot.Config{Snapshot: snapshot.Slot{Enabled: true, Step: 1}}
 	at := local(2026, 11, 5, 10, 0, 30)
 	value := snapshot.Value{TerminalID: "T1", ItemCode: "temp", Time: at}
 
-	// 20 分钟后：分钟段(10:01+15m=10:16)过期，四档粗档仍可写（小时段 11:15 截止）。
-	rows, dropped := snapshot.Rows(cfg, true, at.Add(20*time.Minute), value)
-	if len(rows) != 4 {
-		t.Fatalf("迟到后应只剩四档粗档，实际 %+v", rows)
+	// 80 分钟后（11:20:30）：小时段截止 11:15 已过，日/月/年仍可写。
+	rows, dropped := snapshot.Rows(cfg, true, at.Add(80*time.Minute), value)
+	if len(rows) != 3 {
+		t.Fatalf("迟到后应只剩日/月/年三档，实际 %+v", rows)
 	}
 	for _, row := range rows {
-		if row.Granularity == snapshot.Minute {
-			t.Fatalf("分钟档已过期，不应写入: %+v", row)
+		if row.Granularity == snapshot.Hour {
+			t.Fatalf("小时档已过期，不应写入: %+v", row)
 		}
 	}
-	if len(dropped) != 1 || dropped[0].Granularity != snapshot.Minute {
-		t.Fatalf("应返回分钟档的丢弃明细，实际 %+v", dropped)
+	if len(dropped) != 1 || dropped[0].Granularity != snapshot.Hour {
+		t.Fatalf("应返回小时档的丢弃明细，实际 %+v", dropped)
 	}
 	if dropped[0].Lateness <= 0 {
 		t.Fatalf("Lateness 应为正（超过截止多久），实际 %s", dropped[0].Lateness)
 	}
 
-	// 10 秒后：五档都可写（四粗 + 分钟）。
+	// 10 秒后：四档都可写。
 	rows, dropped = snapshot.Rows(cfg, true, at.Add(10*time.Second), value)
-	if len(rows) != 5 || len(dropped) != 0 {
-		t.Fatalf("宽限内应写五档且无丢弃，实际 %d 行 / %d 丢弃", len(rows), len(dropped))
+	if len(rows) != 4 || len(dropped) != 0 {
+		t.Fatalf("宽限内应写四档且无丢弃，实际 %d 行 / %d 丢弃", len(rows), len(dropped))
 	}
 
 	// 未绑定：零行零丢弃（验收 7：六档全开但没绑定 = 不产生快照）。
@@ -144,8 +136,8 @@ func TestRowsLatePerGranularity(t *testing.T) {
 	if rows, _ := snapshot.Rows(partial, true, at, value); len(rows) != 0 {
 		t.Fatalf("未启用的档不应出��，实际 %+v", rows)
 	}
-	if got := cfg.Enabled(); len(got) != 5 {
-		t.Fatalf("Enabled() = %v，期望 5 档", got)
+	if got := cfg.Enabled(); len(got) != 4 {
+		t.Fatalf("Enabled() = %v，期望 4 档（时/日/月/年）", got)
 	}
 }
 

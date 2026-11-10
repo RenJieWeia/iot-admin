@@ -20,8 +20,8 @@ import (
 // 小时级历史下线后（0009）只读源只剩「最新值」一页。
 func TestReadonlyPagesShape(t *testing.T) {
 	pages := ReadonlyPages()
-	if len(pages) != 2 {
-		t.Fatalf("只读页数 = %d，期望 2（最新值 + 分钟；粗表改走模板化查询）", len(pages))
+	if len(pages) != 1 {
+		t.Fatalf("只读页数 = %d，期望 1（只剩最新值；分钟快照已下线）", len(pages))
 	}
 	p := pages[0]
 	if p.Slot != "latest-values" || p.Entity.Name != "latest-values" ||
@@ -38,29 +38,6 @@ func TestReadonlyPagesShape(t *testing.T) {
 			t.Fatalf("latest-values 第 %d 列 = %q，期望 %q", i, p.Entity.Cols[i], c)
 		}
 	}
-	// 分钟快照页：游标分页，列与真实表一致。
-	wantSnapshot := []struct {
-		slot  string
-		table string
-		cols  []string
-	}{
-		{"snapshot-minute", "snapshot_minute", []string{
-			"terminal_id", "item_code", "segment_start", "value_num", "value_text",
-			"unit", "value_time", "quality", "quality_reason", "revision", "updated_at"}},
-	}
-	for _, w := range wantSnapshot {
-		pg, ok := ReadonlyPageBySlot(w.slot)
-		if !ok {
-			t.Fatalf("%s 应可解析", w.slot)
-		}
-		if pg.Entity.Table != w.table || pg.Pagination != PaginationCursor {
-			t.Fatalf("%s 定义不符: table=%q pagination=%q", w.slot, pg.Entity.Table, pg.Pagination)
-		}
-		if strings.Join(pg.Entity.Cols, ",") != strings.Join(w.cols, ",") {
-			t.Fatalf("%s 列 = %v，期望 %v", w.slot, pg.Entity.Cols, w.cols)
-		}
-	}
-
 	if _, ok := ReadonlyBySlot("latest-values"); !ok {
 		t.Fatal("latest-values 应可解析")
 	}
@@ -76,9 +53,9 @@ func TestReadonlyPagesShape(t *testing.T) {
 	if _, ok := ReadonlyBySlot("nope"); ok {
 		t.Fatal("未知 slot 不应解析成功")
 	}
-	// 只读源不得混进管理实体（可 CRUD 8 / 可导航 5，见 nongoal_test）。
-	if len(Entities) != 10 {
-		t.Fatalf("admin.Entities = %d，期望 10", len(Entities))
+	// 只读源不得混进管理实体（见 nongoal_test）。
+	if len(Entities) != 11 {
+		t.Fatalf("admin.Entities = %d，期望 11", len(Entities))
 	}
 	for _, e := range Entities {
 		if e.Name == "latest-values" {
@@ -108,25 +85,17 @@ func TestReadonlyRouteWhitelist(t *testing.T) {
 	}
 }
 
-// _meta.readonly：只剩 1 项 8 字段，quality 带 8 种组合；exceptions 段保持 2 项（防回归）。
+// _meta.readonly：只剩最新值一页（分钟快照已下线）。
 func TestMetaReadonlySection(t *testing.T) {
 	payload := BuildMeta()
-	if len(payload.Readonly) != 2 {
-		t.Fatalf("readonly 段 = %d 项，期望 2（最新值 + 分钟）", len(payload.Readonly))
+	if len(payload.Readonly) != 1 {
+		t.Fatalf("readonly 段 = %d 项，期望 1（最新值）", len(payload.Readonly))
 	}
 	var latest MetaReadonly
-	// 三张快照页必须是 cursor 分页（分区表不报总数）。
-	cursors := 0
 	for _, p := range payload.Readonly {
 		if p.Slot == "latest-values" {
 			latest = p
 		}
-		if strings.HasPrefix(p.Slot, "snapshot") && p.Pagination == PaginationCursor {
-			cursors++
-		}
-	}
-	if cursors != 1 {
-		t.Fatalf("快照页 cursor 分页数 = %d，期望 1", cursors)
 	}
 	page := latest
 	if page.Slot != "latest-values" || page.Title != "最新值" || !page.ReadOnly ||
@@ -167,7 +136,7 @@ func TestMetaReadonlyWorksWithoutPool(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("响应不是合法 JSON: %v", err)
 	}
-	if len(resp.Data.Readonly) != 2 || resp.Data.Readonly[0].Slot != "latest-values" {
+	if len(resp.Data.Readonly) != 1 || resp.Data.Readonly[0].Slot != "latest-values" {
 		t.Fatalf("readonly 段不符: %+v", resp.Data.Readonly)
 	}
 }

@@ -15,7 +15,7 @@ type Loader interface {
 	Load(ctx context.Context) (Config, Bindings, error)
 }
 
-// PGLoader 从 snapshot_slot_config（snapshot + minute 两行）与 snapshot_binding 全量读取。
+// PGLoader 从 snapshot_slot_config（snapshot 一行）与 snapshot_binding 全量读取。
 // 两张表都很小，整体缓存是划算的。
 type PGLoader struct {
 	Pool *pgxpool.Pool
@@ -24,7 +24,7 @@ type PGLoader struct {
 // NewPGLoader 构造基于 PG 的加载器。
 func NewPGLoader(pool *pgxpool.Pool) *PGLoader { return &PGLoader{Pool: pool} }
 
-// Load 读一次全量配置：快照总开关 + 分钟档 + 两级绑定。
+// Load 读一次全量配置：快照总开关 + 两级绑定。
 func (l *PGLoader) Load(ctx context.Context) (Config, Bindings, error) {
 	cfg := Config{}
 	rows, err := l.Pool.Query(ctx, `select granularity, enabled, coalesce(step, 0) from snapshot_slot_config`)
@@ -38,14 +38,10 @@ func (l *PGLoader) Load(ctx context.Context) (Config, Bindings, error) {
 			rows.Close()
 			return Config{}, Bindings{}, err
 		}
-		switch g {
-		case SlotSnapshotName:
+		if g == SlotSnapshotName {
 			cfg.Snapshot = slot
-		case string(Minute):
-			cfg.Minute = slot
-		default:
-			// 迁移后只应有两行；未知档位（例如回滚残留）忽略，避免把整条写入链路打挂。
 		}
+		// 其它档位（回滚残留）忽略，避免把整条写入链路打挂。
 	}
 	rows.Close()
 	if err := rows.Err(); err != nil {

@@ -140,9 +140,6 @@ func stepOptions(unit string, values ...string) []Option {
 	return out
 }
 
-// minuteStepOptions 是分钟档的倍数步长（快照只剩这一档需要步长下拉）。
-var minuteStepOptions = stepOptions("分", "1", "2", "3", "4", "5", "6", "10", "12", "15", "20", "30")
-
 // snapshotEnabledField 生成一个档位启用字段（boolean）。
 func snapshotEnabledField(key, label string) FieldMeta {
 	return FieldMeta{
@@ -205,10 +202,9 @@ var snapshotGranularityOptions = []Option{
 	{Value: "year", Label: "年", Tone: "neutral"},
 }
 
-// snapshotSlotOptions 是「快照计划」配置页的两行：快照（统管四档）+ 分钟档。
+// snapshotSlotOptions 是「快照计划」配置页：快照（统管四档）。
 var snapshotSlotOptions = []Option{
 	{Value: "snapshot", Label: "快照", Tone: "neutral"},
-	{Value: "minute", Label: "分钟", Tone: "neutral"},
 }
 
 // granularityField 是粗表的档位列（分表/秒表各自只有一档，没有这一列）。
@@ -417,6 +413,16 @@ var fieldSets = map[string]fieldSet{
 		},
 	},
 	// 快照查询模板：name/description 直接可编辑；类型与字段数组由专用编辑页维护。
+	"raw-retention": {
+		fields: []FieldMeta{
+			{Key: "id", Label: "ID", Type: "id", Visible: false, Sortable: true, Required: true,
+				FilterType: "none", WidthStrategy: "fixed"},
+			{Key: "retention_days", Label: "保留天数", Type: "number", Visible: true, Sortable: false,
+				Filterable: false, FilterType: "none", WidthStrategy: "min"},
+			{Key: "updated_at", Label: "更新时间", Type: "datetime", Visible: true, Sortable: true,
+				Filterable: false, FilterType: "none", WidthStrategy: "min"},
+		},
+	},
 	"snapshot-queries": {
 		fields: []FieldMeta{
 			{Key: "id", Label: "ID", Type: "id", Visible: true, Sortable: true, FilterType: "none", WidthStrategy: "fixed"},

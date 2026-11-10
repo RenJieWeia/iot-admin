@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
-	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -17,26 +16,6 @@ import (
 	"github.com/RenJieWeia/iot-admin/migrations"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
-
-// 分钟档步长白名单必须与 0017 的 CHECK 约束同源：改迁移不改这里（或反之）测试会红。
-func TestSnapshotStepOptionsMatchDDL(t *testing.T) {
-	ddl := string(mustReadMigrations(t, "0017_snapshot_merge_levels.sql"))
-	re := regexp.MustCompile(`granularity = 'minute' and \(step is null or step in \(([^)]*)\)\)`)
-	m := re.FindStringSubmatch(ddl)
-	if m == nil {
-		t.Fatal("0017 里没有分钟档的步长白名单 CHECK")
-	}
-	have := optionValues(stepOptionsOf("minute_step"))
-	for _, token := range strings.Split(m[1], ",") {
-		token = strings.TrimSpace(token)
-		if !contains(have, token) {
-			t.Fatalf("分钟档 DDL 白名单包含 %q，但后台下拉没有该选项", token)
-		}
-	}
-	if len(have) == 0 {
-		t.Fatal("minute_step 选项为空")
-	}
-}
 
 // 六档配置实体：行集固定（granularity 主键），只许改 enabled/step。
 func TestSnapshotSlotEntityShape(t *testing.T) {
@@ -59,8 +38,8 @@ func TestSnapshotSlotEntityShape(t *testing.T) {
 	for _, f := range fields {
 		byKey[f.Key] = f
 	}
-	if g := byKey["granularity"]; g.Type != "enum" || !g.Required || g.Editable || len(g.Options) != 2 {
-		t.Fatalf("granularity 字段不符（应为不可编辑的快照/分钟两值枚举）: %+v", g)
+	if g := byKey["granularity"]; g.Type != "enum" || !g.Required || g.Editable || len(g.Options) != 1 {
+		t.Fatalf("granularity 字段不符（应为不可编辑的单值枚举 snapshot）: %+v", g)
 	}
 	if en := byKey["enabled"]; en.Type != "boolean" || !en.Editable {
 		t.Fatalf("enabled 字段不符: %+v", en)
@@ -95,8 +74,8 @@ func TestSnapshotSlotStepWhitelist(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, httptest.NewRequest(http.MethodPut,
 		"/admin/v1/snapshot-slots/minute", strings.NewReader(`{"step":7}`)))
-	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "步长") {
-		t.Fatalf("分钟档 step=7 应 400，实际 %d %s", rec.Code, rec.Body.String())
+	if rec.Code != http.StatusBadRequest || !strings.Contains(rec.Body.String(), "未知粒度") {
+		t.Fatalf("分钟档已下线，step=7 应 400 未知粒度，实际 %d %s", rec.Code, rec.Body.String())
 	}
 	// 快照（时/日/月/年）步长固定 1：给 2 必须拒绝。
 	rec = httptest.NewRecorder()

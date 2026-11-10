@@ -367,6 +367,9 @@ var Entities = []Entity{
 			"gateway.gateway_id as mqtt_username",
 			"coalesce((select '••••••••' from gateway_credential c where c.gateway_id = gateway.gateway_id), '未保存') as mqtt_password",
 		}},
+	// 接入流水保留配置（单行，NULL=永久保留）；仅在「快照计划」页读写。
+	{Name: "raw-retention", Hidden: true, FixedRows: true, PKey: "id",
+		Table: "raw_retention", Cols: []string{"retention_days"}},
 	{Name: "quality-rules", Table: "quality_rule", Cols: []string{
 		"terminal_id", "item_code", "rule_type", "params", "enabled"}, JSONB: []string{"params"}},
 	// 全局六档配置：六行固定（granularity 主键），只允许改 enabled / step。
@@ -460,6 +463,8 @@ func (a *API) Handler() http.Handler {
 	mux.HandleFunc("GET /admin/v1/snapshot-query", a.snapshotQuery)
 	mux.HandleFunc("GET /admin/v1/exceptions/{slot}", a.exceptionList)
 	mux.HandleFunc("GET /admin/v1/readonly/{slot}", a.readonlyList)
+	mux.HandleFunc("GET /admin/v1/raw-items", a.rawItems)
+	mux.HandleFunc("GET /admin/v1/raw-message", a.rawMessage)
 	mux.HandleFunc("GET /admin/v1/options/{entity}", a.options)
 	mux.HandleFunc("GET /admin/v1/{entity}", a.list)
 	mux.HandleFunc("POST /admin/v1/{entity}", a.create)

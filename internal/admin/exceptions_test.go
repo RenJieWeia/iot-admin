@@ -45,9 +45,9 @@ func TestExceptionPagesShape(t *testing.T) {
 		t.Fatal("ExceptionByEntity 不应接受普通实体")
 	}
 
-	// 实体集合收敛为 8 个（含六档配置与绑定），异常表不得进 Entities。
-	if len(Entities) != 10 {
-		t.Fatalf("admin.Entities = %d，期望 10", len(Entities))
+	// 实体集合：业务 5 + 快照 2 + 隐藏（属性/绑定/保留期）+ 流水保留配置 1。
+	if len(Entities) != 11 {
+		t.Fatalf("admin.Entities = %d，期望 11", len(Entities))
 	}
 	for _, e := range Entities {
 		if strings.HasPrefix(e.Name, "exception-") {
