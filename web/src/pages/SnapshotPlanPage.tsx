@@ -1,26 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Loader2, RotateCw } from 'lucide-react';
-import { fetchList, updateRow } from '../api/client';
+import { fetchList, fetchOne, updateRow } from '../api/client';
 import type { RowData } from '../api/types';
+import { ConfirmDialog } from '../components/ConfirmDialog';
 import { ErrorState, Skeleton } from '../components/States';
 import { Switch } from '../components/Switch';
 import { useToast } from '../components/Toast';
 import { cn } from '../lib/cn';
 import { formatDateTime } from '../lib/format';
-import { useMeta } from '../meta';
 
 /**
- * 快照只有两个档位：
- *   - snapshot：一个开关统管时/日/月/年四档，按自然边界各出一份；
- *   - minute：独立开关，保留倍数步长（1/2/3/5…30 分钟）。
- * 秒档已随 0017 下线。
+ * 快照只剩一个档位：snapshot 统管时/日/月/年四档，按自然边界各出一份。
+ * 分钟档已下线，异常现场回放改看接入流水（保留期在下方配置）。
  */
 const ROWS = [
   { granularity: 'snapshot', label: '快照', hint: '时 / 日 / 月 / 年各一份，自然边界对齐' },
-  { granularity: 'minute', label: '分钟', hint: '按所选步长切段' },
 ] as const;
 
-const LABELS: Record<string, string> = { snapshot: '快照', minute: '分钟' };
+const LABELS: Record<string, string> = { snapshot: '快照' };
 
 interface SlotState {
   enabled: boolean;
@@ -40,24 +37,30 @@ function sameSlot(a: SlotState, b: SlotState): boolean {
 
 /** 快照计划：按自然时间档 / 细粒度档分组，开关即时编辑，保存按钮固定在最后一栏。 */
 export function SnapshotPlanPage() {
-  const meta = useMeta();
   const toast = useToast();
   const [rows, setRows] = useState<Record<string, RowData>>({});
   const [draft, setDraft] = useState<Record<string, SlotState>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
+  const [retention, setRetention] = useState<string>('');
+  const [retentionSaving, setRetentionSaving] = useState(false);
+  const [confirmRetention, setConfirmRetention] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
       const params = new URLSearchParams({ pageSize: '50' });
-      const result = await fetchList('entity', 'snapshot-slots', params);
+      const [result, retentionRow] = await Promise.all([
+        fetchList('entity', 'snapshot-slots', params),
+        fetchOne('raw-retention', '1'),
+      ]);
       const byGranularity: Record<string, RowData> = {};
       for (const row of result.rows) byGranularity[String(row.granularity)] = row;
       setRows(byGranularity);
       setDraft(Object.fromEntries(Object.entries(byGranularity).map(([g, row]) => [g, toSlot(row)])));
+      setRetention(retentionRow?.retention_days == null ? '' : String(retentionRow.retention_days));
     } catch (err) {
       setError(err instanceof Error ? err.message : '快照计划加载失败');
     } finally {
@@ -105,11 +108,18 @@ export function SnapshotPlanPage() {
     [draft],
   );
 
-  const stepOptions = (granularity: string) => {
-    const dict = meta.enums[`${granularity}_step`] ?? {};
-    return Object.entries(dict)
-      .map(([value, label]) => ({ value: Number(value), label }))
-      .sort((a, b) => a.value - b.value);
+  const saveRetention = async (days: number | null) => {
+    setRetentionSaving(true);
+    try {
+      await updateRow('raw-retention', '1', { retention_days: days });
+      toast.success(days == null ? '已改为永久保留' : `保留 ${days} 天，过期分区将每日清理`);
+      setConfirmRetention(false);
+      await load();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '保存失败');
+    } finally {
+      setRetentionSaving(false);
+    }
   };
 
   return (
@@ -142,34 +152,16 @@ export function SnapshotPlanPage() {
         <>
           <PlanCard
             title="档位"
-            hint="快照 = 时/日/月/年（一个开关统管）；分钟档独立配置"
+            hint="快照 = 时/日/月/年（一个开关统管）；关闭只停写、不清历史"
             rows={ROWS.map((item) => ({
               granularity: item.granularity,
               label: item.label,
-              step:
-                item.granularity === 'minute' ? (
-                  <div className="flex items-center gap-2">
-                    <select
-                      aria-label="分钟步长"
-                      value={String(draft.minute?.step ?? '')}
-                      onChange={(event) => change('minute', { step: Number(event.target.value) })}
-                      className="h-8 rounded-md border border-line bg-surface px-2 text-sm text-fg"
-                    >
-                      <option value="">未设置</option>
-                      {stepOptions('minute').map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <span className="text-xs text-muted">{item.hint}</span>
-                  </div>
-                ) : (
-                  <div className="flex items-center gap-2">
-                    <span className="text-muted tabular">每自然时 / 日 / 月 / 年</span>
-                    <span className="text-xs text-muted">{item.hint}</span>
-                  </div>
-                ),
+              step: (
+                <div className="flex items-center gap-2">
+                  <span className="text-muted tabular">每自然时 / 日 / 月 / 年</span>
+                  <span className="text-xs text-muted">{item.hint}</span>
+                </div>
+              ),
             }))}
             loading={loading}
             rowsByGranularity={rows}
@@ -179,8 +171,57 @@ export function SnapshotPlanPage() {
             onReset={reset}
             onSave={(g) => void save(g)}
           />
+
+          <section className="mt-4 rounded-xl border border-line bg-surface p-4 shadow-panel">
+            <div className="flex flex-wrap items-end justify-between gap-3">
+              <div className="min-w-0">
+                <h2 className="text-sm font-medium text-fg">数据流水（异常现场回放）</h2>
+                <p className="mt-1 text-xs text-muted">
+                  每次上报都保存整包原文与逐项清洗结果，用于按终端+时间窗回放；留空 = 永久保留。
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted" htmlFor="raw-retention">
+                  保留天数
+                </label>
+                <input
+                  id="raw-retention"
+                  inputMode="numeric"
+                  value={retention}
+                  placeholder="留空 = 永久"
+                  onChange={(event) => setRetention(event.target.value.replace(/[^0-9]/g, ''))}
+                  className="h-9 w-32 rounded-md border border-line bg-surface px-2 text-sm text-fg placeholder:text-muted focus:border-primary"
+                />
+                <button
+                  type="button"
+                  disabled={retentionSaving}
+                  onClick={() => {
+                    if (retention !== '' && Number(retention) <= 0) {
+                      toast.error('保留天数必须大于 0，或留空表示永久保留');
+                      return;
+                    }
+                    if (retention !== '') setConfirmRetention(true);
+                    else void saveRetention(null);
+                  }}
+                  className="inline-flex h-9 items-center rounded-md bg-primary px-3 text-sm font-medium text-white hover:bg-primary-hover disabled:opacity-50"
+                >
+                  保存
+                </button>
+              </div>
+            </div>
+          </section>
         </>
       )}
+
+      <ConfirmDialog
+        open={confirmRetention}
+        onOpenChange={setConfirmRetention}
+        title="启用流水清理"
+        description={`保存后每天将删除早于 ${retention || '?'} 天的流水分区，不可恢复。`}
+        confirmLabel="保存并启用"
+        loading={retentionSaving}
+        onConfirm={() => void saveRetention(Number(retention))}
+      />
     </div>
   );
 }

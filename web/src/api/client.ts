@@ -198,6 +198,28 @@ export async function batchAction(
   return (payload.data ?? { action, requested: 0, succeeded: 0, failed: [] }) as BatchResult;
 }
 
+export interface RawItemRow {
+  id: number;
+  message_id: number;
+  received_at: string;
+  item_code: string;
+  value_num: number | null;
+  value_text: string | null;
+  unit: string | null;
+  value_time: string | null;
+  quality: number;
+  quality_reason: string | null;
+  status: 'written' | 'dropped' | 'ignored';
+  reason: string | null;
+}
+
+/** 异常现场回放：某终端在时间窗内的接入流水。 */
+export async function fetchRawItems(terminalID: string, from: string, to: string): Promise<RawItemRow[]> {
+  const search = new URLSearchParams({ terminal_id: terminalID, from, to });
+  const payload = await request<RawItemRow[]>(`/raw-items?${search.toString()}`);
+  return (payload.data ?? []) as RawItemRow[];
+}
+
 export interface GatewayCredential {
   gateway_id: string;
   mqtt_topic: string;

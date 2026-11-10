@@ -24,6 +24,7 @@ import { CardGrid } from '../components/CardGrid';
 import { ConfirmDialog } from '../components/ConfirmDialog';
 import { BatchResultDialog } from '../components/BatchResultDialog';
 import { CredentialDialog } from '../components/CredentialDialog';
+import { RawSceneDialog } from '../components/RawSceneDialog';
 import { RowMenu } from '../components/RowMenu';
 import type { RowMenuEntry, RowMenuItem } from '../components/RowMenu';
 import { useToast } from '../components/Toast';
@@ -94,6 +95,7 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
   const [credentialError, setCredentialError] = useState<string | null>(null);
   const [credential, setCredential] = useState<GatewayCredential | null>(null);
   const [pendingReset, setPendingReset] = useState<RowData | null>(null);
+  const [scene, setScene] = useState<{ terminalID: string; from: string; to: string } | null>(null);
   const cardEnabled = supportsCard(kind, name);
   // 视图与密度都按实体记在浏览器里；切实体时重新读取自己的偏好。
   const [viewMode, setViewMode] = useState<ViewMode>(() => (cardEnabled ? readViewMode(name) : 'table'));
@@ -167,6 +169,13 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
       }
       if (kind === 'entity' && name === 'terminals' && row.id !== undefined) {
         navigate(`/e/terminals/${String(row.id)}`);
+        return;
+      }
+      // 异常事件：打开该终端在归属小时内的现场回放（接入流水）。
+      if (kind === 'exception' && row.terminal_id !== undefined && row.hour_start !== undefined) {
+        const from = new Date(String(row.hour_start));
+        const to = new Date(from.getTime() + 60 * 60 * 1000);
+        setScene({ terminalID: String(row.terminal_id), from: from.toISOString(), to: to.toISOString() });
         return;
       }
       setDrawer({ open: true, row, mode: 'view' });
@@ -811,6 +820,16 @@ export function ListPage({ kind, name }: { kind: ListKind; name: string }) {
         confirmLabel="删除"
         loading={batchBusy}
         onConfirm={() => void runBatch('delete')}
+      />
+
+      <RawSceneDialog
+        open={scene !== null}
+        onOpenChange={(open) => {
+          if (!open) setScene(null);
+        }}
+        terminalID={scene?.terminalID ?? ''}
+        from={scene?.from ?? ''}
+        to={scene?.to ?? ''}
       />
 
       <BatchResultDialog result={batchResult} onOpenChange={(open) => { if (!open) setBatchResult(null); }} />
