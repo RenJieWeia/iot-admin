@@ -68,7 +68,8 @@ npm run build      # 类型检查 + 构建，产物直接写进 internal/ui/dist
 - MQTT：`iot/ingest/{gateway_id}` 主题做同一判定，失败只记日志丢弃（MQTT 没有应答码）
 - 平台自身向 Broker 发布实时消息使用平台连接，不经过该表
 
-管理面「边缘网关」页维护 `网关 ID / 名称 / 启用 / 备注`；写入后注册表缓存立即失效，
+管理面「边缘网关」页维护 `网关 ID / 名称 / 备注 / 启用`，并展示 `最近上报 / 在线状态 /
+MQTT 主题 / MQTT 密码（掩码）`；写入后注册表缓存立即失效，
 绕过管理面直接改库最多脏 `gateway.DefaultTTL`（30s）。
 平台与 Broker 之间**只走开放接口**（HTTP 管理 API），不直接改 Broker 的库或配置文件。
 网关在 Broker 侧就是一个 MQTT 用户 + 一条发布 ACL：
@@ -84,10 +85,90 @@ Authorization: Bearer {token}
 
 - 新增网关：只有勾选「启用」时才在 Broker 建号 + 授权，成功后再写本地表；未启用只写本地
 - 启用/停用：列表操作栏的开关切换启用状态——`false→true` 建号并回一次性密码，`true→false` 注销账号
-  - 平台生成 43 位随机密码，**只在建号响应里回一次**（前端弹窗提示立即保存），Broker 只存哈希
+  - 平台生成 43 位随机密码，AES-256-GCM 加密存 `gateway_credential`；列表行右键可查看/复制/重置
+  - 加密密钥来自 `IOT_CREDENTIAL_KEY`（32 字节 base64/hex）或 `IOT_CREDENTIAL_KEY_FILE`
 - 删除网关：先销号，成功后再删本地行；Broker 侧用户不存在视为已注销（幂等）
 - Broker 调用失败返回 `502 broker_register_failed / broker_unregister_failed`，本地不做半套变更
 - 未配置 `IOT_BROKER_ADMIN_URL` 时只写本地注册表并打告警（本地开发/离线环境）
+
+## 上报契约
+
+一条消息承载同一网关下的多个终端；网关身份只来自接入层（MQTT topic / `X-Gateway-Id`），
+payload 里除下列字段外的内容一律忽略。
+
+```json
+{
+  "terminals": [
+    {
+      "terminalId": "T-1001",
+      "items": [
+        { "code": "temp", "value": 23.5, "collectedAt": "2026-11-10T17:20:00+08:00" }
+      ]
+    }
+  ]
+}
+```
+
+| 层级 | 字段 | 必填 | 说明 |
+| :--- | :--- | :--- | :--- |
+| 信封 | `terminals` | 是 | 非空数组 |
+| 终端 | `terminalId` | 是 | 必须已注册、启用且未删除 |
+| 终端 | `items` | 是 | 非空数组；同一终端内 `collectedAt` 跨度 ≤ 1 小时 |
+| 数据项 | `code` | 是 | 须在所属物模型中声明；同一终端内不可重复 |
+| 数据项 | `value` | 是 | number/string/bool，须与物模型 `value_type` 一致 |
+| 数据项 | `collectedAt` | 是 | RFC3339（带偏移或 Z）、省略偏移按 +08:00、秒/毫秒 epoch；不得超前平台 5 分钟 |
+
+单位只取物模型声明，payload 里的 `unit` 会被忽略；`gatewayId`、`msgType`、`messageId`、`ver`
+等历史字段已删除，带上也不会报错。
+
+处理口径：
+
+- 未声明的 `code`：静默丢弃，不报警
+- 必填字段（`required=true`）缺失：该项 `value_missing`，记 `msg_incomplete`
+- `value` 类型不符：该项剔除，记 `clean_failed`
+- `collectedAt` 不可解析：该项剔除，记 `msg_incomplete`
+- 数值越界：**不拒收**，入库并标质量位，记 `quality_violation`
+- 终端停用/已删除：静默忽略（`accepted=true`、`written=0`）
+- 终端不存在：拒收 `terminal_unknown`
+- 平台写库故障：整包 503，网关应重试
+
+HTTP 应答（MQTT 没有业务应答，只有 PUBACK）：
+
+```json
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "results": [
+      {
+        "terminalId": "T-1001",
+        "accepted": true,
+        "written": 1,
+        "published": true,
+        "failedCount": 1,
+        "missingCodes": ["pressure"],
+        "items": [{ "code": "pressure", "reason": "value_missing", "detail": "required 属性缺失" }]
+      }
+    ]
+  }
+}
+```
+
+`items` 最多 20 条、`missingCodes` 最多 10 个；`failedCount` 始终是真实总数。
+
+平台向 Broker 发布实时消息：主题 `iot/realtime/{domain_code}/{type_code}/{terminal_id}`，
+QoS 1、retain=false，只包含实际写入成功的项：
+
+```json
+{
+  "terminalId": "T-1001",
+  "publishedAt": "2026-11-10T17:20:00.123+08:00",
+  "items": [{ "code": "temp", "value": 23.5, "unit": "C", "collectedAt": "2026-11-10T17:20:00+08:00" }]
+}
+```
+
+网关在线状态：Broker 脚本（`on_connect` / `on_disconnect`）向 `iot/gateway/{gateway_id}/status`
+发布 retained `{"online":true|false}`；平台订阅后更新网关与终端的在线状态。
 
 ## 校验
 
